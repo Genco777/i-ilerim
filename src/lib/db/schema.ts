@@ -1,3 +1,181 @@
-// Schema tables will be defined in Task 4.
-// This empty file exists so `import * as schema from './schema'` works.
-export {};
+import {
+  pgTable,
+  uuid,
+  text,
+  timestamp,
+  integer,
+  jsonb,
+  pgEnum,
+  real,
+  customType,
+  primaryKey,
+} from 'drizzle-orm/pg-core';
+
+// pgcrypto encrypted bytea — encrypt/decrypt is performed via SQL helpers
+// (see src/lib/crypto/secrets.ts in Task 7).
+const encrypted = customType<{ data: Buffer }>({
+  dataType() {
+    return 'bytea';
+  },
+});
+
+// ───── Enums ─────
+export const postStatus = pgEnum('post_status', [
+  'draft',
+  'scheduled',
+  'publishing',
+  'published',
+  'failed',
+  'rejected',
+]);
+
+export const imageSource = pgEnum('image_source', [
+  'ai_generated',
+  'manual_upload',
+  'raw_no_processing',
+]);
+
+// Defined now so future migrations (Phase 2) don't re-generate them.
+export const messagePlatform = pgEnum('message_platform', [
+  'fb_comment',
+  'fb_dm',
+  'ig_comment',
+  'ig_dm',
+  'wa_message',
+]);
+
+export const messageStatus = pgEnum('message_status', [
+  'new',
+  'drafting',
+  'awaiting_approval',
+  'replied',
+  'ignored',
+  'failed',
+]);
+
+// ───── Posts ─────
+export const posts = pgTable('posts', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  status: postStatus('status').notNull().default('draft'),
+  topic: text('topic'),
+  text_de: text('text_de').notNull(),
+  hashtags: text('hashtags').array().default([]),
+  image_source: imageSource('image_source').notNull(),
+  raw_image_url: text('raw_image_url'),
+  final_image_url: text('final_image_url').notNull(),
+  image_prompt: text('image_prompt'),
+  image_provider: text('image_provider'), // 'openai' | 'replicate'
+  style_overrides: jsonb('style_overrides').default({}),
+  scheduled_at: timestamp('scheduled_at', { withTimezone: true }),
+  published_at: timestamp('published_at', { withTimezone: true }),
+  fb_post_id: text('fb_post_id'),
+  ig_post_id: text('ig_post_id'),
+  ig_shortcode: text('ig_shortcode'),
+  error_log: text('error_log'),
+  retry_count: integer('retry_count').default(0).notNull(),
+  created_via: text('created_via').notNull(), // 'telegram' | 'web_admin'
+  telegram_chat_id: text('telegram_chat_id'),
+  telegram_message_id: text('telegram_message_id'),
+  created_at: timestamp('created_at', { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+  updated_at: timestamp('updated_at', { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+});
+
+// ───── Brand Kit (singleton, id=1) ─────
+export const brandKit = pgTable('brand_kit', {
+  id: integer('id').primaryKey(),
+  logo_url: text('logo_url'),
+  logo_position: text('logo_position').default('bottom_right').notNull(),
+  logo_size_pct: real('logo_size_pct').default(18.0).notNull(),
+  logo_opacity: real('logo_opacity').default(0.85).notNull(),
+  logo_padding_px: integer('logo_padding_px').default(40).notNull(),
+  manual_upload_logo_default: text('manual_upload_logo_default')
+    .default('ask')
+    .notNull(),
+  brand_colors: jsonb('brand_colors')
+    .$type<string[]>()
+    .default(['#050912', '#d4a43a'])
+    .notNull(),
+  visual_style_guide: text('visual_style_guide').notNull(),
+  text_tone_guide: text('text_tone_guide').notNull(),
+  negative_words: text('negative_words').array().default([]).notNull(),
+  updated_at: timestamp('updated_at', { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+});
+
+// ───── Secrets (encrypted with pgcrypto) ─────
+export const secrets = pgTable('secrets', {
+  key: text('key').primaryKey(),
+  value: encrypted('value').notNull(),
+  expires_at: timestamp('expires_at', { withTimezone: true }),
+  rotation_status: text('rotation_status').default('healthy').notNull(),
+  last_refreshed_at: timestamp('last_refreshed_at', { withTimezone: true }),
+});
+
+// ───── Telegram Audit ─────
+export const telegramActions = pgTable('telegram_actions', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  update_id: integer('update_id').unique(),
+  action: text('action').notNull(),
+  user_id: integer('user_id').notNull(),
+  result: text('result'),
+  error: text('error'),
+  created_at: timestamp('created_at', { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+});
+
+// ───── NextAuth tables (Drizzle adapter) ─────
+export const users = pgTable('users', {
+  id: text('id').primaryKey(),
+  name: text('name'),
+  email: text('email').notNull().unique(),
+  emailVerified: timestamp('emailVerified', { mode: 'date' }),
+  image: text('image'),
+});
+
+export const accounts = pgTable(
+  'accounts',
+  {
+    userId: text('userId')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    type: text('type').notNull(),
+    provider: text('provider').notNull(),
+    providerAccountId: text('providerAccountId').notNull(),
+    refresh_token: text('refresh_token'),
+    access_token: text('access_token'),
+    expires_at: integer('expires_at'),
+    token_type: text('token_type'),
+    scope: text('scope'),
+    id_token: text('id_token'),
+    session_state: text('session_state'),
+  },
+  (t) => ({
+    pk: primaryKey({ columns: [t.provider, t.providerAccountId] }),
+  }),
+);
+
+export const sessions = pgTable('sessions', {
+  sessionToken: text('sessionToken').primaryKey(),
+  userId: text('userId')
+    .notNull()
+    .references(() => users.id, { onDelete: 'cascade' }),
+  expires: timestamp('expires', { mode: 'date' }).notNull(),
+});
+
+export const verificationTokens = pgTable(
+  'verificationToken',
+  {
+    identifier: text('identifier').notNull(),
+    token: text('token').notNull(),
+    expires: timestamp('expires', { mode: 'date' }).notNull(),
+  },
+  (t) => ({
+    pk: primaryKey({ columns: [t.identifier, t.token] }),
+  }),
+);
