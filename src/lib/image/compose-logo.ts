@@ -62,17 +62,16 @@ export async function composeLogo(
   const lw = logoMeta.width ?? logoSize;
   const lh = logoMeta.height ?? logoSize;
 
-  const positions: Record<
-    BrandKit['logo_position'],
-    { top: number; left: number }
-  > = {
+  const positions: Record<string, { top: number; left: number }> = {
     bottom_right: { top: height - lh - padding, left: width - lw - padding },
     bottom_left: { top: height - lh - padding, left: padding },
     top_right: { top: padding, left: width - lw - padding },
     top_left: { top: padding, left: padding },
-    none: { top: 0, left: 0 },
   };
-  const pos = positions[brandKit.logo_position] ?? positions.bottom_right;
+  const pos = positions[brandKit.logo_position] ?? {
+    top: height - lh - padding,
+    left: width - lw - padding,
+  };
 
   return image
     .composite([
