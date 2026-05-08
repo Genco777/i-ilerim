@@ -15,6 +15,7 @@ import {
   regenerateText,
 } from '@/lib/content/generate-post';
 import { getPost, deletePost } from '@/lib/db/queries/posts';
+import { publishPost } from '@/lib/meta/publisher';
 
 interface TelegramUser {
   id: number;
@@ -238,17 +239,28 @@ async function handleApprove(
   messageId: number,
   postId: string,
 ): Promise<void> {
-  // Publishing wires up in Tasks 25-28. For now just inform.
   await editMessageReplyMarkup({ chatId, messageId, replyMarkup: undefined });
   await sendMessage({
     chatId,
-    text: [
-      `✓ ${postId} onaylandı.`,
-      '🚧 Gerçek FB+IG yayını Task 25-28\'de devreye girecek.',
-      'Şu an sadece DB\'de status değiştirir.',
-    ].join('\n'),
+    text: '📤 Yayınlanıyor (FB Page + IG)…',
   });
-  // TODO (Task 28): call publisher.publishPost(postId)
+
+  try {
+    const result = await publishPost(postId);
+    await sendMessage({
+      chatId,
+      text: [
+        '✅ Yayınlandı!',
+        '',
+        `📘 FB:  https://facebook.com/${result.fbPostId}`,
+        result.igShortcode
+          ? `📷 IG:  https://instagram.com/p/${result.igShortcode}`
+          : `📷 IG media id: ${result.igPostId}`,
+      ].join('\n'),
+    });
+  } catch (err) {
+    await notifyError(chatId, err);
+  }
 }
 
 async function handleRegenImage(
