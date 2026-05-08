@@ -61,3 +61,21 @@ export async function publishToIG(
   const shortcode = await fetchShortcode(published.id);
   return { id: published.id, shortcode };
 }
+
+// Instagram Story publish (image, 9:16 vertical).
+// Note: caption is not displayed on IG Stories — passed as alt-text/metadata only.
+export async function publishToIGStory(
+  imageUrl: string,
+): Promise<IGPublishResult> {
+  const container = await call<{ id: string }>(`${igAccountId()}/media`, {
+    image_url: imageUrl,
+    media_type: 'STORIES',
+  });
+
+  const published = await call<{ id: string }>(
+    `${igAccountId()}/media_publish`,
+    { creation_id: container.id },
+  );
+
+  return { id: published.id };
+}

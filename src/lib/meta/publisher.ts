@@ -1,5 +1,5 @@
 import { publishToFBPage } from './page-client';
-import { publishToIG } from './ig-client';
+import { publishToIG, publishToIGStory } from './ig-client';
 import { getPost, updatePost } from '@/lib/db/queries/posts';
 
 export interface PublishResult {
@@ -33,6 +33,41 @@ async function withRetry<T>(
     }
   }
   throw lastErr;
+}
+
+export async function publishStory(postId: string): Promise<PublishResult> {
+  const post = await getPost(postId);
+  if (!post) throw new Error('Post not found');
+  if (post.status === 'published') throw new Error('Already published');
+
+  await updatePost(postId, { status: 'publishing' });
+
+  try {
+    const ig = await withRetry(() => publishToIGStory(post.final_image_url));
+
+    await updatePost(postId, {
+      status: 'published',
+      // FB Page Stories not supported via Graph API — we mark only IG
+      ig_post_id: ig.id,
+      ig_shortcode: null,
+      published_at: new Date(),
+      error_log: null,
+    });
+
+    return {
+      fbPostId: '(skipped — FB Page Stories not supported via Graph API)',
+      igPostId: ig.id,
+      igShortcode: undefined,
+    };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    await updatePost(postId, {
+      status: 'failed',
+      error_log: msg.slice(0, 1000),
+      retry_count: (post.retry_count ?? 0) + 1,
+    });
+    throw err;
+  }
 }
 
 export async function publishPost(postId: string): Promise<PublishResult> {

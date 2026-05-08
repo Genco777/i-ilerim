@@ -15,7 +15,7 @@ import {
   regenerateText,
 } from '@/lib/content/generate-post';
 import { getPost, deletePost } from '@/lib/db/queries/posts';
-import { publishPost } from '@/lib/meta/publisher';
+import { publishPost, publishStory } from '@/lib/meta/publisher';
 
 interface TelegramUser {
   id: number;
@@ -69,11 +69,12 @@ function webhookSecret(): string | undefined {
 
 const HELP_TEXT = [
   '📋 Komut listesi:',
-  '  /post <konu>  — AI metin + görsel üret + onay iste',
-  '  /raw <metin>  — manuel paylaşım (foto ekle, AI dokunmaz)',
-  '  /help         — bu mesaj',
+  '  /post <konu>   — AI metin + 1:1 görsel + FB Page + IG Business yayını',
+  '  /story <konu>  — IG Story (9:16, kısa metin, sadece IG — FB story Meta API\'sinde yok)',
+  '  /raw <metin>   — manuel paylaşım (foto ekle, AI dokunmaz)',
+  '  /help          — bu mesaj',
   '',
-  'Onay sonrası FB Page + IG Business hesabına yayınlanır.',
+  'Onay sonrası ilgili kanal(lar)a yayınlanır.',
 ].join('\n');
 
 const START_TEXT = [
@@ -101,11 +102,14 @@ async function handlePostCommand(
   chatId: number,
   messageId: number,
   topic: string,
+  channel: 'post' | 'ig_story' = 'post',
 ): Promise<void> {
-  // Acknowledge before the long-running AI calls.
+  const isStory = channel === 'ig_story';
   await sendMessage({
     chatId,
-    text: `🎨 Üretiliyor: "${topic}"\n(15-30 saniye sürer, biraz bekle…)`,
+    text: isStory
+      ? `📖 Story üretiliyor (9:16): "${topic}"\n(15-30 saniye…)`
+      : `🎨 Üretiliyor: "${topic}"\n(15-30 saniye sürer, biraz bekle…)`,
   });
 
   try {
@@ -113,6 +117,7 @@ async function handlePostCommand(
       topic,
       telegramChatId: String(chatId),
       telegramMessageId: String(messageId),
+      channel,
     });
 
     const caption = [
@@ -126,8 +131,8 @@ async function handlePostCommand(
     await sendPhoto({
       chatId,
       photo: post.final_image_url,
-      caption: caption.slice(0, 1024), // Telegram caption limit
-      replyMarkup: previewKeyboard(post.id),
+      caption: caption.slice(0, 1024),
+      replyMarkup: previewKeyboard(post.id, isStory ? 'story' : 'post'),
     });
   } catch (err) {
     await notifyError(chatId, err);
@@ -238,25 +243,35 @@ async function handleApprove(
   chatId: number,
   messageId: number,
   postId: string,
+  isStory: boolean,
 ): Promise<void> {
   await editMessageReplyMarkup({ chatId, messageId, replyMarkup: undefined });
   await sendMessage({
     chatId,
-    text: '📤 Yayınlanıyor (FB Page + IG)…',
+    text: isStory ? '📤 IG Story yayınlanıyor…' : '📤 Yayınlanıyor (FB Page + IG)…',
   });
 
   try {
-    const result = await publishPost(postId);
+    const result = isStory
+      ? await publishStory(postId)
+      : await publishPost(postId);
+
     await sendMessage({
       chatId,
-      text: [
-        '✅ Yayınlandı!',
-        '',
-        `📘 FB:  https://facebook.com/${result.fbPostId}`,
-        result.igShortcode
-          ? `📷 IG:  https://instagram.com/p/${result.igShortcode}`
-          : `📷 IG media id: ${result.igPostId}`,
-      ].join('\n'),
+      text: isStory
+        ? [
+            '✅ IG Story yayınlandı!',
+            `📷 IG media id: ${result.igPostId}`,
+            '(Story Instagram\'da 24 saat görünür)',
+          ].join('\n')
+        : [
+            '✅ Yayınlandı!',
+            '',
+            `📘 FB:  https://facebook.com/${result.fbPostId}`,
+            result.igShortcode
+              ? `📷 IG:  https://instagram.com/p/${result.igShortcode}`
+              : `📷 IG media id: ${result.igPostId}`,
+          ].join('\n'),
     });
   } catch (err) {
     await notifyError(chatId, err);
@@ -339,7 +354,20 @@ async function handleCommand(
       });
       return;
     }
-    await handlePostCommand(chatId, messageId, topic);
+    await handlePostCommand(chatId, messageId, topic, 'post');
+    return;
+  }
+
+  if (trimmed.startsWith('/story')) {
+    const topic = trimmed.slice('/story'.length).trim();
+    if (!topic) {
+      await sendMessage({
+        chatId,
+        text: 'Kullanım: /story <konu>\nÖrnek: /story Heute geöffnet bis 18:00',
+      });
+      return;
+    }
+    await handlePostCommand(chatId, messageId, topic, 'ig_story');
     return;
   }
 
@@ -370,7 +398,9 @@ async function handleCallback(
 
   try {
     if (action === 'approve' && postId) {
-      await handleApprove(chatId, messageId, postId);
+      await handleApprove(chatId, messageId, postId, false);
+    } else if (action === 'approve_story' && postId) {
+      await handleApprove(chatId, messageId, postId, true);
     } else if (action === 'regen_image' && postId) {
       await handleRegenImage(chatId, postId);
     } else if (action === 'regen_text' && postId) {

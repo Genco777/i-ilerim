@@ -1,11 +1,17 @@
 import type { InlineKeyboardMarkup } from './bot';
 
-// Preview keyboard for AI-generated post: 4 buttons.
-export function previewKeyboard(postId: string): InlineKeyboardMarkup {
+// Preview keyboard for AI-generated content (post or story).
+// Story uses a different approve action so the callback dispatcher
+// can pick the right publishStory vs publishPost path.
+export function previewKeyboard(
+  postId: string,
+  variant: 'post' | 'story' = 'post',
+): InlineKeyboardMarkup {
+  const approveAction = variant === 'story' ? 'approve_story' : 'approve';
   return {
     inline_keyboard: [
       [
-        { text: '✓ Şimdi yayınla', callback_data: `approve:${postId}` },
+        { text: '✓ Şimdi yayınla', callback_data: `${approveAction}:${postId}` },
         { text: '🔄 Görseli yenile', callback_data: `regen_image:${postId}` },
       ],
       [

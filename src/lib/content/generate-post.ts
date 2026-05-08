@@ -6,6 +6,8 @@ import { getBrandKit } from '@/lib/db/queries/brand-kit';
 import { createPost, getPost, updatePost } from '@/lib/db/queries/posts';
 import type { Post, ImageProvider } from '@/types';
 
+export type ContentChannel = 'post' | 'ig_story';
+
 export interface GeneratePostOpts {
   topic: string;
   telegramChatId?: string;
@@ -15,6 +17,7 @@ export interface GeneratePostOpts {
   manualImageBuffer?: Buffer;
   rawMode?: boolean;
   rawText?: string;
+  channel?: ContentChannel;
 }
 
 export async function generatePost(opts: GeneratePostOpts): Promise<Post> {
@@ -42,10 +45,17 @@ export async function generatePost(opts: GeneratePostOpts): Promise<Post> {
     });
   }
 
-  // 1. Text via Claude
-  const textOut = await generateText(opts.topic, brandKit);
+  const channel: ContentChannel = opts.channel ?? 'post';
+  const isStory = channel === 'ig_story';
 
-  // 2. Image: AI or manual upload
+  // 1. Text via Claude (different style for stories)
+  const textOut = await generateText(opts.topic, brandKit, {
+    scheduleHint: isStory
+      ? 'Story format: 1-2 kurze, schlagkräftige Sätze (max 80 Zeichen), 2-3 Hashtags. Kein langer Beitrag — Story ist visuell.'
+      : undefined,
+  });
+
+  // 2. Image: AI (channel-aware aspect ratio) or manual upload
   let rawBuffer: Buffer;
   let imageProvider: ImageProvider | null = null;
   let imagePrompt: string | null = null;
@@ -55,9 +65,14 @@ export async function generatePost(opts: GeneratePostOpts): Promise<Post> {
     rawBuffer = opts.manualImageBuffer;
     imageSource = 'manual_upload';
   } else {
-    imagePrompt = buildImagePrompt(opts.topic, brandKit);
+    imagePrompt = buildImagePrompt(
+      opts.topic,
+      brandKit,
+      isStory ? 'ig_story' : 'ig_post',
+    );
     const result = await generateImage(imagePrompt, {
       forceProvider: opts.forceProvider,
+      aspectRatio: isStory ? '9:16' : '1:1',
     });
     rawBuffer = result.buffer;
     imageProvider = result.provider;
