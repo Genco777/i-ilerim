@@ -4,8 +4,11 @@ import {
   sendPhoto,
   answerCallbackQuery,
   editMessageReplyMarkup,
+  getFile,
+  downloadFile,
 } from '@/lib/telegram/bot';
-import { previewKeyboard } from '@/lib/telegram/keyboard';
+import { previewKeyboard, rawKeyboard } from '@/lib/telegram/keyboard';
+import { getBrandKit } from '@/lib/db/queries/brand-kit';
 import {
   generatePost,
   regenerateImage,
@@ -19,12 +22,21 @@ interface TelegramUser {
   username?: string;
 }
 
+interface TelegramPhotoSize {
+  file_id: string;
+  file_unique_id: string;
+  width: number;
+  height: number;
+  file_size?: number;
+}
+
 interface TelegramMessage {
   message_id: number;
   from?: TelegramUser;
   chat: { id: number };
   text?: string;
   caption?: string;
+  photo?: TelegramPhotoSize[];
   date: number;
 }
 
@@ -121,23 +133,104 @@ async function handlePostCommand(
   }
 }
 
-async function handleRawCommand(
-  chatId: number,
-  text: string,
-): Promise<void> {
-  // /raw requires a photo attachment (handled in a separate flow).
-  // For now: if user invokes /raw with just text and no photo, we
-  // explain that they need to attach a photo. Photo+caption flow
-  // is captured by `if (message.photo)` branch (TODO Task 23+).
+async function handleRawCommand(chatId: number): Promise<void> {
   await sendMessage({
     chatId,
     text: [
-      '🚧 /raw modu için fotoğraf eklemek gerek.',
-      'Telegram\'da bir fotoğraf gönder, caption olarak metni yaz, başına /raw ekle.',
+      '/raw modu için fotoğraf gerekli.',
       '',
-      `Mesajın: "${text}"`,
+      'Telegram\'da bir fotoğraf yükle, caption alanına başlangıçta /raw yazıp metnini ekle:',
+      '',
+      '/raw Frohe Weihnachten von Fly & Froth! 🎄',
+      '(+ ekli fotoğraf)',
     ].join('\n'),
   });
+}
+
+async function handlePhotoMessage(
+  msg: TelegramMessage,
+): Promise<void> {
+  const chatId = msg.chat.id;
+  const photo = msg.photo?.[msg.photo.length - 1];
+  if (!photo) return;
+
+  const captionRaw = msg.caption?.trim() ?? '';
+  const isRaw = captionRaw.startsWith('/raw');
+  const caption = isRaw
+    ? captionRaw.replace(/^\/raw(@\w+)?\s*/, '').trim()
+    : captionRaw;
+
+  if (!caption) {
+    await sendMessage({
+      chatId,
+      text: isRaw
+        ? '/raw modu metin (caption) gerektirir.'
+        : 'Foto için caption (konu) gerekli.',
+    });
+    return;
+  }
+
+  await sendMessage({
+    chatId,
+    text: isRaw
+      ? '📤 /raw modu — fotoğraf yükleniyor (AI dokunmaz)…'
+      : '🎨 Fotoğrafı kullanıyorum, AI sadece metni üretiyor…',
+  });
+
+  try {
+    const fileInfo = await getFile(photo.file_id);
+    const buffer = await downloadFile(fileInfo.file_path);
+
+    if (isRaw) {
+      // Mod 3: no AI, no logo overlay.
+      const post = await generatePost({
+        topic: '',
+        rawMode: true,
+        rawText: caption,
+        manualImageBuffer: buffer,
+        telegramChatId: String(chatId),
+        telegramMessageId: String(msg.message_id),
+      });
+      await sendPhoto({
+        chatId,
+        photo: post.final_image_url,
+        caption: `📌 Raw mod — yayına gönderilecek metin:\n\n${post.text_de.slice(0, 900)}`,
+        replyMarkup: rawKeyboard(post.id),
+      });
+      return;
+    }
+
+    // Mod 2: manual image + AI text.
+    const kit = await getBrandKit();
+    const noLogo = kit.manual_upload_logo_default === 'never';
+
+    const post = await generatePost({
+      topic: caption,
+      manualImageBuffer: buffer,
+      noLogo,
+      telegramChatId: String(chatId),
+      telegramMessageId: String(msg.message_id),
+    });
+
+    const fullCaption = [
+      post.text_de,
+      '',
+      (post.hashtags ?? [])
+        .map((h) => `#${h.replace(/^#/, '')}`)
+        .join(' '),
+    ]
+      .join('\n')
+      .slice(0, 1024);
+
+    await sendPhoto({
+      chatId,
+      photo: post.final_image_url,
+      caption: fullCaption,
+      replyMarkup: previewKeyboard(post.id),
+    });
+  } catch (err) {
+    await notifyError(chatId, err);
+  }
 }
 
 async function handleApprove(
@@ -239,8 +332,7 @@ async function handleCommand(
   }
 
   if (trimmed.startsWith('/raw')) {
-    const rawText = trimmed.slice('/raw'.length).trim();
-    await handleRawCommand(chatId, rawText);
+    await handleRawCommand(chatId);
     return;
   }
 
@@ -316,7 +408,9 @@ export async function POST(
 
   // Background-style: Telegram needs a 200 OK fast. We return after
   // dispatching, but each handler does its own send back.
-  if (update.message?.text) {
+  if (update.message?.photo && update.message.photo.length > 0) {
+    await handlePhotoMessage(update.message);
+  } else if (update.message?.text) {
     await handleCommand(
       chatId,
       update.message.message_id,

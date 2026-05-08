@@ -117,3 +117,22 @@ export async function setWebhook(url: string): Promise<void> {
     allowed_updates: ['message', 'callback_query'],
   });
 }
+
+interface FileInfo {
+  file_id: string;
+  file_path: string;
+  file_size?: number;
+}
+
+export async function getFile(fileId: string): Promise<FileInfo> {
+  return call<FileInfo>('getFile', { file_id: fileId });
+}
+
+export async function downloadFile(filePath: string): Promise<Buffer> {
+  const url = `https://api.telegram.org/file/bot${token()}/${filePath}`;
+  const res = await fetch(url);
+  if (!res.ok) {
+    throw new Error(`Telegram file download failed (${res.status})`);
+  }
+  return Buffer.from(await res.arrayBuffer());
+}
