@@ -1,6 +1,15 @@
 import Replicate from 'replicate';
 
-const MODEL = 'black-forest-labs/flux-1.1-pro' as const;
+// Flux Pro 1.1 Ultra: 4 megapixel, photorealism > DALL-E
+// Pricing: ~$0.06 per image (vs $0.04 for non-ultra)
+const MODEL = 'black-forest-labs/flux-1.1-pro-ultra' as const;
+
+// Aspect ratios per channel
+export type AspectRatio =
+  | '1:1'      // IG/FB post (square)
+  | '9:16'     // IG/FB story, Reels (vertical)
+  | '16:9'     // Blog hero, FB cover (landscape)
+  | '4:5';     // IG portrait
 
 let _client: Replicate | null = null;
 function getClient(): Replicate {
@@ -12,19 +21,20 @@ function getClient(): Replicate {
   return _client;
 }
 
-export async function replicateGenerate(prompt: string): Promise<Buffer> {
+export async function replicateGenerate(
+  prompt: string,
+  opts?: { aspectRatio?: AspectRatio },
+): Promise<Buffer> {
   const output = await getClient().run(MODEL, {
     input: {
       prompt,
-      aspect_ratio: '1:1',
+      aspect_ratio: opts?.aspectRatio ?? '1:1',
       output_format: 'png',
-      output_quality: 95,
       safety_tolerance: 2,
+      raw: false,
     },
   });
 
-  // replicate.run signature varies between SDK versions: string URL,
-  // ReadableStream-like FileOutput, string[], or { url(): string }.
   let url: string | undefined;
   if (typeof output === 'string') {
     url = output;
