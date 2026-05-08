@@ -1,6 +1,6 @@
-// Minimal Telegram Bot API client.
-// Full feature set (sendPhoto, inline keyboard, editMessageReplyMarkup,
-// answerCallbackQuery) lands in Task 19 — this file is the foundation.
+// Telegram Bot API client.
+// Covers: sendMessage, sendPhoto (URL or buffer), editMessageReplyMarkup,
+// answerCallbackQuery, setWebhook.
 
 const API_BASE = 'https://api.telegram.org/bot';
 
@@ -10,48 +10,110 @@ function token(): string {
   return t;
 }
 
-interface SendMessageOptions {
-  chatId: number | string;
+interface InlineKeyboardButton {
   text: string;
+  callback_data?: string;
+  url?: string;
+}
+
+export interface InlineKeyboardMarkup {
+  inline_keyboard: InlineKeyboardButton[][];
+}
+
+interface BaseSendOptions {
+  chatId: number | string;
   parseMode?: 'Markdown' | 'MarkdownV2' | 'HTML';
-  replyMarkup?: unknown;
+  replyMarkup?: InlineKeyboardMarkup;
   disableNotification?: boolean;
 }
 
-export async function sendMessage(opts: SendMessageOptions): Promise<void> {
-  const url = `${API_BASE}${token()}/sendMessage`;
-  const body = {
+interface SendMessageOptions extends BaseSendOptions {
+  text: string;
+}
+
+interface SendPhotoOptions extends BaseSendOptions {
+  photo: string;          // URL when sending by URL
+  caption?: string;
+}
+
+interface EditMarkupOptions {
+  chatId: number | string;
+  messageId: number;
+  replyMarkup?: InlineKeyboardMarkup;
+}
+
+interface AnswerCallbackOptions {
+  callbackQueryId: string;
+  text?: string;
+  showAlert?: boolean;
+}
+
+async function call<T>(method: string, body: unknown): Promise<T> {
+  const res = await fetch(`${API_BASE}${token()}/${method}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  const json = (await res.json()) as { ok: boolean; result?: T; description?: string };
+  if (!res.ok || !json.ok) {
+    throw new Error(`Telegram ${method} failed: ${json.description ?? res.status}`);
+  }
+  return json.result as T;
+}
+
+export interface SendMessageResult {
+  message_id: number;
+  chat: { id: number };
+}
+
+export async function sendMessage(
+  opts: SendMessageOptions,
+): Promise<SendMessageResult> {
+  return call<SendMessageResult>('sendMessage', {
     chat_id: opts.chatId,
     text: opts.text,
     parse_mode: opts.parseMode,
     reply_markup: opts.replyMarkup,
     disable_notification: opts.disableNotification,
-  };
-  const res = await fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
   });
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`Telegram sendMessage failed (${res.status}): ${text}`);
-  }
 }
 
-export async function setWebhook(url: string, secret?: string): Promise<void> {
-  const apiUrl = `${API_BASE}${token()}/setWebhook`;
-  const body = {
-    url,
-    secret_token: secret,
-    allowed_updates: ['message', 'callback_query'],
-  };
-  const res = await fetch(apiUrl, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
+export async function sendPhoto(
+  opts: SendPhotoOptions,
+): Promise<SendMessageResult> {
+  return call<SendMessageResult>('sendPhoto', {
+    chat_id: opts.chatId,
+    photo: opts.photo,
+    caption: opts.caption,
+    parse_mode: opts.parseMode,
+    reply_markup: opts.replyMarkup,
+    disable_notification: opts.disableNotification,
   });
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`Telegram setWebhook failed (${res.status}): ${text}`);
-  }
+}
+
+export async function editMessageReplyMarkup(
+  opts: EditMarkupOptions,
+): Promise<void> {
+  await call('editMessageReplyMarkup', {
+    chat_id: opts.chatId,
+    message_id: opts.messageId,
+    reply_markup: opts.replyMarkup,
+  });
+}
+
+export async function answerCallbackQuery(
+  opts: AnswerCallbackOptions,
+): Promise<void> {
+  await call('answerCallbackQuery', {
+    callback_query_id: opts.callbackQueryId,
+    text: opts.text,
+    show_alert: opts.showAlert ?? false,
+  });
+}
+
+export async function setWebhook(url: string): Promise<void> {
+  await call('setWebhook', {
+    url,
+    allowed_updates: ['message', 'callback_query'],
+  });
 }
