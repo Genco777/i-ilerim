@@ -50,24 +50,47 @@ export default function LoginPage() {
               </p>
             </div>
           ) : (
-            <form onSubmit={submit} className="space-y-4">
-              <Input
-                type="email"
-                required
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="info@fly-froth.com"
+            <div className="space-y-4">
+              <form onSubmit={submit} className="space-y-3">
+                <Input
+                  type="email"
+                  required
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder="info@fly-froth.com"
+                  disabled={pending}
+                />
+                <Button type="submit" className="w-full" disabled={pending}>
+                  {pending ? 'Sending...' : 'Send magic link'}
+                </Button>
+              </form>
+
+              <div className="flex items-center gap-3 text-xs text-muted-foreground">
+                <div className="flex-1 h-px bg-border" />
+                <span>OR</span>
+                <div className="flex-1 h-px bg-border" />
+              </div>
+
+              <Button
+                type="button"
+                variant="outline"
+                className="w-full"
                 disabled={pending}
-              />
-              <Button type="submit" className="w-full" disabled={pending}>
-                {pending ? 'Sending...' : 'Send magic link'}
+                onClick={() =>
+                  signIn('facebook', { callbackUrl: '/admin' }).catch((e) =>
+                    setError(e instanceof Error ? e.message : 'Facebook login failed'),
+                  )
+                }
+              >
+                Continue with Facebook
               </Button>
+
               {error && (
                 <p className="text-sm text-red-600 dark:text-red-400">
                   {error}
                 </p>
               )}
-            </form>
+            </div>
           )}
         </CardContent>
       </Card>
