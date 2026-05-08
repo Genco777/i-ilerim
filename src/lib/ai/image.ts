@@ -1,6 +1,22 @@
 import { openaiGenerate, type ImageQuality } from './image-openai';
 import { replicateGenerate } from './image-replicate';
-import type { ImageProvider } from '@/types';
+import type { BrandKit, ImageProvider } from '@/types';
+
+export function buildImagePrompt(topic: string, brandKit: BrandKit): string {
+  return [
+    brandKit.visual_style_guide,
+    '',
+    `Subject: ${topic}`,
+    '',
+    'Composition: rule of thirds, centered subject with negative space.',
+    'Lighting: soft, professional studio lighting.',
+    'Mood: premium, trustworthy, modern.',
+    '',
+    'Avoid: text in image, logos in image, watermarks, low resolution,',
+    'distorted faces, distorted text, artificial-looking elements,',
+    'cluttered composition.',
+  ].join('\n');
+}
 
 interface GenerateOptions {
   forceProvider?: ImageProvider;
