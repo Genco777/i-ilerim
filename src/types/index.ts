@@ -4,6 +4,7 @@ import {
   secrets,
   incomingMessages,
   failedJobs,
+  mailDrafts,
 } from '@/lib/db/schema';
 import type { InferSelectModel, InferInsertModel } from 'drizzle-orm';
 
@@ -16,6 +17,8 @@ export type IncomingMessage = InferSelectModel<typeof incomingMessages>;
 export type NewIncomingMessage = InferInsertModel<typeof incomingMessages>;
 export type FailedJob = InferSelectModel<typeof failedJobs>;
 export type NewFailedJob = InferInsertModel<typeof failedJobs>;
+export type MailDraft = InferSelectModel<typeof mailDrafts>;
+export type NewMailDraft = InferInsertModel<typeof mailDrafts>;
 
 export type ImageProvider = 'openai' | 'replicate';
 export type LogoPosition =

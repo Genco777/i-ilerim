@@ -4,6 +4,7 @@ import {
   sendPhoto,
   answerCallbackQuery,
   editMessageReplyMarkup,
+  editMessageText,
   getFile,
   downloadFile,
 } from '@/lib/telegram/bot';
@@ -12,6 +13,7 @@ import {
   rawKeyboard,
   replyKeyboard,
 } from '@/lib/telegram/keyboard';
+import { mailPreviewKeyboard } from '@/lib/telegram/mail-keyboard';
 import { getBrandKit } from '@/lib/db/queries/brand-kit';
 import {
   generatePost,
@@ -28,6 +30,20 @@ import {
   approveAndSendReply,
   ignoreMessage,
 } from '@/lib/messages/reply-manager';
+import { parseMailCommand } from '@/lib/mail/parse-mail-command';
+import { generateMailDraft } from '@/lib/mail/generate';
+import { sendMail } from '@/lib/mail/smtp';
+import {
+  cancelActiveDrafts,
+  createDraft,
+  getActiveDraft,
+  getDraft,
+  updateDraft,
+  markSent,
+  markCancelled,
+  addAttachment,
+} from '@/lib/db/queries/mail-drafts';
+import type { MailDraft } from '@/types';
 
 interface TelegramUser {
   id: number;
@@ -43,6 +59,14 @@ interface TelegramPhotoSize {
   file_size?: number;
 }
 
+interface TelegramDocument {
+  file_id: string;
+  file_unique_id: string;
+  file_name?: string;
+  mime_type?: string;
+  file_size?: number;
+}
+
 interface TelegramMessage {
   message_id: number;
   from?: TelegramUser;
@@ -50,6 +74,7 @@ interface TelegramMessage {
   text?: string;
   caption?: string;
   photo?: TelegramPhotoSize[];
+  document?: TelegramDocument;
   date: number;
 }
 
@@ -84,6 +109,7 @@ const HELP_TEXT = [
   '  /post <konu>            — AI metin + 1:1 görsel + FB Page + IG yayını',
   '  /story <konu>           — IG Story (9:16, sadece IG)',
   '  /raw <metin>            — manuel paylaşım (foto ekle, AI dokunmaz)',
+  '  /mail <email> <talimat> — AI yardımıyla mail taslağı + Zoho gönder',
   '  /edit_reply <id> <text> — gelen mesaja taslak cevabı düzenle',
   '  /preview_reply <id>     — taslağı butonlu önizle',
   '  /help                   — bu mesaj',
@@ -487,6 +513,263 @@ async function handleIgnoreMessage(
   }
 }
 
+// ───── /mail outbound flow ─────
+
+const MAX_ATTACHMENT_BYTES = 20 * 1024 * 1024;
+
+function formatMailPreview(draft: MailDraft): string {
+  const attachLine =
+    draft.attachments.length > 0
+      ? `📎 ${draft.attachments.length} dosya: ${draft.attachments
+          .map((a) => a.filename)
+          .join(', ')}\n\n`
+      : '';
+  return [
+    `📧 Kime: ${draft.to_email}`,
+    `📝 Konu: ${draft.subject ?? '(yok)'}`,
+    '',
+    attachLine + (draft.body ?? ''),
+  ]
+    .join('\n')
+    .slice(0, 4000);
+}
+
+async function handleMailCommand(
+  chatId: number,
+  text: string,
+): Promise<void> {
+  const rest = text.replace(/^\/mail(@\w+)?\s*/, '').trim();
+  if (!rest) {
+    await sendMessage({
+      chatId,
+      text: 'Kullanım: /mail <email> <talimat>\nÖrnek: /mail ahmet@x.com yarın 14:00 toplantı iptal yaz',
+    });
+    return;
+  }
+
+  const parsed = parseMailCommand(rest);
+  if (!parsed) {
+    await sendMessage({
+      chatId,
+      text: 'Geçerli email bulunamadı veya talimat boş. Örnek: /mail ahmet@x.com yarın toplantı iptal',
+    });
+    return;
+  }
+
+  await cancelActiveDrafts(chatId);
+  await sendMessage({ chatId, text: '✏️ Mail taslağı yazılıyor…' });
+
+  try {
+    const brandKit = await getBrandKit();
+    const drafted = await generateMailDraft({
+      recipient: parsed.recipient,
+      instruction: parsed.instruction,
+      brandKit,
+    });
+
+    const draft = await createDraft({
+      to_email: parsed.recipient,
+      subject: drafted.subject,
+      body: drafted.body,
+      instruction: parsed.instruction,
+      telegram_chat_id: chatId,
+      status: 'drafting',
+    });
+
+    const sent = await sendMessage({
+      chatId,
+      text: formatMailPreview(draft),
+      replyMarkup: mailPreviewKeyboard(draft.id),
+    });
+    await updateDraft(draft.id, {
+      telegram_preview_msg_id: sent.message_id,
+    });
+  } catch (err) {
+    await notifyError(chatId, err);
+  }
+}
+
+async function refreshMailPreview(
+  chatId: number,
+  draft: MailDraft,
+): Promise<void> {
+  if (!draft.telegram_preview_msg_id) {
+    await sendMessage({
+      chatId,
+      text: formatMailPreview(draft),
+      replyMarkup: mailPreviewKeyboard(draft.id),
+    });
+    return;
+  }
+  try {
+    await editMessageText({
+      chatId,
+      messageId: draft.telegram_preview_msg_id,
+      text: formatMailPreview(draft),
+      replyMarkup: mailPreviewKeyboard(draft.id),
+    });
+  } catch {
+    // Edit may fail if message is too old — fall back to a fresh send.
+    await sendMessage({
+      chatId,
+      text: formatMailPreview(draft),
+      replyMarkup: mailPreviewKeyboard(draft.id),
+    });
+  }
+}
+
+async function handleMailSend(
+  chatId: number,
+  messageId: number,
+  draftId: string,
+): Promise<void> {
+  const draft = await getDraft(draftId);
+  if (!draft) {
+    await sendMessage({ chatId, text: `❓ Taslak bulunamadı: ${draftId}` });
+    return;
+  }
+  if (draft.status === 'sent') {
+    await sendMessage({ chatId, text: 'Bu mail zaten gönderilmiş.' });
+    return;
+  }
+  if (!draft.subject || !draft.body) {
+    await sendMessage({
+      chatId,
+      text: '❌ Taslakta konu/metin eksik. /mail ile yeniden başlat.',
+    });
+    return;
+  }
+
+  await editMessageReplyMarkup({ chatId, messageId, replyMarkup: undefined });
+  await sendMessage({ chatId, text: '📤 Mail gönderiliyor…' });
+
+  try {
+    const result = await sendMail({
+      to: draft.to_email,
+      subject: draft.subject,
+      body: draft.body,
+      attachments: draft.attachments,
+    });
+    await markSent(draft.id);
+    await sendMessage({
+      chatId,
+      text: [
+        '✅ Gönderildi.',
+        `Kime: ${draft.to_email}`,
+        `Konu: ${draft.subject}`,
+        `Message-ID: ${result.messageId}`,
+      ].join('\n'),
+    });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    await updateDraft(draft.id, { error: msg.slice(0, 1000) });
+    await notifyError(chatId, err);
+  }
+}
+
+async function handleMailRegenPrompt(
+  chatId: number,
+  draftId: string,
+): Promise<void> {
+  const draft = await getDraft(draftId);
+  if (!draft) {
+    await sendMessage({ chatId, text: `❓ Taslak bulunamadı: ${draftId}` });
+    return;
+  }
+  await updateDraft(draft.id, { status: 'awaiting_regen' });
+  await sendMessage({
+    chatId,
+    text: 'Nasıl olsun? (örn. "daha samimi yaz", "İngilizce yaz", "fiyat detayı ekle")',
+  });
+}
+
+async function applyMailRegen(
+  chatId: number,
+  draft: MailDraft,
+  refinement: string,
+): Promise<void> {
+  await sendMessage({ chatId, text: '✏️ Yeniden yazılıyor…' });
+  try {
+    const brandKit = await getBrandKit();
+    const drafted = await generateMailDraft({
+      recipient: draft.to_email,
+      instruction: draft.instruction,
+      brandKit,
+      previousSubject: draft.subject ?? undefined,
+      previousBody: draft.body ?? undefined,
+      refinement,
+    });
+    const updated = await updateDraft(draft.id, {
+      subject: drafted.subject,
+      body: drafted.body,
+      status: 'drafting',
+    });
+    await refreshMailPreview(chatId, updated);
+  } catch (err) {
+    await notifyError(chatId, err);
+  }
+}
+
+async function handleMailAttachPrompt(
+  chatId: number,
+  draftId: string,
+): Promise<void> {
+  const draft = await getDraft(draftId);
+  if (!draft) {
+    await sendMessage({ chatId, text: `❓ Taslak bulunamadı: ${draftId}` });
+    return;
+  }
+  await updateDraft(draft.id, { status: 'awaiting_attachment' });
+  await sendMessage({
+    chatId,
+    text: 'Dosyayı gönder (max 20 MB). Birden fazla dosya için her birini tek tek gönder; sonra "Gönder" butonuna bas.',
+  });
+}
+
+async function applyMailAttachment(
+  chatId: number,
+  draft: MailDraft,
+  file: { fileId: string; filename: string; mime: string; sizeBytes?: number },
+): Promise<void> {
+  if (file.sizeBytes && file.sizeBytes > MAX_ATTACHMENT_BYTES) {
+    await sendMessage({
+      chatId,
+      text: '❌ Dosya 20 MB sınırını aşıyor. Daha küçük bir dosya gönder.',
+    });
+    return;
+  }
+
+  try {
+    const info = await getFile(file.fileId);
+    const buffer = await downloadFile(info.file_path);
+    const updated = await addAttachment(draft.id, {
+      filename: file.filename,
+      mime: file.mime,
+      base64: buffer.toString('base64'),
+    });
+    await refreshMailPreview(chatId, updated);
+  } catch (err) {
+    await notifyError(chatId, err);
+  }
+}
+
+async function handleMailCancel(
+  chatId: number,
+  messageId: number,
+  draftId: string,
+): Promise<void> {
+  await markCancelled(draftId);
+  try {
+    await editMessageText({
+      chatId,
+      messageId,
+      text: '✗ Mail taslağı iptal edildi.',
+    });
+  } catch {
+    await sendMessage({ chatId, text: '✗ Mail taslağı iptal edildi.' });
+  }
+}
+
 async function handleCommand(
   chatId: number,
   messageId: number,
@@ -552,6 +835,18 @@ async function handleCommand(
     return;
   }
 
+  if (trimmed.startsWith('/mail')) {
+    await handleMailCommand(chatId, trimmed);
+    return;
+  }
+
+  // No command matched: check if an active mail draft is awaiting regen input.
+  const activeDraft = await getActiveDraft(chatId);
+  if (activeDraft && activeDraft.status === 'awaiting_regen') {
+    await applyMailRegen(chatId, activeDraft, trimmed);
+    return;
+  }
+
   await sendMessage({
     chatId,
     text: `❓ Anlamadım: "${trimmed}". /help yaz.`,
@@ -596,6 +891,14 @@ async function handleCallback(
       await handleEditReplyPrompt(chatId, postId);
     } else if (action === 'ignore_msg' && postId) {
       await handleIgnoreMessage(chatId, messageId, postId);
+    } else if (action === 'mail_send' && postId) {
+      await handleMailSend(chatId, messageId, postId);
+    } else if (action === 'mail_regen' && postId) {
+      await handleMailRegenPrompt(chatId, postId);
+    } else if (action === 'mail_attach' && postId) {
+      await handleMailAttachPrompt(chatId, postId);
+    } else if (action === 'mail_cancel' && postId) {
+      await handleMailCancel(chatId, messageId, postId);
     } else {
       await sendMessage({ chatId, text: `❓ Bilinmeyen aksiyon: ${data}` });
     }
@@ -628,6 +931,35 @@ export async function POST(
       }).catch(() => {});
     }
     return NextResponse.json({ ok: true, ignored: 'unauthorized' });
+  }
+
+  // Mail-attachment interception: if a draft is awaiting an attachment,
+  // any incoming photo or document is captured for that draft instead of
+  // running the manual-image post flow.
+  const msg = update.message;
+  if (msg && (msg.photo?.length || msg.document)) {
+    const activeDraft = await getActiveDraft(chatId);
+    if (activeDraft && activeDraft.status === 'awaiting_attachment') {
+      if (msg.document) {
+        await applyMailAttachment(chatId, activeDraft, {
+          fileId: msg.document.file_id,
+          filename: msg.document.file_name ?? `attachment-${Date.now()}`,
+          mime: msg.document.mime_type ?? 'application/octet-stream',
+          sizeBytes: msg.document.file_size,
+        });
+      } else if (msg.photo?.length) {
+        const largest = msg.photo[msg.photo.length - 1];
+        if (largest) {
+          await applyMailAttachment(chatId, activeDraft, {
+            fileId: largest.file_id,
+            filename: `photo-${Date.now()}.jpg`,
+            mime: 'image/jpeg',
+            sizeBytes: largest.file_size,
+          });
+        }
+      }
+      return NextResponse.json({ ok: true });
+    }
   }
 
   // Background-style: Telegram needs a 200 OK fast. We return after

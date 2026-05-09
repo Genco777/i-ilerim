@@ -101,6 +101,26 @@ export async function editMessageReplyMarkup(
   });
 }
 
+interface EditMessageTextOptions {
+  chatId: number | string;
+  messageId: number;
+  text: string;
+  parseMode?: 'Markdown' | 'MarkdownV2' | 'HTML';
+  replyMarkup?: InlineKeyboardMarkup;
+}
+
+export async function editMessageText(
+  opts: EditMessageTextOptions,
+): Promise<void> {
+  await call('editMessageText', {
+    chat_id: opts.chatId,
+    message_id: opts.messageId,
+    text: opts.text,
+    parse_mode: opts.parseMode,
+    reply_markup: opts.replyMarkup,
+  });
+}
+
 export async function answerCallbackQuery(
   opts: AnswerCallbackOptions,
 ): Promise<void> {

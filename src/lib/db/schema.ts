@@ -9,6 +9,8 @@ import {
   real,
   customType,
   primaryKey,
+  bigint,
+  index,
 } from 'drizzle-orm/pg-core';
 
 // pgcrypto encrypted bytea — encrypt/decrypt is performed via SQL helpers
@@ -51,6 +53,14 @@ export const messageStatus = pgEnum('message_status', [
   'replied',
   'ignored',
   'failed',
+]);
+
+export const mailDraftStatus = pgEnum('mail_draft_status', [
+  'drafting',
+  'awaiting_regen',
+  'awaiting_attachment',
+  'sent',
+  'cancelled',
 ]);
 
 // ───── Posts ─────
@@ -202,6 +212,41 @@ export const incomingMessages = pgTable('incoming_messages', {
     .notNull()
     .defaultNow(),
 });
+
+// ───── Mail Drafts (Telegram /mail outbound) ─────
+// Single user system: at most one row with non-terminal status per chat.
+// Attachments stored inline as base64 (Telegram bot limit is 20MB per file).
+export interface MailAttachment {
+  filename: string;
+  mime: string;
+  base64: string;
+}
+
+export const mailDrafts = pgTable(
+  'mail_drafts',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    to_email: text('to_email').notNull(),
+    subject: text('subject'),
+    body: text('body'),
+    instruction: text('instruction').notNull(),
+    attachments: jsonb('attachments').$type<MailAttachment[]>().default([]).notNull(),
+    status: mailDraftStatus('status').notNull().default('drafting'),
+    telegram_chat_id: bigint('telegram_chat_id', { mode: 'number' }).notNull(),
+    telegram_preview_msg_id: integer('telegram_preview_msg_id'),
+    error: text('error'),
+    created_at: timestamp('created_at', { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    sent_at: timestamp('sent_at', { withTimezone: true }),
+  },
+  (t) => ({
+    chatStatusIdx: index('mail_drafts_chat_status_idx').on(
+      t.telegram_chat_id,
+      t.status,
+    ),
+  }),
+);
 
 // ───── Failed Jobs (retry queue) ─────
 export const failedJobs = pgTable('failed_jobs', {
