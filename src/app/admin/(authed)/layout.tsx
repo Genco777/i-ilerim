@@ -29,6 +29,12 @@ export default async function AdminLayout({
           >
             Brand Kit
           </Link>
+          <Link
+            href="/admin/messages"
+            className="hover:bg-slate-800 px-3 py-2 rounded transition"
+          >
+            Mesajlar
+          </Link>
         </nav>
         <div className="mt-auto pt-6 text-xs text-slate-400 break-all">
           {session.user.email}

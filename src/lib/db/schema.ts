@@ -179,3 +179,39 @@ export const verificationTokens = pgTable(
     pk: primaryKey({ columns: [t.identifier, t.token] }),
   }),
 );
+
+// ───── Incoming Messages (Phase 2) ─────
+export const incomingMessages = pgTable('incoming_messages', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  platform: messagePlatform('platform').notNull(),
+  external_id: text('external_id').notNull().unique(),
+  parent_post_id: text('parent_post_id'),
+  parent_comment_id: text('parent_comment_id'),
+  sender_name: text('sender_name').notNull(),
+  sender_external_id: text('sender_external_id').notNull(),
+  message_text: text('message_text').notNull(),
+  attachments: jsonb('attachments').default([]),
+  status: messageStatus('status').notNull().default('new'),
+  draft_reply: text('draft_reply'),
+  final_reply: text('final_reply'),
+  reply_external_id: text('reply_external_id'),
+  replied_at: timestamp('replied_at', { withTimezone: true }),
+  ignored_at: timestamp('ignored_at', { withTimezone: true }),
+  received_at: timestamp('received_at', { withTimezone: true }).notNull(),
+  created_at: timestamp('created_at', { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+});
+
+// ───── Failed Jobs (retry queue) ─────
+export const failedJobs = pgTable('failed_jobs', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  job_type: text('job_type').notNull(),
+  payload: jsonb('payload').notNull(),
+  error: text('error').notNull(),
+  retry_count: integer('retry_count').notNull(),
+  failed_at: timestamp('failed_at', { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+  retried_at: timestamp('retried_at', { withTimezone: true }),
+});

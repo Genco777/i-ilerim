@@ -45,3 +45,16 @@ export function logoChoiceKeyboard(postId: string): InlineKeyboardMarkup {
     ],
   };
 }
+
+// Inbound-message keyboard: send / edit / ignore the AI-drafted reply.
+export function replyKeyboard(messageId: string): InlineKeyboardMarkup {
+  return {
+    inline_keyboard: [
+      [
+        { text: '📤 Gönder', callback_data: `send_reply:${messageId}` },
+        { text: '✏️ Düzenle', callback_data: `edit_reply:${messageId}` },
+        { text: '🚫 Yoksay', callback_data: `ignore_msg:${messageId}` },
+      ],
+    ],
+  };
+}

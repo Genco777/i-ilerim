@@ -1,4 +1,10 @@
-import { posts, brandKit, secrets } from '@/lib/db/schema';
+import {
+  posts,
+  brandKit,
+  secrets,
+  incomingMessages,
+  failedJobs,
+} from '@/lib/db/schema';
 import type { InferSelectModel, InferInsertModel } from 'drizzle-orm';
 
 export type Post = InferSelectModel<typeof posts>;
@@ -6,6 +12,10 @@ export type NewPost = InferInsertModel<typeof posts>;
 export type BrandKit = InferSelectModel<typeof brandKit>;
 export type NewBrandKit = InferInsertModel<typeof brandKit>;
 export type Secret = InferSelectModel<typeof secrets>;
+export type IncomingMessage = InferSelectModel<typeof incomingMessages>;
+export type NewIncomingMessage = InferInsertModel<typeof incomingMessages>;
+export type FailedJob = InferSelectModel<typeof failedJobs>;
+export type NewFailedJob = InferInsertModel<typeof failedJobs>;
 
 export type ImageProvider = 'openai' | 'replicate';
 export type LogoPosition =

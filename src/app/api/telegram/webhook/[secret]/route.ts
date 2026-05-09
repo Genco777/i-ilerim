@@ -7,7 +7,11 @@ import {
   getFile,
   downloadFile,
 } from '@/lib/telegram/bot';
-import { previewKeyboard, rawKeyboard } from '@/lib/telegram/keyboard';
+import {
+  previewKeyboard,
+  rawKeyboard,
+  replyKeyboard,
+} from '@/lib/telegram/keyboard';
 import { getBrandKit } from '@/lib/db/queries/brand-kit';
 import {
   generatePost,
@@ -16,6 +20,14 @@ import {
 } from '@/lib/content/generate-post';
 import { getPost, deletePost } from '@/lib/db/queries/posts';
 import { publishPost, publishStory } from '@/lib/meta/publisher';
+import {
+  getIncomingMessage,
+  updateIncomingMessage,
+} from '@/lib/db/queries/messages';
+import {
+  approveAndSendReply,
+  ignoreMessage,
+} from '@/lib/messages/reply-manager';
 
 interface TelegramUser {
   id: number;
@@ -69,12 +81,15 @@ function webhookSecret(): string | undefined {
 
 const HELP_TEXT = [
   '📋 Komut listesi:',
-  '  /post <konu>   — AI metin + 1:1 görsel + FB Page + IG Business yayını',
-  '  /story <konu>  — IG Story (9:16, kısa metin, sadece IG — FB story Meta API\'sinde yok)',
-  '  /raw <metin>   — manuel paylaşım (foto ekle, AI dokunmaz)',
-  '  /help          — bu mesaj',
+  '  /post <konu>            — AI metin + 1:1 görsel + FB Page + IG yayını',
+  '  /story <konu>           — IG Story (9:16, sadece IG)',
+  '  /raw <metin>            — manuel paylaşım (foto ekle, AI dokunmaz)',
+  '  /edit_reply <id> <text> — gelen mesaja taslak cevabı düzenle',
+  '  /preview_reply <id>     — taslağı butonlu önizle',
+  '  /help                   — bu mesaj',
   '',
-  'Onay sonrası ilgili kanal(lar)a yayınlanır.',
+  'Yeni FB/IG yorumları otomatik olarak buraya bildirilir.',
+  'Onay sonrası seçilen kanal(lar)a yayınlanır.',
 ].join('\n');
 
 const START_TEXT = [
@@ -329,6 +344,149 @@ async function handleDelete(
   await sendMessage({ chatId, text: `🗑️ ${postId} silindi.` });
 }
 
+async function handleSendReply(
+  chatId: number,
+  messageId: number,
+  msgId: string,
+): Promise<void> {
+  const message = await getIncomingMessage(msgId);
+  if (!message) {
+    await sendMessage({ chatId, text: `❓ Mesaj bulunamadı: ${msgId}` });
+    return;
+  }
+  const draft = (message.final_reply ?? message.draft_reply ?? '').trim();
+  if (!draft) {
+    await sendMessage({
+      chatId,
+      text: '❌ Taslak yok. Önce "Düzenle" ile cevap yaz.',
+    });
+    return;
+  }
+
+  await editMessageReplyMarkup({ chatId, messageId, replyMarkup: undefined });
+  await sendMessage({ chatId, text: '📤 Cevap gönderiliyor…' });
+
+  try {
+    const { message: updated, reply_external_id } = await approveAndSendReply(
+      msgId,
+      draft,
+    );
+    await sendMessage({
+      chatId,
+      text: [
+        '✅ Cevap gönderildi.',
+        `Kanal: ${updated.platform}`,
+        `Reply ID: ${reply_external_id}`,
+      ].join('\n'),
+    });
+  } catch (err) {
+    await notifyError(chatId, err);
+  }
+}
+
+async function handleEditReplyPrompt(
+  chatId: number,
+  msgId: string,
+): Promise<void> {
+  const message = await getIncomingMessage(msgId);
+  if (!message) {
+    await sendMessage({ chatId, text: `❓ Mesaj bulunamadı: ${msgId}` });
+    return;
+  }
+  await sendMessage({
+    chatId,
+    text: [
+      `✏️ ${msgId} için yeni cevap metnini gönder:`,
+      '',
+      `Kullanım: /edit_reply ${msgId} <metin>`,
+      '',
+      'Mevcut taslak:',
+      message.draft_reply ?? '(yok)',
+    ].join('\n'),
+  });
+}
+
+async function handleEditReplyCommand(
+  chatId: number,
+  rest: string,
+): Promise<void> {
+  // Format: /edit_reply <msgId> <text>
+  const trimmed = rest.trim();
+  const spaceIdx = trimmed.indexOf(' ');
+  if (spaceIdx === -1) {
+    await sendMessage({
+      chatId,
+      text: 'Kullanım: /edit_reply <msgId> <yeni cevap metni>',
+    });
+    return;
+  }
+  const msgId = trimmed.slice(0, spaceIdx).trim();
+  const newText = trimmed.slice(spaceIdx + 1).trim();
+  if (!msgId || !newText) {
+    await sendMessage({
+      chatId,
+      text: 'Kullanım: /edit_reply <msgId> <yeni cevap metni>',
+    });
+    return;
+  }
+
+  try {
+    await updateIncomingMessage(msgId, { draft_reply: newText });
+    await sendMessage({
+      chatId,
+      text: [
+        '✅ Taslak güncellendi.',
+        '',
+        '🤖 Yeni cevap:',
+        `"${newText}"`,
+        '',
+        `Göndermek için: send_reply:${msgId} (önceki bildirimdeki "📤 Gönder" butonu)`,
+        'Veya yeni bir butonlu önizleme istemek için:',
+        `/preview_reply ${msgId}`,
+      ].join('\n'),
+    });
+  } catch (err) {
+    await notifyError(chatId, err);
+  }
+}
+
+async function handlePreviewReplyCommand(
+  chatId: number,
+  msgId: string,
+): Promise<void> {
+  const message = await getIncomingMessage(msgId);
+  if (!message) {
+    await sendMessage({ chatId, text: `❓ Mesaj bulunamadı: ${msgId}` });
+    return;
+  }
+  const draft = message.draft_reply ?? '(taslak yok)';
+  await sendMessage({
+    chatId,
+    text: [
+      `💬 ${message.platform} — ${message.sender_name}:`,
+      `"${message.message_text.slice(0, 500)}"`,
+      '',
+      '🤖 Taslak:',
+      `"${draft}"`,
+    ].join('\n'),
+    replyMarkup: replyKeyboard(msgId),
+  });
+}
+
+async function handleIgnoreMessage(
+  chatId: number,
+  messageId: number,
+  msgId: string,
+): Promise<void> {
+  try {
+    await ignoreMessage(msgId);
+    await editMessageReplyMarkup({ chatId, messageId, replyMarkup: undefined });
+    await sendMessage({ chatId, text: `🚫 Mesaj yoksayıldı: ${msgId}` });
+  } catch (err) {
+    await notifyError(chatId, err);
+  }
+}
+
 async function handleCommand(
   chatId: number,
   messageId: number,
@@ -342,6 +500,24 @@ async function handleCommand(
   }
   if (trimmed === '/help') {
     await sendMessage({ chatId, text: HELP_TEXT });
+    return;
+  }
+
+  if (trimmed.startsWith('/edit_reply')) {
+    await handleEditReplyCommand(chatId, trimmed.slice('/edit_reply'.length));
+    return;
+  }
+
+  if (trimmed.startsWith('/preview_reply')) {
+    const msgId = trimmed.slice('/preview_reply'.length).trim();
+    if (!msgId) {
+      await sendMessage({
+        chatId,
+        text: 'Kullanım: /preview_reply <msgId>',
+      });
+      return;
+    }
+    await handlePreviewReplyCommand(chatId, msgId);
     return;
   }
 
@@ -414,6 +590,12 @@ async function handleCallback(
         chatId,
         text: `🚧 Logo ${choice} seçimi: Task 23'te uygulanacak.`,
       });
+    } else if (action === 'send_reply' && postId) {
+      await handleSendReply(chatId, messageId, postId);
+    } else if (action === 'edit_reply' && postId) {
+      await handleEditReplyPrompt(chatId, postId);
+    } else if (action === 'ignore_msg' && postId) {
+      await handleIgnoreMessage(chatId, messageId, postId);
     } else {
       await sendMessage({ chatId, text: `❓ Bilinmeyen aksiyon: ${data}` });
     }
