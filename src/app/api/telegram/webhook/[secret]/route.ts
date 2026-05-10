@@ -43,7 +43,11 @@ import {
   markCancelled,
   addAttachment,
 } from '@/lib/db/queries/mail-drafts';
-import type { MailDraft } from '@/types';
+import {
+  getInboxById,
+  setRepliedDraftId,
+} from '@/lib/db/queries/mail-inbox';
+import type { MailDraft, MailInbox } from '@/types';
 
 interface TelegramUser {
   id: number;
@@ -649,6 +653,10 @@ async function handleMailSend(
       subject: draft.subject,
       body: draft.body,
       attachments: draft.attachments,
+      ...(draft.in_reply_to_message_id
+        ? { inReplyTo: draft.in_reply_to_message_id }
+        : {}),
+      ...(draft.mail_references ? { references: draft.mail_references } : {}),
     });
     await markSent(draft.id);
     await sendMessage({
@@ -691,18 +699,30 @@ async function applyMailRegen(
   await sendMessage({ chatId, text: '✏️ Yeniden yazılıyor…' });
   try {
     const brandKit = await getBrandKit();
+    // If this draft was created from an inbox reply, the user's plain-text
+    // turn is the FIRST instruction (none yet recorded). Otherwise it's a
+    // refinement on top of an existing draft.
+    const isFirstReply = draft.instruction.trim().length === 0;
+    const linkedInbox = isFirstReply
+      ? await findInboxForDraft(draft.id)
+      : null;
+
     const drafted = await generateMailDraft({
       recipient: draft.to_email,
-      instruction: draft.instruction,
+      instruction: isFirstReply ? refinement : draft.instruction,
       brandKit,
-      previousSubject: draft.subject ?? undefined,
-      previousBody: draft.body ?? undefined,
-      refinement,
+      previousSubject: isFirstReply ? undefined : draft.subject ?? undefined,
+      previousBody: isFirstReply ? undefined : draft.body ?? undefined,
+      refinement: isFirstReply ? undefined : refinement,
+      originalMail: linkedInbox
+        ? { subject: linkedInbox.subject, body: linkedInbox.body_preview }
+        : undefined,
     });
     const updated = await updateDraft(draft.id, {
       subject: drafted.subject,
       body: drafted.body,
       status: 'drafting',
+      ...(isFirstReply ? { instruction: refinement } : {}),
     });
     await refreshMailPreview(chatId, updated);
   } catch (err) {
@@ -751,6 +771,57 @@ async function applyMailAttachment(
   } catch (err) {
     await notifyError(chatId, err);
   }
+}
+
+// Linking from inbox to draft is one-to-one; we look up the linked inbox
+// row when generating/sending so the AI sees the original mail and the
+// outbound headers carry In-Reply-To / References.
+async function findInboxForDraft(
+  draftId: string,
+): Promise<MailInbox | null> {
+  const { db } = await import('@/lib/db');
+  const { mailInbox } = await import('@/lib/db/schema');
+  const { eq } = await import('drizzle-orm');
+  const rows = await db
+    .select()
+    .from(mailInbox)
+    .where(eq(mailInbox.replied_draft_id, draftId))
+    .limit(1);
+  return rows[0] ?? null;
+}
+
+async function handleMailReply(
+  chatId: number,
+  inboxId: string,
+): Promise<void> {
+  const inbox = await getInboxById(inboxId);
+  if (!inbox) {
+    await sendMessage({ chatId, text: `❓ Mail bulunamadı: ${inboxId}` });
+    return;
+  }
+  await cancelActiveDrafts(chatId);
+  const subject = inbox.subject ?? '';
+  const replySubject = subject.startsWith('Re:') ? subject : `Re: ${subject}`;
+  const draft = await createDraft({
+    to_email: inbox.from_email,
+    subject: replySubject,
+    body: null,
+    instruction: '',
+    telegram_chat_id: chatId,
+    status: 'awaiting_regen',
+    in_reply_to_message_id: inbox.message_id ?? null,
+    mail_references: inbox.message_id ?? null,
+  });
+  await setRepliedDraftId(inbox.id, draft.id);
+  await sendMessage({
+    chatId,
+    text: [
+      `💬 Cevap: ${inbox.from_name ?? inbox.from_email}`,
+      `Konu: ${replySubject}`,
+      '',
+      'Bu maile ne yazayım? (1-2 cümle yön ver, AI taslak hazırlasın)',
+    ].join('\n'),
+  });
 }
 
 async function handleMailCancel(
@@ -899,6 +970,8 @@ async function handleCallback(
       await handleMailAttachPrompt(chatId, postId);
     } else if (action === 'mail_cancel' && postId) {
       await handleMailCancel(chatId, messageId, postId);
+    } else if (action === 'mail_reply' && postId) {
+      await handleMailReply(chatId, postId);
     } else {
       await sendMessage({ chatId, text: `❓ Bilinmeyen aksiyon: ${data}` });
     }

@@ -234,6 +234,8 @@ export const mailDrafts = pgTable(
     status: mailDraftStatus('status').notNull().default('drafting'),
     telegram_chat_id: bigint('telegram_chat_id', { mode: 'number' }).notNull(),
     telegram_preview_msg_id: integer('telegram_preview_msg_id'),
+    in_reply_to_message_id: text('in_reply_to_message_id'),
+    mail_references: text('mail_references'),
     error: text('error'),
     created_at: timestamp('created_at', { withTimezone: true })
       .notNull()
@@ -245,6 +247,32 @@ export const mailDrafts = pgTable(
       t.telegram_chat_id,
       t.status,
     ),
+  }),
+);
+
+// ───── Mail Inbox (Zoho IMAP polled by GitHub Actions every 3 min) ─────
+// We never re-fetch a UID we've stored, so `uid` is the de-dup boundary.
+// `replied_draft_id` links to the outbound draft created from "Cevap yaz".
+export const mailInbox = pgTable(
+  'mail_inbox',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    uid: integer('uid').notNull().unique(),
+    message_id: text('message_id'),
+    from_email: text('from_email').notNull(),
+    from_name: text('from_name'),
+    subject: text('subject'),
+    body_preview: text('body_preview'),
+    received_at: timestamp('received_at', { withTimezone: true }).notNull(),
+    replied_draft_id: uuid('replied_draft_id').references(() => mailDrafts.id, {
+      onDelete: 'set null',
+    }),
+    created_at: timestamp('created_at', { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => ({
+    uidIdx: index('mail_inbox_uid_idx').on(t.uid),
   }),
 );
 

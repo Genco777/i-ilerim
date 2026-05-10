@@ -25,6 +25,8 @@ export interface SendMailOptions {
   subject: string;
   body: string;
   attachments?: { filename: string; mime: string; base64: string }[];
+  inReplyTo?: string;
+  references?: string;
 }
 
 export async function sendMail(
@@ -43,6 +45,8 @@ export async function sendMail(
       content: Buffer.from(a.base64, 'base64'),
       contentType: a.mime,
     })),
+    ...(opts.inReplyTo ? { inReplyTo: opts.inReplyTo } : {}),
+    ...(opts.references ? { references: opts.references } : {}),
   });
   return { messageId: info.messageId };
 }

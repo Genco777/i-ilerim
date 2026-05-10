@@ -20,6 +20,7 @@ export interface GenerateMailDraftInput {
   previousSubject?: string;
   previousBody?: string;
   refinement?: string;
+  originalMail?: { subject: string | null; body: string | null };
 }
 
 export interface MailDraftOutput {
@@ -70,6 +71,13 @@ function userPrompt(input: GenerateMailDraftInput): string {
   const parts: string[] = [];
   parts.push(`Empfänger: ${input.recipient}`);
   parts.push('');
+  if (input.originalMail) {
+    parts.push('Du beantwortest folgende E-Mail des Empfängers:');
+    parts.push(`Betreff: ${input.originalMail.subject ?? '(ohne Betreff)'}`);
+    parts.push('Text:');
+    parts.push(`"""${(input.originalMail.body ?? '').slice(0, 2000)}"""`);
+    parts.push('');
+  }
   parts.push('Anweisung:');
   parts.push(`"""${input.instruction}"""`);
   if (input.previousSubject || input.previousBody) {
