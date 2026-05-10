@@ -52,13 +52,13 @@ export function invoiceFooterKeyboard(draftId: string): InlineKeyboardMarkup {
       [
         {
           text: 'Zahlbar 7 Tage',
-          callback_data: `inv_footer_preset:${draftId}:7tage`,
+          callback_data: `inv_fp:${draftId}:p1`,
         },
       ],
       [
         {
           text: 'Anzahlung 50%',
-          callback_data: `inv_footer_preset:${draftId}:anzahlung50`,
+          callback_data: `inv_fp:${draftId}:p2`,
         },
       ],
       [

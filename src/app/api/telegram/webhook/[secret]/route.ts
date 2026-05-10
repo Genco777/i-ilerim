@@ -883,9 +883,8 @@ async function handleMailCancel(
 // ───── /fatura invoice flow ─────
 
 const FOOTER_PRESETS: Record<string, string> = {
-  '7tage': 'Zahlbar innerhalb von 7 Tagen ohne Abzug.',
-  anzahlung50:
-    'Anzahlung 50% für Design, Restbetrag nach Fertigstellung fällig.',
+  p1: 'Zahlbar innerhalb von 7 Tagen ohne Abzug.',
+  p2: 'Anzahlung 50% für Design, Restbetrag nach Fertigstellung fällig.',
 };
 
 function invoiceToData(inv: Invoice): InvoiceData {
@@ -1711,7 +1710,7 @@ async function handleCallback(
       await handleInvoiceItemMore(chatId, postId);
     } else if (action === 'inv_no_more_items' && postId) {
       await handleInvoiceNoMoreItems(chatId, postId);
-    } else if (action === 'inv_footer_preset' && postId) {
+    } else if (action === 'inv_fp' && postId) {
       const key = rest[0] ?? '';
       await handleInvoiceFooterPreset(chatId, postId, key);
     } else if (action === 'inv_footer_manual' && postId) {
