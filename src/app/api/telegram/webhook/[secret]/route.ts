@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import {
   sendMessage,
   sendPhoto,
+  sendDocument,
   answerCallbackQuery,
   editMessageReplyMarkup,
   editMessageText,
@@ -14,6 +15,43 @@ import {
   replyKeyboard,
 } from '@/lib/telegram/keyboard';
 import { mailPreviewKeyboard } from '@/lib/telegram/mail-keyboard';
+import {
+  invoiceTypeKeyboard,
+  invoiceItemMoreKeyboard,
+  invoiceFooterKeyboard,
+  invoiceNumberKeyboard,
+  invoicePreviewKeyboard,
+  schlussrechnungAnzahlungKeyboard,
+} from '@/lib/telegram/invoice-keyboard';
+import {
+  cancelActiveDrafts as cancelActiveInvoiceDrafts,
+  createDraft as createInvoiceDraft,
+  getActiveDraft as getActiveInvoiceDraft,
+  getInvoice,
+  updateDraft as updateInvoiceDraft,
+  appendItem as appendInvoiceItem,
+  setPendingItem as setInvoicePendingItem,
+  setRecipient as setInvoiceRecipient,
+  markPreview as markInvoicePreview,
+  markSent as markInvoiceSent,
+  markCancelled as markInvoiceCancelled,
+  markDeleted as markInvoiceDeleted,
+  getInvoiceByNumber,
+} from '@/lib/db/queries/invoices';
+import { renderInvoicePdf } from '@/lib/invoice/pdf';
+import { generateInvoiceCoverLetter } from '@/lib/invoice/cover-letter';
+import {
+  formatCents,
+  INVOICE_TYPE_LABEL,
+  todayDDMMYYYY,
+  type InvoiceData,
+  type InvoiceType as InvoiceTypeUnion,
+} from '@/lib/invoice/types';
+import {
+  nextInvoiceNumber,
+  parseInvoiceNumber,
+} from '@/lib/invoice/numbering';
+import type { Invoice } from '@/types';
 import { getBrandKit } from '@/lib/db/queries/brand-kit';
 import {
   generatePost,
@@ -114,6 +152,7 @@ const HELP_TEXT = [
   '  /story <konu>           — IG Story (9:16, sadece IG)',
   '  /raw <metin>            — manuel paylaşım (foto ekle, AI dokunmaz)',
   '  /mail <email> <talimat> — AI yardımıyla mail taslağı + Zoho gönder',
+  '  /fatura                 — adım adım PDF fatura oluştur (DE), müşteriye mail at',
   '  /edit_reply <id> <text> — gelen mesaja taslak cevabı düzenle',
   '  /preview_reply <id>     — taslağı butonlu önizle',
   '  /help                   — bu mesaj',
@@ -841,6 +880,654 @@ async function handleMailCancel(
   }
 }
 
+// ───── /fatura invoice flow ─────
+
+const FOOTER_PRESETS: Record<string, string> = {
+  '7tage': 'Zahlbar innerhalb von 7 Tagen ohne Abzug.',
+  anzahlung50:
+    'Anzahlung 50% für Design, Restbetrag nach Fertigstellung fällig.',
+};
+
+function invoiceToData(inv: Invoice): InvoiceData {
+  if (!inv.recipient) {
+    throw new Error('Invoice has no recipient — cannot render');
+  }
+  return {
+    number: inv.number,
+    type: inv.type,
+    date: inv.date,
+    recipient: {
+      company: inv.recipient.company,
+      name: inv.recipient.name,
+      street: inv.recipient.street,
+      zipCity: inv.recipient.zipCity,
+    },
+    items: inv.items,
+    totalCents: inv.total_cents,
+    footerNote: inv.footer_note,
+  };
+}
+
+function summarizeInvoice(inv: Invoice): string {
+  const recipient = inv.recipient
+    ? [
+        inv.recipient.company,
+        inv.recipient.name,
+        inv.recipient.street,
+        inv.recipient.zipCity,
+      ]
+        .filter((s): s is string => Boolean(s))
+        .join(', ')
+    : '(yok)';
+  const lines = inv.items
+    .map(
+      (it) =>
+        `  • ${it.description} — ${it.quantity}× ${formatCents(it.unitPriceCents)}€ = ${formatCents(it.unitPriceCents * it.quantity)}€`,
+    )
+    .join('\n');
+  return [
+    `🧾 ${INVOICE_TYPE_LABEL[inv.type]} #${inv.number}`,
+    `📅 ${inv.date}`,
+    `👤 ${recipient}`,
+    '',
+    'Kalemler:',
+    lines || '  (yok)',
+    '',
+    `💶 Toplam: ${formatCents(inv.total_cents)}€`,
+    inv.footer_note ? `\n📝 ${inv.footer_note}` : '',
+  ]
+    .filter((s) => s.length > 0)
+    .join('\n');
+}
+
+async function handleFaturaCommand(chatId: number): Promise<void> {
+  await cancelActiveInvoiceDrafts(chatId);
+  await createInvoiceDraft({ chatId });
+  await sendMessage({
+    chatId,
+    text: '🧾 Yeni fatura — tipini seç:',
+    replyMarkup: invoiceTypeKeyboard(),
+  });
+}
+
+async function handleInvoiceTypeChoice(
+  chatId: number,
+  messageId: number,
+  type: InvoiceTypeUnion,
+): Promise<void> {
+  const draft = await getActiveInvoiceDraft(chatId);
+  if (!draft) {
+    await sendMessage({ chatId, text: '❓ Aktif fatura taslağı yok. /fatura yaz.' });
+    return;
+  }
+
+  if (type === 'schlussrechnung') {
+    await updateInvoiceDraft(draft.id, {
+      type,
+      current_step: 'anzahlung_choice',
+    });
+    const prompt = `🧾 ${INVOICE_TYPE_LABEL[type]} seçildi.\n\nÖnceki Teilrechnung'dan indirilecek bir tutar var mı?`;
+    try {
+      await editMessageText({
+        chatId,
+        messageId,
+        text: prompt,
+        replyMarkup: schlussrechnungAnzahlungKeyboard(draft.id),
+      });
+    } catch {
+      await sendMessage({
+        chatId,
+        text: prompt,
+        replyMarkup: schlussrechnungAnzahlungKeyboard(draft.id),
+      });
+    }
+    return;
+  }
+
+  await updateInvoiceDraft(draft.id, {
+    type,
+    current_step: 'recipient_name',
+  });
+  try {
+    await editMessageText({
+      chatId,
+      messageId,
+      text: `🧾 ${INVOICE_TYPE_LABEL[type]} seçildi.\n\nMüşteri (sadece kişi adı yaz, şirket varsa "Şirket / Kişi Adı" formatında):`,
+    });
+  } catch {
+    await sendMessage({
+      chatId,
+      text: 'Müşteri (sadece kişi adı, şirket varsa "Şirket / Kişi Adı" formatında):',
+    });
+  }
+}
+
+async function handleAnzahlungAdd(
+  chatId: number,
+  draftId: string,
+): Promise<void> {
+  await updateInvoiceDraft(draftId, { current_step: 'anzahlung_amount' });
+  await sendMessage({
+    chatId,
+    text: 'Önceki ödeme tutarı (€)? Sadece pozitif sayı yaz, otomatik düşülecek:\nÖrnek: 350 ya da 199,90',
+  });
+}
+
+async function handleAnzahlungSkip(
+  chatId: number,
+  draftId: string,
+): Promise<void> {
+  await updateInvoiceDraft(draftId, { current_step: 'recipient_name' });
+  await sendMessage({
+    chatId,
+    text: 'Müşteri (sadece kişi adı, şirket varsa "Şirket / Kişi Adı" formatında):',
+  });
+}
+
+function parseGermanDate(text: string): string | null {
+  const t = text.trim();
+  const m = /^(\d{1,2})[.\-/](\d{1,2})[.\-/](\d{4})$/.exec(t);
+  if (!m || !m[1] || !m[2] || !m[3]) return null;
+  const dd = m[1].padStart(2, '0');
+  const mm = m[2].padStart(2, '0');
+  return `${dd}.${mm}.${m[3]}`;
+}
+
+function parseRecipientNameLine(
+  text: string,
+): { company: string | null; name: string } {
+  if (text.includes('/')) {
+    const idx = text.indexOf('/');
+    const company = text.slice(0, idx).trim();
+    const name = text.slice(idx + 1).trim();
+    return { company: company || null, name: name || company };
+  }
+  return { company: null, name: text.trim() };
+}
+
+function parseAddressLine(
+  text: string,
+): { street: string; zipCity: string } | null {
+  const lastComma = text.lastIndexOf(',');
+  if (lastComma === -1) return null;
+  const street = text.slice(0, lastComma).trim();
+  const zipCity = text.slice(lastComma + 1).trim();
+  if (!street || !zipCity) return null;
+  return { street, zipCity };
+}
+
+function parsePriceCents(s: string): number | null {
+  const cleaned = s.replace(/\s+/g, '').replace(',', '.');
+  const n = Number(cleaned);
+  if (!Number.isFinite(n) || n < 0) return null;
+  return Math.round(n * 100);
+}
+
+function parseQuantity(s: string): number | null {
+  const t = s.trim().toLowerCase();
+  if (t === '' || t === 'atla' || t === 'skip') return 1;
+  const n = Number(t);
+  if (!Number.isInteger(n) || n < 1) return null;
+  return n;
+}
+
+async function moveToFooterStep(
+  chatId: number,
+  draftId: string,
+): Promise<void> {
+  await updateInvoiceDraft(draftId, { current_step: 'footer' });
+  await sendMessage({
+    chatId,
+    text: 'Alt not (sayfa ortasında çıkar) — bir tane seç ya da yaz:',
+    replyMarkup: invoiceFooterKeyboard(draftId),
+  });
+}
+
+async function moveToNumberStep(
+  chatId: number,
+  draftId: string,
+): Promise<void> {
+  const auto = await nextInvoiceNumber();
+  const draft = await getActiveInvoiceDraft(chatId);
+  if (!draft) return;
+  const merged = {
+    ...(draft.pending_item ?? {}),
+    suggestedNumber: auto,
+  };
+  await updateInvoiceDraft(draftId, {
+    current_step: 'number',
+    pending_item: merged,
+  });
+  await sendMessage({
+    chatId,
+    text: `Fatura no önerisi: ${auto}\n(önceki son fatura takip edilerek atandı)`,
+    replyMarkup: invoiceNumberKeyboard(draftId, auto),
+  });
+}
+
+async function buildAndPreviewInvoice(
+  chatId: number,
+  draft: Invoice,
+): Promise<void> {
+  await sendMessage({ chatId, text: '📄 PDF oluşturuluyor…' });
+  try {
+    const data = invoiceToData(draft);
+    const pdf = await renderInvoicePdf(data);
+    const sent = await sendDocument({
+      chatId,
+      document: pdf,
+      filename: `Rechnung_${draft.number}.pdf`,
+      mime: 'application/pdf',
+      caption: summarizeInvoice(draft).slice(0, 1024),
+    });
+    await sendMessage({
+      chatId,
+      text: 'Şimdi ne yapayım?',
+      replyMarkup: invoicePreviewKeyboard(draft.id),
+    });
+    await markInvoicePreview(draft.id);
+    await updateInvoiceDraft(draft.id, {
+      telegram_preview_msg_id: sent.message_id,
+    });
+  } catch (err) {
+    await notifyError(chatId, err);
+  }
+}
+
+async function handleInvoiceText(
+  chatId: number,
+  draft: Invoice,
+  text: string,
+): Promise<boolean> {
+  const step = draft.current_step;
+
+  if (step === 'anzahlung_amount') {
+    const cents = parsePriceCents(text);
+    if (cents === null || cents === 0) {
+      await sendMessage({
+        chatId,
+        text: '⚠️ Geçerli bir tutar yaz (pozitif sayı). Örnek: 350 veya 199,90',
+      });
+      return true;
+    }
+    await setInvoicePendingItem(draft.id, { unitPriceCents: -cents });
+    await updateInvoiceDraft(draft.id, { current_step: 'anzahlung_date' });
+    await sendMessage({
+      chatId,
+      text: 'Önceki Teilrechnung tarihi? Format: DD.MM.YYYY\nÖrnek: 20.04.2026',
+    });
+    return true;
+  }
+
+  if (step === 'anzahlung_date') {
+    const date = parseGermanDate(text);
+    if (!date) {
+      await sendMessage({
+        chatId,
+        text: '⚠️ Tarih formatı yanlış. Örnek: 20.04.2026',
+      });
+      return true;
+    }
+    const cents = draft.pending_item?.unitPriceCents;
+    if (typeof cents !== 'number') {
+      await sendMessage({
+        chatId,
+        text: '🔴 İç hata: ödeme tutarı kaybolmuş. /fatura ile yeniden başla.',
+      });
+      return true;
+    }
+    await appendInvoiceItem(draft.id, {
+      description: `abzüglich bereits geleisteter Anzahlung vom ${date}`,
+      unitPriceCents: cents,
+      quantity: 1,
+    });
+    await setInvoicePendingItem(draft.id, {});
+    await updateInvoiceDraft(draft.id, { current_step: 'recipient_name' });
+    await sendMessage({
+      chatId,
+      text: '✅ Anzahlung indirimi eklendi.\n\nMüşteri (sadece kişi adı, şirket varsa "Şirket / Kişi Adı" formatında):',
+    });
+    return true;
+  }
+
+  if (step === 'recipient_name') {
+    const parsed = parseRecipientNameLine(text);
+    if (!parsed.name) {
+      await sendMessage({ chatId, text: 'Geçerli bir isim yaz.' });
+      return true;
+    }
+    await setInvoiceRecipient(draft.id, {
+      company: parsed.company,
+      name: parsed.name,
+      street: '',
+      zipCity: '',
+    });
+    await updateInvoiceDraft(draft.id, { current_step: 'recipient_address' });
+    await sendMessage({
+      chatId,
+      text: 'Adres? Format: Sokak No, PLZ Şehir\nÖrnek: Hauptstraße 5, 60311 Frankfurt',
+    });
+    return true;
+  }
+
+  if (step === 'recipient_address') {
+    const parsed = parseAddressLine(text);
+    if (!parsed) {
+      await sendMessage({
+        chatId,
+        text: '⚠️ Adres formatı yanlış. Bir virgül ile sokak ve PLZ Şehir\'i ayır:\nHauptstraße 5, 60311 Frankfurt',
+      });
+      return true;
+    }
+    if (!draft.recipient) {
+      await sendMessage({
+        chatId,
+        text: '🔴 İç hata: alıcı kaydı yok. /fatura ile yeniden başla.',
+      });
+      return true;
+    }
+    await setInvoiceRecipient(draft.id, {
+      company: draft.recipient.company,
+      name: draft.recipient.name,
+      street: parsed.street,
+      zipCity: parsed.zipCity,
+    });
+    await updateInvoiceDraft(draft.id, {
+      current_step: 'item_description',
+      date: draft.date || todayDDMMYYYY(),
+    });
+    await sendMessage({ chatId, text: 'Hizmet/ürün açıklaması?' });
+    return true;
+  }
+
+  if (step === 'item_description') {
+    const desc = text.trim();
+    if (!desc) {
+      await sendMessage({ chatId, text: 'Boş açıklama olmaz.' });
+      return true;
+    }
+    await setInvoicePendingItem(draft.id, { description: desc });
+    await updateInvoiceDraft(draft.id, { current_step: 'item_price' });
+    await sendMessage({
+      chatId,
+      text: 'Tutar (€)? Sadece sayı yaz (virgül veya nokta olabilir):\nÖrnek: 300 ya da 199,90',
+    });
+    return true;
+  }
+
+  if (step === 'item_price') {
+    const cents = parsePriceCents(text);
+    if (cents === null) {
+      await sendMessage({
+        chatId,
+        text: '⚠️ Geçerli bir tutar yaz. Örnek: 300 veya 199,90',
+      });
+      return true;
+    }
+    const merged = {
+      ...(draft.pending_item ?? {}),
+      unitPriceCents: cents,
+    };
+    await setInvoicePendingItem(draft.id, merged);
+    await updateInvoiceDraft(draft.id, { current_step: 'item_quantity' });
+    await sendMessage({
+      chatId,
+      text: 'Adet (varsayılan 1)? Sayı yaz veya "atla":',
+    });
+    return true;
+  }
+
+  if (step === 'item_quantity') {
+    const qty = parseQuantity(text);
+    if (qty === null) {
+      await sendMessage({
+        chatId,
+        text: '⚠️ 1 ya da daha büyük bir sayı yaz. "atla" yazabilirsin.',
+      });
+      return true;
+    }
+    const pending = draft.pending_item;
+    if (
+      !pending?.description ||
+      typeof pending.unitPriceCents !== 'number'
+    ) {
+      await sendMessage({
+        chatId,
+        text: '🔴 İç hata: kalem bilgileri eksik. /fatura ile yeniden başla.',
+      });
+      return true;
+    }
+    await appendInvoiceItem(draft.id, {
+      description: pending.description,
+      unitPriceCents: pending.unitPriceCents,
+      quantity: qty,
+    });
+    await updateInvoiceDraft(draft.id, { current_step: 'item_more' });
+    await sendMessage({
+      chatId,
+      text: '✅ Kalem eklendi. Başka kalem var mı?',
+      replyMarkup: invoiceItemMoreKeyboard(draft.id),
+    });
+    return true;
+  }
+
+  if (step === 'footer_manual') {
+    const note = text.trim();
+    await updateInvoiceDraft(draft.id, {
+      footer_note: note || null,
+    });
+    await moveToNumberStep(chatId, draft.id);
+    return true;
+  }
+
+  if (step === 'number_manual') {
+    const trimmed = text.trim();
+    const parsed = parseInvoiceNumber(trimmed);
+    if (!parsed) {
+      await sendMessage({
+        chatId,
+        text: '⚠️ Format: 2026-NNN (4 hane yıl, 3 hane sayı)\nÖrnek: 2026-051',
+      });
+      return true;
+    }
+    const existing = await getInvoiceByNumber(trimmed);
+    if (existing && existing.id !== draft.id) {
+      await sendMessage({
+        chatId,
+        text: `⚠️ ${trimmed} numaralı fatura zaten var. Başka bir numara yaz.`,
+      });
+      return true;
+    }
+    const finalDraft = await updateInvoiceDraft(draft.id, {
+      number: trimmed,
+      current_step: 'confirm',
+    });
+    await buildAndPreviewInvoice(chatId, finalDraft);
+    return true;
+  }
+
+  return false;
+}
+
+async function handleInvoiceItemMore(
+  chatId: number,
+  draftId: string,
+): Promise<void> {
+  await updateInvoiceDraft(draftId, { current_step: 'item_description' });
+  await sendMessage({ chatId, text: 'Yeni kalemin açıklaması?' });
+}
+
+async function handleInvoiceNoMoreItems(
+  chatId: number,
+  draftId: string,
+): Promise<void> {
+  await moveToFooterStep(chatId, draftId);
+}
+
+async function handleInvoiceFooterPreset(
+  chatId: number,
+  draftId: string,
+  key: string,
+): Promise<void> {
+  const note = FOOTER_PRESETS[key] ?? null;
+  await updateInvoiceDraft(draftId, { footer_note: note });
+  await moveToNumberStep(chatId, draftId);
+}
+
+async function handleInvoiceFooterManual(
+  chatId: number,
+  draftId: string,
+): Promise<void> {
+  await updateInvoiceDraft(draftId, { current_step: 'footer_manual' });
+  await sendMessage({ chatId, text: 'Notu yaz (tek satırlık serbest metin):' });
+}
+
+async function handleInvoiceFooterSkip(
+  chatId: number,
+  draftId: string,
+): Promise<void> {
+  await updateInvoiceDraft(draftId, { footer_note: null });
+  await moveToNumberStep(chatId, draftId);
+}
+
+async function handleInvoiceNumberAuto(
+  chatId: number,
+  draftId: string,
+): Promise<void> {
+  const draft = await getInvoice(draftId);
+  if (!draft) {
+    await sendMessage({ chatId, text: `❓ Taslak bulunamadı: ${draftId}` });
+    return;
+  }
+  const auto = draft.pending_item?.suggestedNumber ?? (await nextInvoiceNumber());
+  const existing = await getInvoiceByNumber(auto);
+  const finalNumber =
+    existing && existing.id !== draft.id ? await nextInvoiceNumber() : auto;
+  const updated = await updateInvoiceDraft(draftId, {
+    number: finalNumber,
+    current_step: 'confirm',
+  });
+  await buildAndPreviewInvoice(chatId, updated);
+}
+
+async function handleInvoiceNumberManual(
+  chatId: number,
+  draftId: string,
+): Promise<void> {
+  await updateInvoiceDraft(draftId, { current_step: 'number_manual' });
+  await sendMessage({
+    chatId,
+    text: 'Hangi numara olsun? Format: 2026-NNN',
+  });
+}
+
+async function handleInvoiceCancel(chatId: number): Promise<void> {
+  const cancelled = await cancelActiveInvoiceDrafts(chatId);
+  await sendMessage({
+    chatId,
+    text:
+      cancelled > 0
+        ? `✗ ${cancelled} fatura taslağı iptal edildi.`
+        : 'Aktif fatura taslağı yoktu.',
+  });
+}
+
+async function handleInvoiceDelete(
+  chatId: number,
+  invoiceId: string,
+): Promise<void> {
+  const inv = await getInvoice(invoiceId);
+  if (!inv) {
+    await sendMessage({ chatId, text: `❓ Fatura bulunamadı: ${invoiceId}` });
+    return;
+  }
+  await markInvoiceDeleted(invoiceId);
+  await sendMessage({
+    chatId,
+    text: `🗑 ${inv.number} silindi.\n(Numara tekrar kullanılmaz; bir sonraki fatura ${(parseInvoiceNumber(inv.number)?.seq ?? 0) + 1}'de olacak.)`,
+  });
+}
+
+async function handleInvoiceSave(
+  chatId: number,
+  invoiceId: string,
+): Promise<void> {
+  const inv = await getInvoice(invoiceId);
+  if (!inv) {
+    await sendMessage({ chatId, text: `❓ Fatura bulunamadı: ${invoiceId}` });
+    return;
+  }
+  await markInvoiceSent(invoiceId);
+  await sendMessage({
+    chatId,
+    text: `💾 ${inv.number} kaydedildi. Mail atılmadı.`,
+  });
+}
+
+async function handleInvoiceRestart(chatId: number): Promise<void> {
+  await cancelActiveInvoiceDrafts(chatId);
+  await handleFaturaCommand(chatId);
+}
+
+async function handleInvoiceSendMail(
+  chatId: number,
+  invoiceId: string,
+): Promise<void> {
+  const inv = await getInvoice(invoiceId);
+  if (!inv) {
+    await sendMessage({ chatId, text: `❓ Fatura bulunamadı: ${invoiceId}` });
+    return;
+  }
+  if (!inv.recipient) {
+    await sendMessage({
+      chatId,
+      text: '🔴 Faturada alıcı yok — mail atılamaz.',
+    });
+    return;
+  }
+
+  await sendMessage({
+    chatId,
+    text: '📧 Mail hazırlanıyor… (PDF eklenecek, AI Almanca metin yazıyor)',
+  });
+
+  try {
+    const brandKit = await getBrandKit();
+    const data = invoiceToData(inv);
+    const [pdfBuf, cover] = await Promise.all([
+      renderInvoicePdf(data),
+      generateInvoiceCoverLetter(data, brandKit),
+    ]);
+
+    // Reuse the active mail-draft pipeline (preview + buttons).
+    await cancelActiveDrafts(chatId);
+
+    // Pre-fill the mail draft with the cover letter; recipient prompt comes
+    // first because we don't know the customer's email address yet.
+    await sendMessage({
+      chatId,
+      text: 'Müşterinin email adresini yaz (sadece adres):',
+    });
+    // Stash the prepared payload in a transient draft via instruction
+    // marker so that the next plain-text turn (handled below) can finalize.
+    const prep = await createDraft({
+      to_email: 'pending@invoice.local',
+      subject: cover.subject,
+      body: cover.body,
+      instruction: `__INVOICE_PENDING__:${inv.id}`,
+      telegram_chat_id: chatId,
+      status: 'awaiting_regen',
+    });
+    await addAttachment(prep.id, {
+      filename: `Rechnung_${inv.number}.pdf`,
+      mime: 'application/pdf',
+      base64: pdfBuf.toString('base64'),
+    });
+  } catch (err) {
+    await notifyError(chatId, err);
+  }
+}
+
 async function handleCommand(
   chatId: number,
   messageId: number,
@@ -911,9 +1598,46 @@ async function handleCommand(
     return;
   }
 
-  // No command matched: check if an active mail draft is awaiting regen input.
+  if (trimmed.startsWith('/fatura')) {
+    await handleFaturaCommand(chatId);
+    return;
+  }
+
+  // Active invoice draft: drive the multi-step state machine first.
+  const activeInvoice = await getActiveInvoiceDraft(chatId);
+  if (activeInvoice && activeInvoice.status === 'collecting') {
+    const handled = await handleInvoiceText(chatId, activeInvoice, trimmed);
+    if (handled) return;
+  }
+
+  // Active mail draft awaiting regen — including the special pending-invoice
+  // flow where the user's next message is the customer's email address.
   const activeDraft = await getActiveDraft(chatId);
   if (activeDraft && activeDraft.status === 'awaiting_regen') {
+    if (activeDraft.instruction.startsWith('__INVOICE_PENDING__:')) {
+      const looksLikeEmail = /[\w.+-]+@[\w-]+\.[\w.-]+/.test(trimmed);
+      if (!looksLikeEmail) {
+        await sendMessage({
+          chatId,
+          text: '⚠️ Geçerli bir email adresi yaz (sadece adres):',
+        });
+        return;
+      }
+      const updated = await updateDraft(activeDraft.id, {
+        to_email: trimmed.trim(),
+        instruction: '',
+        status: 'drafting',
+      });
+      const sent = await sendMessage({
+        chatId,
+        text: formatMailPreview(updated),
+        replyMarkup: mailPreviewKeyboard(updated.id),
+      });
+      await updateDraft(updated.id, {
+        telegram_preview_msg_id: sent.message_id,
+      });
+      return;
+    }
     await applyMailRegen(chatId, activeDraft, trimmed);
     return;
   }
@@ -972,6 +1696,40 @@ async function handleCallback(
       await handleMailCancel(chatId, messageId, postId);
     } else if (action === 'mail_reply' && postId) {
       await handleMailReply(chatId, postId);
+    } else if (action === 'inv_type' && postId) {
+      const t = postId as InvoiceTypeUnion;
+      if (t === 'rechnung' || t === 'teilrechnung' || t === 'schlussrechnung') {
+        await handleInvoiceTypeChoice(chatId, messageId, t);
+      }
+    } else if (action === 'inv_cancel') {
+      await handleInvoiceCancel(chatId);
+    } else if (action === 'inv_anzahlung_add' && postId) {
+      await handleAnzahlungAdd(chatId, postId);
+    } else if (action === 'inv_anzahlung_skip' && postId) {
+      await handleAnzahlungSkip(chatId, postId);
+    } else if (action === 'inv_item_more' && postId) {
+      await handleInvoiceItemMore(chatId, postId);
+    } else if (action === 'inv_no_more_items' && postId) {
+      await handleInvoiceNoMoreItems(chatId, postId);
+    } else if (action === 'inv_footer_preset' && postId) {
+      const key = rest[0] ?? '';
+      await handleInvoiceFooterPreset(chatId, postId, key);
+    } else if (action === 'inv_footer_manual' && postId) {
+      await handleInvoiceFooterManual(chatId, postId);
+    } else if (action === 'inv_footer_skip' && postId) {
+      await handleInvoiceFooterSkip(chatId, postId);
+    } else if (action === 'inv_number_auto' && postId) {
+      await handleInvoiceNumberAuto(chatId, postId);
+    } else if (action === 'inv_number_manual' && postId) {
+      await handleInvoiceNumberManual(chatId, postId);
+    } else if (action === 'inv_save' && postId) {
+      await handleInvoiceSave(chatId, postId);
+    } else if (action === 'inv_restart') {
+      await handleInvoiceRestart(chatId);
+    } else if (action === 'inv_delete' && postId) {
+      await handleInvoiceDelete(chatId, postId);
+    } else if (action === 'inv_send_mail' && postId) {
+      await handleInvoiceSendMail(chatId, postId);
     } else {
       await sendMessage({ chatId, text: `❓ Bilinmeyen aksiyon: ${data}` });
     }

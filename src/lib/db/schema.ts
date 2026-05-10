@@ -64,6 +64,20 @@ export const mailDraftStatus = pgEnum('mail_draft_status', [
   'cancelled',
 ]);
 
+export const invoiceStatus = pgEnum('invoice_status', [
+  'collecting',
+  'preview',
+  'sent',
+  'cancelled',
+  'deleted',
+]);
+
+export const invoiceType = pgEnum('invoice_type', [
+  'rechnung',
+  'teilrechnung',
+  'schlussrechnung',
+]);
+
 // ───── Posts ─────
 export const posts = pgTable('posts', {
   id: uuid('id').primaryKey().defaultRandom(),
@@ -275,6 +289,62 @@ export const mailInbox = pgTable(
   },
   (t) => ({
     folderUidIdx: uniqueIndex('mail_inbox_folder_uid_idx').on(t.folder, t.uid),
+  }),
+);
+
+// ───── Invoices (Telegram /fatura — collected step-by-step, PDF rendered) ─────
+// Single user system: at most one row with status='collecting' per chat.
+// `pending_item` holds a partial item being assembled across multiple steps;
+// completed items are appended to `items`. Numbers from rows with
+// status='deleted' are NOT auto-reused — the next number always strictly
+// monotonically increases.
+export interface InvoiceRecipient {
+  company: string | null;
+  name: string;
+  street: string;
+  zipCity: string;
+}
+
+export interface InvoiceLineItem {
+  description: string;
+  unitPriceCents: number;
+  quantity: number;
+}
+
+export interface InvoicePendingItem {
+  description?: string;
+  unitPriceCents?: number;
+  quantity?: number;
+  suggestedNumber?: string;
+}
+
+export const invoices = pgTable(
+  'invoices',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    number: text('number').notNull().unique(),
+    type: invoiceType('type').notNull(),
+    date: text('date').notNull(),
+    recipient: jsonb('recipient').$type<InvoiceRecipient | null>(),
+    items: jsonb('items').$type<InvoiceLineItem[]>().default([]).notNull(),
+    total_cents: integer('total_cents').default(0).notNull(),
+    footer_note: text('footer_note'),
+    status: invoiceStatus('status').notNull().default('collecting'),
+    current_step: text('current_step'),
+    pending_item: jsonb('pending_item').$type<InvoicePendingItem | null>(),
+    pdf_blob_url: text('pdf_blob_url'),
+    telegram_chat_id: bigint('telegram_chat_id', { mode: 'number' }).notNull(),
+    telegram_preview_msg_id: integer('telegram_preview_msg_id'),
+    created_at: timestamp('created_at', { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    sent_at: timestamp('sent_at', { withTimezone: true }),
+  },
+  (t) => ({
+    chatStatusIdx: index('invoices_chat_status_idx').on(
+      t.telegram_chat_id,
+      t.status,
+    ),
   }),
 );
 

@@ -156,3 +156,43 @@ export async function downloadFile(filePath: string): Promise<Buffer> {
   }
   return Buffer.from(await res.arrayBuffer());
 }
+
+interface SendDocumentOptions {
+  chatId: number | string;
+  document: Buffer;
+  filename: string;
+  mime?: string;
+  caption?: string;
+  replyMarkup?: InlineKeyboardMarkup;
+}
+
+export async function sendDocument(
+  opts: SendDocumentOptions,
+): Promise<SendMessageResult> {
+  const form = new FormData();
+  form.set('chat_id', String(opts.chatId));
+  if (opts.caption) form.set('caption', opts.caption);
+  if (opts.replyMarkup) {
+    form.set('reply_markup', JSON.stringify(opts.replyMarkup));
+  }
+  const blob = new Blob([new Uint8Array(opts.document)], {
+    type: opts.mime ?? 'application/octet-stream',
+  });
+  form.set('document', blob, opts.filename);
+
+  const res = await fetch(`${API_BASE}${token()}/sendDocument`, {
+    method: 'POST',
+    body: form,
+  });
+  const json = (await res.json()) as {
+    ok: boolean;
+    result?: SendMessageResult;
+    description?: string;
+  };
+  if (!res.ok || !json.ok) {
+    throw new Error(
+      `Telegram sendDocument failed: ${json.description ?? res.status}`,
+    );
+  }
+  return json.result as SendMessageResult;
+}
