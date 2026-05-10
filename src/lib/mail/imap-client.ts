@@ -16,40 +16,18 @@ export interface NormalizedIncomingMail {
   receivedAt: Date;
 }
 
-const SKIP_NAME_LOWER = new Set([
-  'sent',
-  'sent items',
-  'sent messages',
-  'sent mail',
-  'drafts',
-  'draft',
-  'trash',
-  'deleted',
-  'deleted items',
-  'deleted messages',
-  'outbox',
-  'templates',
-  'archive',
-  'snoozed',
-  // Turkish (Zoho exposes localized folder paths via IMAP)
-  'şablonlar',
-  'sablonlar',
-  'ertelendi',
-  'gönderilen',
-  'gönderilenler',
-  'gonderilen',
-  'gonderilenler',
-  'taslaklar',
-  'çöp',
-  'cop',
-  'çöp kutusu',
-  'cop kutusu',
-  'arşiv',
-  'arsiv',
-  'giden kutusu',
+// Whitelist: only these folders are polled. Everything else is skipped.
+// Names matched case-insensitively against the last path segment.
+const ALLOW_NAME_LOWER = new Set([
+  'inbox',
+  'gelen kutusu',
+  'posteingang',
+  'spam',
+  'junk',
+  'istenmeyen posta',
+  'newsletter',
+  'notification',
 ]);
-
-const SKIP_SPECIAL_USE = new Set(['\\Sent', '\\Drafts', '\\Trash']);
 
 function lastPathSegment(path: string): string {
   const parts = path.split(/[/.]/);
@@ -57,11 +35,8 @@ function lastPathSegment(path: string): string {
 }
 
 function shouldSkip(box: ListResponse): boolean {
-  if (box.specialUse && SKIP_SPECIAL_USE.has(box.specialUse)) return true;
   const leaf = lastPathSegment(box.path).toLowerCase();
-  if (SKIP_NAME_LOWER.has(leaf)) return true;
-  if (leaf.startsWith('sent ')) return true;
-  return false;
+  return !ALLOW_NAME_LOWER.has(leaf);
 }
 
 function buildClient(): ImapFlow {
