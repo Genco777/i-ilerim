@@ -1509,18 +1509,22 @@ async function handleInvoiceSendMail(
     });
     // Stash the prepared payload in a transient draft via instruction
     // marker so that the next plain-text turn (handled below) can finalize.
-    const prep = await createDraft({
+    // Attachments inline at create time — addAttachment would override
+    // status back to 'drafting' and break the email-prompt intercept.
+    await createDraft({
       to_email: 'pending@invoice.local',
       subject: cover.subject,
       body: cover.body,
       instruction: `__INVOICE_PENDING__:${inv.id}`,
       telegram_chat_id: chatId,
       status: 'awaiting_regen',
-    });
-    await addAttachment(prep.id, {
-      filename: `Rechnung_${inv.number}.pdf`,
-      mime: 'application/pdf',
-      base64: pdfBuf.toString('base64'),
+      attachments: [
+        {
+          filename: `Rechnung_${inv.number}.pdf`,
+          mime: 'application/pdf',
+          base64: pdfBuf.toString('base64'),
+        },
+      ],
     });
   } catch (err) {
     await notifyError(chatId, err);
