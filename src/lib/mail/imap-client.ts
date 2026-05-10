@@ -157,24 +157,40 @@ async function pollFolder(
   }
 }
 
-export async function fetchNewMail(): Promise<NormalizedIncomingMail[]> {
+export interface FetchResult {
+  mails: NormalizedIncomingMail[];
+  polledFolders: string[];
+  skippedFolders: string[];
+  errorFolders: { folder: string; error: string }[];
+}
+
+export async function fetchNewMail(): Promise<FetchResult> {
   const client = buildClient();
   await client.connect();
 
   try {
     const boxes = await client.list();
-    const polled: NormalizedIncomingMail[] = [];
+    const result: FetchResult = {
+      mails: [],
+      polledFolders: [],
+      skippedFolders: [],
+      errorFolders: [],
+    };
     for (const box of boxes) {
-      if (shouldSkip(box)) continue;
-      try {
-        const items = await pollFolder(client, box.path);
-        for (const item of items) polled.push(item);
-      } catch {
-        // Skip a folder that fails to open (e.g. \Noselect parents).
+      if (shouldSkip(box)) {
+        result.skippedFolders.push(box.path);
         continue;
       }
+      try {
+        const items = await pollFolder(client, box.path);
+        result.polledFolders.push(box.path);
+        for (const item of items) result.mails.push(item);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        result.errorFolders.push({ folder: box.path, error: msg });
+      }
     }
-    return polled;
+    return result;
   } finally {
     await client.logout().catch(() => {
       /* swallow */

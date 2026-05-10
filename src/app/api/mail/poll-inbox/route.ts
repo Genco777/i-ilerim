@@ -63,18 +63,22 @@ export async function GET(req: Request): Promise<NextResponse> {
   let fetched = 0;
   let notified = 0;
 
-  let mails;
+  let result;
   try {
-    mails = await fetchNewMail();
+    result = await fetchNewMail();
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     await logFailure('mail_imap_fetch', {}, msg);
     return NextResponse.json({ ok: false, error: msg }, { status: 500 });
   }
 
-  fetched = mails.length;
+  for (const folder of result.polledFolders) {
+    bump(perFolder, folder);
+  }
 
-  for (const mail of mails) {
+  fetched = result.mails.length;
+
+  for (const mail of result.mails) {
     const stat = bump(perFolder, mail.folder);
     stat.fetched++;
     try {
@@ -118,6 +122,9 @@ export async function GET(req: Request): Promise<NextResponse> {
     fetched,
     notified,
     perFolder,
+    polledFolders: result.polledFolders,
+    skippedFolders: result.skippedFolders,
+    errorFolders: result.errorFolders,
     errors,
   });
 }
