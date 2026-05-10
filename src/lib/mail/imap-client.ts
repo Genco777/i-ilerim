@@ -30,6 +30,23 @@ const SKIP_NAME_LOWER = new Set([
   'outbox',
   'templates',
   'archive',
+  'snoozed',
+  // Turkish (Zoho exposes localized folder paths via IMAP)
+  'şablonlar',
+  'sablonlar',
+  'ertelendi',
+  'gönderilen',
+  'gönderilenler',
+  'gonderilen',
+  'gonderilenler',
+  'taslaklar',
+  'çöp',
+  'cop',
+  'çöp kutusu',
+  'cop kutusu',
+  'arşiv',
+  'arsiv',
+  'giden kutusu',
 ]);
 
 const SKIP_SPECIAL_USE = new Set(['\\Sent', '\\Drafts', '\\Trash']);

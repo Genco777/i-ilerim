@@ -21,6 +21,17 @@ function notifyChatId(): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
+const INBOX_LIKE = new Set([
+  'inbox',
+  'gelen kutusu',
+  'posteingang',
+]);
+
+function isInboxLike(folder: string | null | undefined): boolean {
+  if (!folder) return true;
+  return INBOX_LIKE.has(folder.toLowerCase());
+}
+
 function formatBody(inbox: MailInbox): string {
   const fromLine = inbox.from_name
     ? `${inbox.from_name} <${inbox.from_email}>`
@@ -28,10 +39,9 @@ function formatBody(inbox: MailInbox): string {
   const subjectLine = inbox.subject ?? '(konusuz)';
   const preview = (inbox.body_preview ?? '').trim();
   const previewLine = preview.length > 0 ? preview : '(önizleme yok)';
-  const header =
-    inbox.folder && inbox.folder !== 'INBOX'
-      ? `📧 Yeni mail (📁 ${inbox.folder})`
-      : '📧 Yeni mail';
+  const header = isInboxLike(inbox.folder)
+    ? '📧 Yeni mail'
+    : `📧 Yeni mail (📁 ${inbox.folder})`;
   return [
     header,
     `Kimden: ${fromLine}`,
