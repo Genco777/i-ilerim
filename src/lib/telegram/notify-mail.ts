@@ -28,8 +28,12 @@ function formatBody(inbox: MailInbox): string {
   const subjectLine = inbox.subject ?? '(konusuz)';
   const preview = (inbox.body_preview ?? '').trim();
   const previewLine = preview.length > 0 ? preview : '(önizleme yok)';
+  const header =
+    inbox.folder && inbox.folder !== 'INBOX'
+      ? `📧 Yeni mail (📁 ${inbox.folder})`
+      : '📧 Yeni mail';
   return [
-    '📧 Yeni mail',
+    header,
     `Kimden: ${fromLine}`,
     `Konu: ${subjectLine}`,
     '',

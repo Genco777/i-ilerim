@@ -1,15 +1,50 @@
-import { ImapFlow } from 'imapflow';
+import { ImapFlow, type ListResponse } from 'imapflow';
 import { simpleParser, type ParsedMail } from 'mailparser';
-import { getLastSeenUid, getCurrentMaxUid } from '@/lib/db/queries/mail-inbox';
+import {
+  getLastSeenUid,
+  insertInboxMessage,
+} from '@/lib/db/queries/mail-inbox';
 
 export interface NormalizedIncomingMail {
   uid: number;
+  folder: string;
   messageId: string | null;
   fromEmail: string;
   fromName: string | null;
   subject: string | null;
   bodyPreview: string | null;
   receivedAt: Date;
+}
+
+const SKIP_NAME_LOWER = new Set([
+  'sent',
+  'sent items',
+  'sent messages',
+  'sent mail',
+  'drafts',
+  'draft',
+  'trash',
+  'deleted',
+  'deleted items',
+  'deleted messages',
+  'outbox',
+  'templates',
+  'archive',
+]);
+
+const SKIP_SPECIAL_USE = new Set(['\\Sent', '\\Drafts', '\\Trash']);
+
+function lastPathSegment(path: string): string {
+  const parts = path.split(/[/.]/);
+  return parts[parts.length - 1] ?? path;
+}
+
+function shouldSkip(box: ListResponse): boolean {
+  if (box.specialUse && SKIP_SPECIAL_USE.has(box.specialUse)) return true;
+  const leaf = lastPathSegment(box.path).toLowerCase();
+  if (SKIP_NAME_LOWER.has(leaf)) return true;
+  if (leaf.startsWith('sent ')) return true;
+  return false;
 }
 
 function buildClient(): ImapFlow {
@@ -51,94 +86,98 @@ function extractFrom(parsed: ParsedMail): { email: string; name: string | null }
   return { email, name };
 }
 
+async function pollFolder(
+  client: ImapFlow,
+  folder: string,
+): Promise<NormalizedIncomingMail[]> {
+  const lock = await client.getMailboxLock(folder, { readOnly: true });
+  try {
+    const lastSeen = await getLastSeenUid(folder);
+
+    if (lastSeen === null) {
+      const status = await client.status(folder, { uidNext: true });
+      const next = status.uidNext;
+      const sentinel =
+        typeof next === 'number' && next > 1 ? next - 1 : 0;
+      await insertInboxMessage({
+        uid: sentinel,
+        folder,
+        message_id: null,
+        from_email: 'sentinel@first-run.local',
+        from_name: 'First-run sentinel',
+        subject: null,
+        body_preview: null,
+        received_at: new Date(),
+      });
+      return [];
+    }
+
+    const range = `${lastSeen + 1}:*`;
+    const uids = await client.search({ uid: range }, { uid: true });
+    if (!uids || uids.length === 0) return [];
+
+    const results: NormalizedIncomingMail[] = [];
+    for await (const message of client.fetch(
+      { uid: range },
+      { uid: true, envelope: true, source: true, internalDate: true },
+    )) {
+      if (!message.source) continue;
+      let parsed: ParsedMail;
+      try {
+        parsed = await simpleParser(message.source);
+      } catch {
+        continue;
+      }
+
+      const { email, name } = extractFrom(parsed);
+      if (!email) continue;
+
+      const internal = message.internalDate;
+      const receivedAt =
+        parsed.date instanceof Date
+          ? parsed.date
+          : internal instanceof Date
+            ? internal
+            : new Date();
+
+      results.push({
+        uid: Number(message.uid),
+        folder,
+        messageId: parsed.messageId ?? null,
+        fromEmail: email,
+        fromName: name,
+        subject: parsed.subject ?? null,
+        bodyPreview: buildPreview(parsed),
+        receivedAt,
+      });
+    }
+    return results;
+  } finally {
+    lock.release();
+  }
+}
+
 export async function fetchNewMail(): Promise<NormalizedIncomingMail[]> {
   const client = buildClient();
   await client.connect();
 
   try {
-    const lock = await client.getMailboxLock('INBOX', { readOnly: true });
-    try {
-      const lastSeen = await getLastSeenUid();
-
-      // First-run guard: seed last-seen UID with current mailbox max,
-      // skip notifying any pre-existing mail.
-      if (lastSeen === null) {
-        const max = await getCurrentMaxUidFromImap(client);
-        if (max !== null) {
-          await seedFirstRunSentinel(max);
-        }
-        return [];
+    const boxes = await client.list();
+    const polled: NormalizedIncomingMail[] = [];
+    for (const box of boxes) {
+      if (shouldSkip(box)) continue;
+      try {
+        const items = await pollFolder(client, box.path);
+        for (const item of items) polled.push(item);
+      } catch {
+        // Skip a folder that fails to open (e.g. \Noselect parents).
+        continue;
       }
-
-      const range = `${lastSeen + 1}:*`;
-      const uids = await client.search({ uid: range }, { uid: true });
-      if (!uids || uids.length === 0) return [];
-
-      const results: NormalizedIncomingMail[] = [];
-      for await (const message of client.fetch(
-        { uid: range },
-        { uid: true, envelope: true, source: true, internalDate: true },
-      )) {
-        if (!message.source) continue;
-        let parsed: ParsedMail;
-        try {
-          parsed = await simpleParser(message.source);
-        } catch {
-          continue;
-        }
-
-        const { email, name } = extractFrom(parsed);
-        if (!email) continue;
-
-        const internal = message.internalDate;
-        const receivedAt =
-          parsed.date instanceof Date
-            ? parsed.date
-            : internal instanceof Date
-              ? internal
-              : new Date();
-
-        results.push({
-          uid: Number(message.uid),
-          messageId: parsed.messageId ?? null,
-          fromEmail: email,
-          fromName: name,
-          subject: parsed.subject ?? null,
-          bodyPreview: buildPreview(parsed),
-          receivedAt,
-        });
-      }
-      return results;
-    } finally {
-      lock.release();
     }
+    return polled;
   } finally {
     await client.logout().catch(() => {
       /* swallow */
     });
   }
-}
-
-async function getCurrentMaxUidFromImap(
-  client: ImapFlow,
-): Promise<number | null> {
-  const status = await client.status('INBOX', { uidNext: true });
-  const next = status.uidNext;
-  if (typeof next !== 'number' || next <= 1) return null;
-  return next - 1;
-}
-
-// Insert a sentinel inbox row so subsequent polls have a baseline UID.
-// Uses neon directly through the existing query layer.
-async function seedFirstRunSentinel(uid: number): Promise<void> {
-  const { insertInboxMessage } = await import('@/lib/db/queries/mail-inbox');
-  await insertInboxMessage({
-    uid,
-    message_id: null,
-    from_email: 'sentinel@first-run.local',
-    from_name: 'First-run sentinel',
-    subject: null,
-    body_preview: null,
-    received_at: new Date(),
-  });
 }

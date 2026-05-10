@@ -8,6 +8,11 @@ import { failedJobs } from '@/lib/db/schema';
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 
+interface FolderStat {
+  fetched: number;
+  notified: number;
+}
+
 function unauthorized(): NextResponse {
   return new NextResponse('Unauthorized', { status: 401 });
 }
@@ -41,10 +46,20 @@ async function logFailure(
     });
 }
 
+function bump(stats: Record<string, FolderStat>, folder: string): FolderStat {
+  let s = stats[folder];
+  if (!s) {
+    s = { fetched: 0, notified: 0 };
+    stats[folder] = s;
+  }
+  return s;
+}
+
 export async function GET(req: Request): Promise<NextResponse> {
   if (!checkAuth(req)) return unauthorized();
 
   const errors: string[] = [];
+  const perFolder: Record<string, FolderStat> = {};
   let fetched = 0;
   let notified = 0;
 
@@ -60,9 +75,12 @@ export async function GET(req: Request): Promise<NextResponse> {
   fetched = mails.length;
 
   for (const mail of mails) {
+    const stat = bump(perFolder, mail.folder);
+    stat.fetched++;
     try {
       const row = await insertInboxMessage({
         uid: mail.uid,
+        folder: mail.folder,
         message_id: mail.messageId,
         from_email: mail.fromEmail,
         from_name: mail.fromName,
@@ -72,16 +90,25 @@ export async function GET(req: Request): Promise<NextResponse> {
       });
       try {
         await notifyIncomingMail(row);
+        stat.notified++;
         notified++;
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
-        errors.push(`notify uid=${mail.uid}: ${msg}`);
-        await logFailure('mail_inbox_notify', { uid: mail.uid }, msg);
+        errors.push(`notify ${mail.folder}/${mail.uid}: ${msg}`);
+        await logFailure(
+          'mail_inbox_notify',
+          { folder: mail.folder, uid: mail.uid },
+          msg,
+        );
       }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      errors.push(`insert uid=${mail.uid}: ${msg}`);
-      await logFailure('mail_inbox_insert', { uid: mail.uid }, msg);
+      errors.push(`insert ${mail.folder}/${mail.uid}: ${msg}`);
+      await logFailure(
+        'mail_inbox_insert',
+        { folder: mail.folder, uid: mail.uid },
+        msg,
+      );
     }
   }
 
@@ -90,6 +117,7 @@ export async function GET(req: Request): Promise<NextResponse> {
     timestamp: new Date().toISOString(),
     fetched,
     notified,
+    perFolder,
     errors,
   });
 }

@@ -1,19 +1,16 @@
 import { db } from '@/lib/db';
 import { mailInbox } from '@/lib/db/schema';
-import { desc, eq, sql } from 'drizzle-orm';
+import { and, desc, eq, sql } from 'drizzle-orm';
 import type { MailInbox, NewMailInbox } from '@/types';
 
-export async function getLastSeenUid(): Promise<number | null> {
+export async function getLastSeenUid(folder: string): Promise<number | null> {
   const rows = await db
     .select({ max: sql<number | null>`max(${mailInbox.uid})` })
-    .from(mailInbox);
+    .from(mailInbox)
+    .where(eq(mailInbox.folder, folder));
   const row = rows[0];
   if (!row || row.max === null || row.max === undefined) return null;
   return Number(row.max);
-}
-
-export async function getCurrentMaxUid(): Promise<number | null> {
-  return getLastSeenUid();
 }
 
 export async function insertInboxMessage(
@@ -33,11 +30,14 @@ export async function getInboxById(id: string): Promise<MailInbox | null> {
   return rows[0] ?? null;
 }
 
-export async function getInboxByUid(uid: number): Promise<MailInbox | null> {
+export async function getInboxByUid(
+  folder: string,
+  uid: number,
+): Promise<MailInbox | null> {
   const rows = await db
     .select()
     .from(mailInbox)
-    .where(eq(mailInbox.uid, uid))
+    .where(and(eq(mailInbox.folder, folder), eq(mailInbox.uid, uid)))
     .limit(1);
   return rows[0] ?? null;
 }

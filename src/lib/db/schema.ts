@@ -11,6 +11,7 @@ import {
   primaryKey,
   bigint,
   index,
+  uniqueIndex,
 } from 'drizzle-orm/pg-core';
 
 // pgcrypto encrypted bytea — encrypt/decrypt is performed via SQL helpers
@@ -251,13 +252,14 @@ export const mailDrafts = pgTable(
 );
 
 // ───── Mail Inbox (Zoho IMAP polled by GitHub Actions every 3 min) ─────
-// We never re-fetch a UID we've stored, so `uid` is the de-dup boundary.
+// IMAP UIDs are scoped to a single mailbox, so the de-dup key is (folder, uid).
 // `replied_draft_id` links to the outbound draft created from "Cevap yaz".
 export const mailInbox = pgTable(
   'mail_inbox',
   {
     id: uuid('id').primaryKey().defaultRandom(),
-    uid: integer('uid').notNull().unique(),
+    uid: integer('uid').notNull(),
+    folder: text('folder').notNull().default('INBOX'),
     message_id: text('message_id'),
     from_email: text('from_email').notNull(),
     from_name: text('from_name'),
@@ -272,7 +274,7 @@ export const mailInbox = pgTable(
       .defaultNow(),
   },
   (t) => ({
-    uidIdx: index('mail_inbox_uid_idx').on(t.uid),
+    folderUidIdx: uniqueIndex('mail_inbox_folder_uid_idx').on(t.folder, t.uid),
   }),
 );
 
