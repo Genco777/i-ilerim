@@ -189,17 +189,17 @@ function InvoicePdf({ data }: InvoicePdfProps): React.JSX.Element {
       <Page size="A4" style={styles.page}>
         <View style={styles.header}>
           <Image style={styles.logo} src={logo} />
-          <Text style={styles.headerRight}>GRAFIK- &amp;WEBDESIGN</Text>
+          <Text style={styles.headerRight}>GRAFIK- &amp; WEBDESIGN</Text>
         </View>
 
         <View style={styles.topRow}>
           <View style={styles.block}>
             <View style={{ flexDirection: 'row' }}>
-              <Text style={[styles.label, { width: 110 }]}>
+              <Text style={[styles.label, { width: 140 }]}>
                 LEISTUNGSERBRINGER:
               </Text>
               <View>
-                <Text style={styles.value}>Fly &amp; Froth Grafik- &amp;Webdesign</Text>
+                <Text style={styles.value}>Fly &amp; Froth Grafik- &amp; Webdesign</Text>
                 <Text style={styles.value}>Röderweg 19, 61184 Karben</Text>
                 <Text style={[styles.value, { marginTop: 8 }]}>
                   Telefon: +49 163 1474127
@@ -216,7 +216,7 @@ function InvoicePdf({ data }: InvoicePdfProps): React.JSX.Element {
         </View>
 
         <View style={[styles.recipient, { flexDirection: 'row' }]}>
-          <Text style={[styles.label, { width: 110 }]}>RECHNUNG AN:</Text>
+          <Text style={[styles.label, { width: 140 }]}>RECHNUNG AN:</Text>
           <View>
             {data.recipient.company ? (
               <Text style={styles.value}>{data.recipient.company}</Text>
@@ -228,7 +228,7 @@ function InvoicePdf({ data }: InvoicePdfProps): React.JSX.Element {
         </View>
 
         <View style={[{ flexDirection: 'row', marginTop: 12 }]}>
-          <Text style={[styles.label, { width: 110 }]}>DATUM:</Text>
+          <Text style={[styles.label, { width: 140 }]}>DATUM:</Text>
           <Text style={styles.value}>{data.date}</Text>
         </View>
 
