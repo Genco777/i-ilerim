@@ -7,6 +7,8 @@ import {
   mailDrafts,
   mailInbox,
   invoices,
+  kleinanzeigenThreads,
+  businessProfileOverrides,
 } from '@/lib/db/schema';
 import type { InferSelectModel, InferInsertModel } from 'drizzle-orm';
 
@@ -25,6 +27,12 @@ export type MailInbox = InferSelectModel<typeof mailInbox>;
 export type NewMailInbox = InferInsertModel<typeof mailInbox>;
 export type Invoice = InferSelectModel<typeof invoices>;
 export type NewInvoice = InferInsertModel<typeof invoices>;
+export type KleinanzeigenThread = InferSelectModel<typeof kleinanzeigenThreads>;
+export type NewKleinanzeigenThread = InferInsertModel<typeof kleinanzeigenThreads>;
+export type BusinessProfileOverride = InferSelectModel<typeof businessProfileOverrides>;
+export type NewBusinessProfileOverride = InferInsertModel<typeof businessProfileOverrides>;
+export type { KleinanzeigenAnalysis } from '@/lib/db/schema';
+export type { MailAttachment } from '@/lib/db/schema';
 
 export type ImageProvider = 'openai' | 'replicate';
 export type LogoPosition =

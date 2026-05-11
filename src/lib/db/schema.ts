@@ -348,6 +348,80 @@ export const invoices = pgTable(
   }),
 );
 
+// ───── Kleinanzeigen ─────
+export const kleinanzeigenThreadStatus = pgEnum('kleinanzeigen_thread_status', [
+  'new',
+  'awaiting_action',
+  'awaiting_custom',
+  'awaiting_refinement',
+  'awaiting_gap_info',
+  'awaiting_image',
+  'drafting',
+  'sent',
+  'rejected',
+]);
+
+export const businessOverrideKind = pgEnum('business_override_kind', [
+  'offered',
+  'not_offered',
+  'note',
+  'tone',
+  'signature',
+]);
+
+export interface KleinanzeigenAnalysis {
+  subject: string;
+  lang: string;
+  tone_detected: 'du' | 'Sie' | 'unknown';
+  knowledge_gaps: string[];
+}
+
+export const kleinanzeigenThreads = pgTable(
+  'kleinanzeigen_threads',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    email_message_id: text('email_message_id').unique(),
+    routing_token: text('routing_token').notNull(),
+    sender_address: text('sender_address').notNull(),
+    buyer_name: text('buyer_name'),
+    listing_title: text('listing_title'),
+    raw_body: text('raw_body').notNull(),
+    ai_analysis: jsonb('ai_analysis').$type<KleinanzeigenAnalysis | null>(),
+    status: kleinanzeigenThreadStatus('status').notNull().default('new'),
+    draft_reply: text('draft_reply'),
+    final_reply: text('final_reply'),
+    pending_gap_topic: text('pending_gap_topic'),
+    attachments: jsonb('attachments').$type<MailAttachment[]>().default([]).notNull(),
+    telegram_chat_id: bigint('telegram_chat_id', { mode: 'number' }).notNull(),
+    telegram_message_id: integer('telegram_message_id'),
+    created_at: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updated_at: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+    sent_at: timestamp('sent_at', { withTimezone: true }),
+  },
+  (t) => ({
+    chatStatusIdx: index('kleinanzeigen_threads_chat_status_idx').on(
+      t.telegram_chat_id,
+      t.status,
+    ),
+  }),
+);
+
+export const businessProfileOverrides = pgTable(
+  'business_profile_overrides',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    topic: text('topic').notNull(),
+    content: text('content').notNull(),
+    kind: businessOverrideKind('kind').notNull().default('note'),
+    origin: text('origin').notNull().default('telegram'),
+    created_at: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updated_at: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    topicKindIdx: uniqueIndex('business_profile_overrides_topic_kind_idx').on(t.topic, t.kind),
+  }),
+);
+
 // ───── Failed Jobs (retry queue) ─────
 export const failedJobs = pgTable('failed_jobs', {
   id: uuid('id').primaryKey().defaultRandom(),
