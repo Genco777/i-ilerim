@@ -47,7 +47,7 @@ export async function POST(req: Request) {
       const post = await generatePost({
         topic: slot.topic!,
         telegramChatId: String(chatId),
-        channel: slot.channel === 'reel' ? 'ig_story' : 'post',
+        channel: slot.channel === 'reel' || slot.channel === 'story' ? 'ig_story' : 'post',
         pillar: slot.pillar,
         scheduledAt,
       });
