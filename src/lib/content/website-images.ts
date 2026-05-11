@@ -237,7 +237,8 @@ function matchScore(img: PortfolioImage, topicLower: string): number {
 
 /**
  * Pick the best matching portfolio image for a topic.
- * Falls back to a deterministic selection based on topic hash if nothing matches.
+ * Scores all images in the pool, then deterministically picks from the
+ * top candidates using the topic hash so similar topics get different images.
  */
 export function pickPortfolioImage(topic: string, pillar?: string): PortfolioImage {
   const lowerTopic = topic.toLowerCase();
@@ -255,23 +256,23 @@ export function pickPortfolioImage(topic: string, pillar?: string): PortfolioIma
     pool = [...WEBDESIGN_PORTFOLIO, ...PROJECT_PORTFOLIO];
   }
 
+  // Hash the topic for deterministic variety
+  function topicHash(s: string): number {
+    let h = 0;
+    for (let i = 0; i < s.length; i++) h = ((h << 5) - h + s.charCodeAt(i)) | 0;
+    return Math.abs(h);
+  }
+
   // Score all images in the pool
-  let best = pool[0]!;
-  let bestScore = 0;
-  for (const img of pool) {
-    const s = matchScore(img, lowerTopic);
-    if (s > bestScore) {
-      bestScore = s;
-      best = img;
-    }
-  }
+  const scored = pool.map((img) => ({ img, score: matchScore(img, lowerTopic) }));
+  scored.sort((a, b) => b.score - a.score);
 
-  // If no meaningful match, use deterministic pick based on topic hash
-  if (bestScore === 0) {
-    let hash = 0;
-    for (let i = 0; i < topic.length; i++) hash = ((hash << 5) - hash + topic.charCodeAt(i)) | 0;
-    best = pool[Math.abs(hash) % pool.length]!;
-  }
+  // Take all images within 10 points of the top score as candidates
+  const topScore = scored[0]!.score;
+  const threshold = Math.max(topScore - 10, 0);
+  const candidates = scored.filter((s) => s.score >= threshold);
 
-  return best;
+  // Deterministic pick from candidates based on topic hash
+  const idx = topicHash(topic) % candidates.length;
+  return candidates[idx]!.img;
 }
