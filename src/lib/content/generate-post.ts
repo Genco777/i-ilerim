@@ -4,6 +4,7 @@ import { composeLogo } from '@/lib/image/compose-logo';
 import { uploadImage } from '@/lib/blob';
 import { getBrandKit } from '@/lib/db/queries/brand-kit';
 import { createPost, getPost, updatePost } from '@/lib/db/queries/posts';
+import { pickPortfolioImage } from '@/lib/content/website-images';
 import type { Post, ImageProvider, ContentPillar } from '@/types';
 
 export type ContentChannel = 'post' | 'ig_story';
@@ -63,15 +64,29 @@ export async function generatePost(opts: GeneratePostOpts): Promise<Post> {
       : undefined,
   });
 
-  // 2. Image: AI (channel-aware aspect ratio) or manual upload
+  // 2. Image: real portfolio images for vitrine/prozess, AI for insight/lokal/reel
   let rawBuffer: Buffer;
-  let imageProvider: ImageProvider | null = null;
+  let imageProvider: string | null = null;
   let imagePrompt: string | null = null;
   let imageSource: 'ai_generated' | 'manual_upload' = 'ai_generated';
+
+  const useRealImage = !opts.manualImageBuffer
+    && (opts.pillar === 'vitrine' || opts.pillar === 'prozess');
 
   if (opts.manualImageBuffer) {
     rawBuffer = opts.manualImageBuffer;
     imageSource = 'manual_upload';
+  } else if (useRealImage) {
+    // Use real portfolio image from fly-froth.com — no AI at all
+    const picked = pickPortfolioImage(opts.topic, opts.pillar);
+    const res = await fetch(picked.url);
+    if (!res.ok) {
+      throw new Error(`Website image fetch failed (${res.status}): ${picked.url}`);
+    }
+    rawBuffer = Buffer.from(await res.arrayBuffer());
+    imageSource = 'manual_upload';
+    imageProvider = 'website';
+    imagePrompt = `Real portfolio: ${picked.description} (${picked.service})`;
   } else {
     imagePrompt = buildImagePrompt(
       opts.topic,
@@ -145,8 +160,27 @@ export async function regenerateImage(postId: string): Promise<Post> {
     throw new Error('Post not found or has no topic');
   }
   const brandKit = await getBrandKit();
-  const prompt = buildImagePrompt(post.topic, brandKit, undefined, post.content_pillar ?? undefined);
-  const { buffer, provider } = await generateImage(prompt);
+
+  const useRealImage = post.content_pillar === 'vitrine' || post.content_pillar === 'prozess';
+
+  let buffer: Buffer;
+  let provider: string | null = null;
+  let prompt: string | null = null;
+
+  if (useRealImage) {
+    const picked = pickPortfolioImage(post.topic, post.content_pillar ?? undefined);
+    const res = await fetch(picked.url);
+    if (!res.ok) throw new Error(`Website image fetch failed (${res.status})`);
+    buffer = Buffer.from(await res.arrayBuffer());
+    provider = 'website';
+    prompt = `Real portfolio: ${picked.description} (${picked.service})`;
+  } else {
+    prompt = buildImagePrompt(post.topic, brandKit, undefined, post.content_pillar ?? undefined);
+    const result = await generateImage(prompt);
+    buffer = result.buffer;
+    provider = result.provider;
+  }
+
   const rawBlob = await uploadImage(buffer, `raw-${Date.now()}.png`);
   const shouldOverlay =
     brandKit.logo_position !== 'none' && !!brandKit.logo_url;
