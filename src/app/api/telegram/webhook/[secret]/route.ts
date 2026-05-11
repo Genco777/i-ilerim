@@ -89,7 +89,7 @@ import {
   sendPortfolioNewsletter,
   sendReactivation,
 } from '@/lib/email/campaigns';
-import { getLists } from '@/lib/email/brevo';
+import { getLists, createContact } from '@/lib/email/brevo';
 import { generateMailDraft } from '@/lib/mail/generate';
 import { sendMail } from '@/lib/mail/smtp';
 import {
@@ -2500,11 +2500,29 @@ async function handleCommand(
         });
         return;
       }
+      const recipientEmail = trimmed.trim();
       const updated = await updateDraft(activeDraft.id, {
-        to_email: trimmed.trim(),
+        to_email: recipientEmail,
         instruction: '',
         status: 'drafting',
       });
+
+      // Auto-add to Brevo contact list (don't block on failure)
+      const invId = activeDraft.instruction.split(':')[1];
+      if (invId) {
+        try {
+          const invoice = await getInvoice(invId);
+          await createContact({
+            email: recipientEmail,
+            attributes: {
+              NAME: invoice?.recipient?.name ?? '',
+              COMPANY: invoice?.recipient?.company ?? '',
+            },
+            listIds: emailListIds(),
+          });
+        } catch { /* Brevo failure shouldn't block invoice sending */ }
+      }
+
       const sent = await sendMessage({
         chatId,
         text: formatMailPreview(updated),
