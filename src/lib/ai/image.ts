@@ -43,8 +43,8 @@ export function buildImagePrompt(
         : '\nFormat: square. Balanced composition.';
 
   const goldHint = pillar && PILLAR_GOLD[pillar]
-    ? `\nGold accent: ${PILLAR_GOLD[pillar]}`
-    : '\nGold accent: #d4a43a Classic Gold';
+    ? `\nCRITICAL GOLD REQUIREMENT — The image MUST have prominent ${PILLAR_GOLD[pillar]}. Gold is the defining visual element, not optional.`
+    : '\nCRITICAL GOLD REQUIREMENT — The image MUST have prominent #d4a43a Classic Gold accents. Gold is the defining visual element, not optional.';
 
   return [
     brandKit.visual_style_guide,

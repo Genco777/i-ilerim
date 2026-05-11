@@ -3,6 +3,44 @@ import fs from 'fs/promises';
 import path from 'path';
 import type { BrandKit } from '@/types';
 
+const PILLAR_GOLD_HEX: Record<string, string> = {
+  vitrine: '#d4a43a',
+  prozess: '#d4a43a',
+  insight: '#d4a43a',
+  lokal: '#d4a43a',
+  reel: '#d4a43a',
+  logodesign: '#c9a96e',
+  flyerdesign: '#b8943a',
+  druckdesign: '#a08040',
+  webdesign: '#d4a43a',
+};
+
+/**
+ * Apply a subtle warm gold wash to any image.
+ * Uses Sharp composite with low-opacity gold tint.
+ */
+export async function applyGoldTint(
+  imageBuffer: Buffer,
+  pillar?: string | null,
+): Promise<Buffer> {
+  const hex = (pillar && PILLAR_GOLD_HEX[pillar]) ? PILLAR_GOLD_HEX[pillar]! : '#d4a43a';
+  const r = parseInt(hex.slice(1, 3), 16);
+  const g = parseInt(hex.slice(3, 5), 16);
+  const b = parseInt(hex.slice(5, 7), 16);
+
+  return sharp(imageBuffer)
+    .composite([
+      {
+        input: Buffer.from([r, g, b, 28]), // ~11% opacity warm gold
+        raw: { width: 1, height: 1, channels: 4 },
+        tile: true,
+        blend: 'over',
+      },
+    ])
+    .png()
+    .toBuffer();
+}
+
 async function loadLogo(url: string): Promise<Buffer> {
   if (url.startsWith('file://')) {
     return fs.readFile(url.replace('file://', ''));

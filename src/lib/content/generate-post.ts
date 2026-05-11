@@ -1,6 +1,6 @@
 import { generateText } from '@/lib/ai/text';
 import { generateImage, generateImageRouted, buildImagePrompt } from '@/lib/ai/image';
-import { composeLogo } from '@/lib/image/compose-logo';
+import { composeLogo, applyGoldTint } from '@/lib/image/compose-logo';
 import { uploadImage } from '@/lib/blob';
 import { getBrandKit } from '@/lib/db/queries/brand-kit';
 import { createPost, getPost, updatePost } from '@/lib/db/queries/posts';
@@ -118,22 +118,25 @@ export async function generatePost(opts: GeneratePostOpts): Promise<Post> {
     }
   }
 
-  // 3. Upload raw (logo-less) version
-  const rawBlob = await uploadImage(rawBuffer, `raw-${Date.now()}.png`);
+  // 3. Gold tint overlay — subtle warm gold wash on ALL images
+  const goldBuffer = await applyGoldTint(rawBuffer, opts.pillar);
 
-  // 4. Logo overlay decision (Sharp post-processing for manual uploads)
+  // 4. Upload gold-tinted raw version
+  const rawBlob = await uploadImage(goldBuffer, `raw-${Date.now()}.png`);
+
+  // 5. Logo overlay decision (Sharp post-processing)
   const shouldOverlay =
     !opts.noLogo &&
     brandKit.logo_position !== 'none' &&
     !!brandKit.logo_url;
   const finalBuffer = shouldOverlay
-    ? await composeLogo(rawBuffer, brandKit)
-    : rawBuffer;
+    ? await composeLogo(goldBuffer, brandKit)
+    : goldBuffer;
   const finalBlob = shouldOverlay
     ? await uploadImage(finalBuffer, `final-${Date.now()}.png`)
     : rawBlob;
 
-  // 5. Persist
+  // 6. Persist
   return createPost({
     status: 'draft',
     topic: opts.topic,
@@ -181,12 +184,14 @@ export async function regenerateImage(postId: string): Promise<Post> {
     provider = result.provider;
   }
 
-  const rawBlob = await uploadImage(buffer, `raw-${Date.now()}.png`);
+  const goldBuffer = await applyGoldTint(buffer, post.content_pillar);
+
+  const rawBlob = await uploadImage(goldBuffer, `raw-${Date.now()}.png`);
   const shouldOverlay =
     brandKit.logo_position !== 'none' && !!brandKit.logo_url;
   const finalBuffer = shouldOverlay
-    ? await composeLogo(buffer, brandKit)
-    : buffer;
+    ? await composeLogo(goldBuffer, brandKit)
+    : goldBuffer;
   const finalBlob = shouldOverlay
     ? await uploadImage(finalBuffer, `final-${Date.now()}.png`)
     : rawBlob;
