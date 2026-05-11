@@ -5,6 +5,7 @@ import {
   replySystemPrompt,
   replyUserPrompt,
   alternativesUserPrompt,
+  refinementUserPrompt,
 } from '@/lib/kleinanzeigen/prompts';
 
 const PROFILE = '# Fly & Froth\n- Logodesign ab 79€';
@@ -54,5 +55,22 @@ describe('reply prompts', () => {
     });
     expect(u.toLowerCase()).toContain('json');
     expect(u).toContain('array');
+  });
+
+  it('refinement prompt includes previous reply and user feedback', () => {
+    const u = refinementUserPrompt({
+      ctx: {
+        buyerName: 'Jessy',
+        listingTitle: 'Logodesign',
+        buyerMessage: 'Was kostet das?',
+        analysis: { subject: 'x', lang: 'de', tone_detected: 'du', knowledge_gaps: [] },
+      },
+      previousReply: 'Hi Jessy, kostet 79€.',
+      feedback: 'daha kısa yap',
+    });
+    expect(u).toContain('ÖNCEKİ CEVAP');
+    expect(u).toContain('Hi Jessy, kostet 79€.');
+    expect(u).toContain('KULLANICI GERİBİLDİRİMİ');
+    expect(u).toContain('daha kısa yap');
   });
 });

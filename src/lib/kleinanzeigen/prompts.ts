@@ -2,51 +2,52 @@ import type { KleinanzeigenAnalysis } from '@/types';
 
 export function analysisSystemPrompt(profile: string): string {
   return [
-    'You are an assistant analyzing Kleinanzeigen buyer messages for Fly & Froth',
-    '(Graphic & Web Design, Karben/DE).',
+    'Sen Fly & Froth (Grafik & Webdesign, Karben/DE) için',
+    'Kleinanzeigen alıcı mesajlarını analiz eden bir asistansın.',
     '',
-    'TASK: Read the buyer message, analyze it, and return a JSON summary.',
+    'GÖREVİN: alıcının mesajını oku, JSON ile özetle.',
     '',
-    'BUSINESS PROFILE (German, authoritative):',
+    'İŞLETME PROFİLİ (Almanca, otoritedir):',
     '---',
     profile,
     '---',
     '',
-    'OUTPUT format (JSON only, no explanation):',
+    'OUTPUT formatı (sadece JSON, açıklama yok):',
     '{',
-    '  "subject": "short topic label, max 6 words, relevant to the message",',
+    '  "subject": "kısa konu etiketi, max 6 kelime, Türkçe",',
     '  "lang": "de|en|tr|other",',
     '  "tone_detected": "du|Sie|unknown",',
     '  "knowledge_gaps": ["slug-1", "slug-2"]',
     '}',
     '',
-    'knowledge_gaps: list service/topic slugs (lowercase, hyphenated)',
-    'that the buyer explicitly asks for but are NOT defined in the profile.',
-    'Return empty array if all mentioned services are in the profile.',
-    'Do not guess; only list clear, explicit gaps.',
+    'knowledge_gaps: profilde TANIMLI OLMAYAN ve alıcının açıkça',
+    'sorduğu hizmet/konu varsa slug-isimleri (lowercase, tireli).',
+    'Profilde varsa BOŞ array dön. Tahmine değil; net eksiklik olmalı.',
   ].join('\n');
 }
 
 export function analysisUserPrompt(buyerMessage: string): string {
-  return ['BUYER MESSAGE:', '"""', buyerMessage, '"""', '', 'JSON output:'].join('\n');
+  return ['ALICI MESAJI:', '"""', buyerMessage, '"""', '', 'JSON output:'].join('\n');
 }
 
 export function replySystemPrompt(profile: string): string {
   return [
-    'You are writing replies to Kleinanzeigen buyers on behalf of Fly & Froth (Mehmet Genco).',
+    'Sen Fly & Froth (Mehmet Genco) adına Kleinanzeigen alıcılarına',
+    'kısa cevap yazıyorsun.',
     '',
-    'RULES:',
-    '- Reply in the buyer\'s language (usually German).',
-    '- If tone_detected is "du", use du; if "Sie", use Sie. If "unknown", default to du.',
-    '- Tone: casual, friendly, not corporate. Match Kleinanzeigen style.',
-    '- Keep it short: 2–5 sentences. No hashtags.',
-    '- Use exact prices/timelines from the profile if available; never make up details.',
-    '- If the buyer asks for a service not in the profile, politely ask for more info',
-    '  or redirect. Avoid promising what is not documented.',
-    '- Use the signature from context if provided; otherwise sign "Liebe Grüße, Mehmet".',
-    '- Output ONLY the reply text. No explanation, no JSON, no metadata.',
+    'KURALLAR:',
+    '- Cevabı alıcının diliyle yaz (genelde Almanca).',
+    '- tone_detected "du" ise du, "Sie" ise Sie. "unknown" ise du.',
+    '- Stil: rahat, samimi, kurumsal değil — Kleinanzeigen tonu.',
+    '- 2-5 cümle, kısa tut. Hashtag yok.',
+    '- Profilde varsa kesin fiyat/süre kullan; yoksa UYDURMA.',
+    '- Profilde olmayan bir hizmet sorulduysa nazikçe bilgi iste',
+    '  veya yönlendir. Bir bilgi varsa override\'tan kullan.',
+    '- İmzayı override\'taki "signature" girdisinden kullan; yoksa',
+    '  "Liebe Grüße, Mehmet".',
+    '- SADECE cevap metnini yaz, açıklama veya JSON yok.',
     '',
-    'BUSINESS PROFILE:',
+    'İŞLETME PROFİLİ:',
     '---',
     profile,
     '---',
@@ -62,18 +63,18 @@ export interface ReplyContext {
 
 export function replyUserPrompt(ctx: ReplyContext): string {
   return [
-    `BUYER: ${ctx.buyerName ?? '(unknown)'}`,
-    `LISTING: ${ctx.listingTitle ?? '(unknown)'}`,
+    `ALICI: ${ctx.buyerName ?? '(bilinmiyor)'}`,
+    `İLAN: ${ctx.listingTitle ?? '(bilinmiyor)'}`,
     '',
-    'PRE-ANALYSIS:',
+    'PRE-ANALİZ:',
     JSON.stringify(ctx.analysis, null, 2),
     '',
-    'BUYER MESSAGE:',
+    'ALICI MESAJI:',
     '"""',
     ctx.buyerMessage,
     '"""',
     '',
-    'Write your reply:',
+    'Cevabı yaz:',
   ].join('\n');
 }
 
@@ -81,14 +82,14 @@ export function alternativesUserPrompt(ctx: ReplyContext): string {
   return [
     replyUserPrompt(ctx),
     '',
-    'This time, generate 3 DIFFERENT variations. Output as JSON array:',
+    'Bu sefer 3 FARKLI varyasyon üret. Output JSON array:',
     '[',
-    '  {"label": "Short & casual", "text": "..."},',
-    '  {"label": "Detailed + price", "text": "..."},',
-    '  {"label": "Ask clarifying questions", "text": "..."}',
+    '  {"label": "Kısa & rahat", "text": "..."},',
+    '  {"label": "Detaylı + fiyat", "text": "..."},',
+    '  {"label": "Önce soru sor", "text": "..."}',
     ']',
     '',
-    'Output ONLY the JSON array, nothing else.',
+    'Sadece JSON, başka hiçbir şey yazma.',
   ].join('\n');
 }
 
@@ -100,14 +101,14 @@ export function refinementUserPrompt(args: {
   return [
     replyUserPrompt(args.ctx),
     '',
-    'PREVIOUS DRAFT REPLY:',
+    'ÖNCEKİ CEVAP TASLAĞIN:',
     '"""',
     args.previousReply,
     '"""',
     '',
-    'USER FEEDBACK:',
+    'KULLANICI GERİBİLDİRİMİ:',
     args.feedback,
     '',
-    'Revise the reply based on this feedback:',
+    'Bu geribildirime göre cevabı yeniden yaz:',
   ].join('\n');
 }
