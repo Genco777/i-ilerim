@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { sendMessage, sendPhoto } from '@/lib/telegram/bot';
 import { getSlot, updateSlot, getSlotsByPlan, approvePlan, getPlan } from '@/lib/db/queries/plans';
 import { generatePost } from '@/lib/content/generate-post';
+import { calculateScheduledAt } from '@/lib/content/schedule-calc';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -36,11 +37,19 @@ export async function POST(req: Request) {
   for (const slot of pending) {
     const slotLabel = `${dayLabels[slot.day_of_week] ?? '??'} ${slot.time_slot} [${slot.pillar}]`;
     try {
+      const scheduledAt = calculateScheduledAt(
+        plan.calendar_week,
+        plan.year,
+        slot.day_of_week,
+        slot.time_slot,
+      );
+
       const post = await generatePost({
         topic: slot.topic!,
         telegramChatId: String(chatId),
         channel: slot.channel === 'reel' ? 'ig_story' : 'post',
         pillar: slot.pillar,
+        scheduledAt,
       });
 
       await updateSlot(slot.id, { post_id: post.id, status: 'approved' });

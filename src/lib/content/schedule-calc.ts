@@ -13,7 +13,9 @@ export function calculateScheduledAt(
   dayOfWeek: number,
   timeSlot: string,
 ): Date {
-  const [hours, minutes] = timeSlot.split(':').map(Number);
+  const parts = timeSlot.split(':').map(Number);
+  const hours = parts[0] ?? 12;
+  const minutes = parts[1] ?? 0;
 
   // January 4th is always in ISO week 1
   const jan4 = new Date(Date.UTC(year, 0, 4, 0, 0, 0, 0));
