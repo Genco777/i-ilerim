@@ -256,23 +256,26 @@ export function pickPortfolioImage(topic: string, pillar?: string): PortfolioIma
     pool = [...WEBDESIGN_PORTFOLIO, ...PROJECT_PORTFOLIO];
   }
 
-  // Hash the topic for deterministic variety
+  // Hash the topic for deterministic variety (combine with pillar for extra spread)
   function topicHash(s: string): number {
     let h = 0;
     for (let i = 0; i < s.length; i++) h = ((h << 5) - h + s.charCodeAt(i)) | 0;
     return Math.abs(h);
   }
 
-  // Score all images in the pool
+  // Score all images, sort by score descending
   const scored = pool.map((img) => ({ img, score: matchScore(img, lowerTopic) }));
   scored.sort((a, b) => b.score - a.score);
 
-  // Take all images within 10 points of the top score as candidates
+  // When top scores are close together (common with broad topics), pick from a
+  // wide band so different slots get different images. Tight scoring means the
+  // topic keywords didn't distinguish well, so we lean harder on the hash.
   const topScore = scored[0]!.score;
-  const threshold = Math.max(topScore - 10, 0);
-  const candidates = scored.filter((s) => s.score >= threshold);
+  const band = topScore <= 30 ? pool.length // no strong match → whole pool
+    : topScore <= 50 ? Math.max(topScore - 5, 1) // moderate match → tight band
+    : Math.max(topScore - 15, 1); // strong match → wider band for variety
+  const candidates = scored.filter((s) => s.score >= band || s.score >= topScore - 3);
 
-  // Deterministic pick from candidates based on topic hash
   const idx = topicHash(topic) % candidates.length;
   return candidates[idx]!.img;
 }

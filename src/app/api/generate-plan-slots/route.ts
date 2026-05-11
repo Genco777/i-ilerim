@@ -3,6 +3,7 @@ import { sendMessage, sendPhoto } from '@/lib/telegram/bot';
 import { getSlot, updateSlot, getSlotsByPlan, approvePlan, getPlan } from '@/lib/db/queries/plans';
 import { generatePost } from '@/lib/content/generate-post';
 import { calculateScheduledAt } from '@/lib/content/schedule-calc';
+import { previewKeyboard } from '@/lib/telegram/keyboard';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -70,6 +71,7 @@ export async function POST(req: Request) {
 
       await updateSlot(slot.id, { post_id: post.id, status: 'approved' });
 
+      const isStory = slot.channel === 'story';
       await sendPhoto({
         chatId,
         photo: post.final_image_url,
@@ -79,6 +81,7 @@ export async function POST(req: Request) {
           '',
           (post.hashtags ?? []).map((h: string) => `#${h.replace(/^#/, '')}`).join(' '),
         ].join('\n').slice(0, 1024),
+        reply_markup: previewKeyboard(post.id, isStory ? 'story' : 'post'),
       });
 
       ok++;
