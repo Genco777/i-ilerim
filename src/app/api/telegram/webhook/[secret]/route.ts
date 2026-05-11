@@ -93,6 +93,8 @@ import {
 } from '@/lib/email/campaigns';
 import { weeklyDigest, portfolioNewsletter } from '@/lib/email/templates';
 import type { DigestItem, PortfolioItem } from '@/lib/email/templates';
+import { generateEmailContent } from '@/lib/email/generate-content';
+import type { EmailContent } from '@/lib/email/generate-content';
 import { getLists, createContact, sendEmail } from '@/lib/email/brevo';
 import { generateMailDraft } from '@/lib/mail/generate';
 import { sendMail } from '@/lib/mail/smtp';
@@ -2376,7 +2378,36 @@ async function handleEmailDigestTest(chatId: number, planId: string): Promise<vo
   const year = plan.year;
   const testEmail = process.env.EMAIL_FROM || 'info@fly-froth.com';
 
-  await sendMessage({ chatId, text: `📧 Test maili ${testEmail} adresine gönderiliyor…` });
+  await sendMessage({ chatId, text: '🤖 AI email içeriği üretiliyor… (10-15 saniye)' });
+
+  let aiContent: EmailContent;
+  try {
+    aiContent = await generateEmailContent(slots, week, year);
+  } catch {
+    await sendMessage({ chatId, text: '⚠️ AI içerik üretilemedi, standart şablonla devam ediliyor.' });
+    aiContent = {
+      digestIntro: '',
+      portfolioIntro: '',
+      portfolioItems: slotsToPortfolioItems(slots),
+      closingText: '',
+      subjectDigest: `Dein Weekly Digest | KW${week} — Fly & Froth`,
+      subjectPortfolio: `Neue Design-Projekte | KW${week} — Fly & Froth Studio Update`,
+    };
+  }
+
+  await sendMessage({
+    chatId,
+    text: [
+      '📧 **AI Email Önizleme**',
+      '',
+      `📊 Digest konu: ${aiContent.subjectDigest}`,
+      `🖼 Portfolyo konu: ${aiContent.subjectPortfolio}`,
+      '',
+      `Giriş: "${aiContent.digestIntro.slice(0, 150)}…"`,
+      '',
+      `${testEmail} adresine gönderiliyor…`,
+    ].join('\n'),
+  });
 
   try {
     // Digest
@@ -2385,21 +2416,24 @@ async function handleEmailDigestTest(chatId: number, planId: string): Promise<vo
       pillar: s.pillar,
       channel: s.channel,
     }));
-    const digestHtml = weeklyDigest(digestItems, week, year);
+    const digestHtml = weeklyDigest(digestItems, week, year, aiContent.digestIntro);
     await sendEmail({
       to: [{ email: testEmail }],
-      subject: `Dein Weekly Digest | KW${week} — Fly & Froth`,
+      subject: aiContent.subjectDigest,
       htmlContent: digestHtml,
       tags: ['test', 'weekly-digest'],
     });
 
     // Portfolio
-    const portfolioItems = slotsToPortfolioItems(slots);
-    if (portfolioItems.length > 0) {
-      const portfolioHtml = portfolioNewsletter(portfolioItems);
+    if (aiContent.portfolioItems.length > 0) {
+      const portfolioHtml = portfolioNewsletter(
+        aiContent.portfolioItems,
+        aiContent.portfolioIntro,
+        aiContent.closingText,
+      );
       await sendEmail({
         to: [{ email: testEmail }],
-        subject: `Neue Design-Projekte | KW${week} — Fly & Froth Studio Update`,
+        subject: aiContent.subjectPortfolio,
         htmlContent: portfolioHtml,
         tags: ['test', 'portfolio'],
       });
@@ -2407,7 +2441,7 @@ async function handleEmailDigestTest(chatId: number, planId: string): Promise<vo
 
     await sendMessage({
       chatId,
-      text: `✅ 2 test maili ${testEmail} adresine gönderildi.\nGelen kutunu kontrol et, onaylarsan "Listeye gönder"e tıkla.`,
+      text: `✅ 2 test maili ${testEmail} adresine gönderildi.\n\n📊 Digest: "${aiContent.subjectDigest}"\n🖼 Portfolyo: "${aiContent.subjectPortfolio}"\n\nGelen kutunu kontrol et, onaylarsan "Listeye gönder"e tıkla.`,
     });
   } catch (err) {
     await notifyError(chatId, err);
@@ -2425,10 +2459,17 @@ async function handleEmailDigestSend(chatId: number, planId: string): Promise<vo
   const week = plan.calendar_week;
   const year = plan.year;
 
+  await sendMessage({ chatId, text: '🤖 AI email içeriği üretiliyor…' });
+
+  let aiContent: EmailContent | undefined;
+  try {
+    aiContent = await generateEmailContent(slots, week, year);
+  } catch { /* fallback to static templates */ }
+
   await sendMessage({ chatId, text: `📧 KW${week} email bülteni listeye gönderiliyor…` });
 
   try {
-    const result = await runWeeklyEmailCampaign(listIds, slots, week, year);
+    const result = await runWeeklyEmailCampaign(listIds, slots, week, year, aiContent);
     if (result.error) {
       await sendMessage({ chatId, text: `❌ Email hatası: ${result.error}` });
       return;

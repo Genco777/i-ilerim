@@ -65,7 +65,11 @@ export interface PortfolioItem {
   serviceType: string;
 }
 
-export function portfolioNewsletter(items: PortfolioItem[]): string {
+export function portfolioNewsletter(
+  items: PortfolioItem[],
+  introText?: string,
+  closingText?: string,
+): string {
   const year = new Date().getFullYear();
   const cards = items
     .map(
@@ -82,16 +86,14 @@ export function portfolioNewsletter(items: PortfolioItem[]): string {
     )
     .join('');
 
+  const intro = introText ?? 'Neue Projekte aus unserem Studio — frisch aus der Kalenderwoche. Lass dich inspirieren und starte dein eigenes Projekt mit uns.';
+  const closing = closingText ?? `Alle Angebote mit <strong style="color:${GOLD};">Express 24h</strong> verfügbar &middot; <a href="https://fly-froth.com" style="color:${GOLD};text-decoration:underline;">fly-froth.com</a>`;
+
   return baseTemplate(
     `
-    <p style="color:#b0b8c4;font-size:15px;line-height:1.7;margin:0 0 24px;">
-      Neue Projekte aus unserem Studio — frisch aus der Kalenderwoche. Lass dich inspirieren und starte dein eigenes Projekt mit uns.
-    </p>
+    <p style="color:#b0b8c4;font-size:15px;line-height:1.7;margin:0 0 24px;">${intro}</p>
     ${cards}
-    <p style="color:#8890a0;font-size:13px;line-height:1.6;margin:24px 0 0;text-align:center;">
-      Alle Angebote mit <strong style="color:${GOLD};">Express 24h</strong> verfügbar &middot;
-      <a href="https://fly-froth.com" style="color:${GOLD};text-decoration:underline;">fly-froth.com</a>
-    </p>`,
+    <p style="color:#8890a0;font-size:13px;line-height:1.6;margin:24px 0 0;text-align:center;">${closing}</p>`,
     year,
   );
 }
@@ -175,7 +177,12 @@ export interface DigestItem {
   channel: string;
 }
 
-export function weeklyDigest(items: DigestItem[], week: number, year: number): string {
+export function weeklyDigest(
+  items: DigestItem[],
+  week: number,
+  year: number,
+  introText?: string,
+): string {
   const pillarLabels: Record<string, string> = {
     vitrine: 'Portfolio',
     prozess: 'Behind the Scenes',
@@ -206,10 +213,15 @@ export function weeklyDigest(items: DigestItem[], week: number, year: number): s
     )
     .join('');
 
+  const intro = introText
+    ? `<p style="color:#b0b8c4;font-size:15px;line-height:1.7;margin:0 0 20px;">${introText}</p>`
+    : '';
+
   return baseTemplate(
     `
     <h2 style="color:${WHITE};font-size:20px;font-weight:600;margin:0 0 4px;">Dein Weekly Digest</h2>
     <p style="color:#8890a0;font-size:13px;margin:0 0 20px;">Kalenderwoche ${week} — ${year}</p>
+    ${intro}
     ${sectionHtml}
     <div style="text-align:center;margin:28px 0 8px;">
       <a href="https://fly-froth.com" style="display:inline-block;padding:12px 32px;background:linear-gradient(135deg,${GOLD},#b8943a);color:${DARK};text-decoration:none;font-weight:700;font-size:14px;border-radius:6px;letter-spacing:0.5px;">Zur Website</a>

@@ -2,6 +2,7 @@ import { sendEmail, createCampaign, sendCampaignNow } from './brevo';
 import { portfolioNewsletter, localOutreachEmail, reactivationEmail, weeklyDigest } from './templates';
 import type { PortfolioItem, LocalOutreachOpts, DigestItem } from './templates';
 import type { ContentSlot } from '@/types';
+import type { EmailContent } from './generate-content';
 
 // ── Campaign tied to weekly plan ──
 
@@ -63,8 +64,10 @@ export async function sendPortfolioNewsletter(
   items: PortfolioItem[],
   week: number,
   year: number,
+  introText?: string,
+  closingText?: string,
 ) {
-  const html = portfolioNewsletter(items);
+  const html = portfolioNewsletter(items, introText, closingText);
   const subject = `Neue Design-Projekte | KW${week} — Fly & Froth Studio Update`;
 
   const campaign = await createCampaign({
@@ -123,8 +126,9 @@ export async function sendWeeklyDigest(
   items: DigestItem[],
   week: number,
   year: number,
+  introText?: string,
 ) {
-  const html = weeklyDigest(items, week, year);
+  const html = weeklyDigest(items, week, year, introText);
   const subject = `Dein Weekly Digest | KW${week} — Fly & Froth`;
 
   const campaign = await createCampaign({
@@ -141,12 +145,14 @@ export async function sendWeeklyDigest(
 /**
  * Full weekly email package: digest + portfolio showcase.
  * Call after weekly plan is approved.
+ * Pass aiContent for unique per-week copy (from generateEmailContent).
  */
 export async function runWeeklyEmailCampaign(
   listIds: number[],
   slots: ContentSlot[],
   week: number,
   year: number,
+  aiContent?: EmailContent,
 ): Promise<{ digestId?: number; portfolioId?: number; error?: string }> {
   try {
     // 1. Weekly digest (all slots)
@@ -155,13 +161,20 @@ export async function runWeeklyEmailCampaign(
       pillar: s.pillar,
       channel: s.channel,
     }));
-    const digest = await sendWeeklyDigest(listIds, digestItems, week, year);
+    const digest = await sendWeeklyDigest(listIds, digestItems, week, year, aiContent?.digestIntro);
 
     // 2. Portfolio newsletter (vitrine + reel only)
-    const portfolioItems = slotsToPortfolioItems(slots);
+    const portfolioItems = aiContent?.portfolioItems ?? slotsToPortfolioItems(slots);
     let portfolio: { id: number } | undefined;
     if (portfolioItems.length > 0) {
-      portfolio = await sendPortfolioNewsletter(listIds, portfolioItems, week, year);
+      portfolio = await sendPortfolioNewsletter(
+        listIds,
+        portfolioItems,
+        week,
+        year,
+        aiContent?.portfolioIntro,
+        aiContent?.closingText,
+      );
     }
 
     return {
