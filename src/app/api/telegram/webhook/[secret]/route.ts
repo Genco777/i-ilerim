@@ -86,6 +86,37 @@ import {
   setRepliedDraftId,
 } from '@/lib/db/queries/mail-inbox';
 import type { MailDraft, MailInbox } from '@/types';
+import {
+  getThread as getKleinanzeigenThread,
+  updateThread as updateKleinanzeigenThread,
+  getActiveThreadAwaitingText as getActiveKleinanzeigenThread,
+  getActiveThreadAwaitingImage as getActiveKleinanzeigenImageThread,
+  upsertOverride as upsertKleinanzeigenOverride,
+  listOverrides as listKleinanzeigenOverrides,
+} from '@/lib/db/queries/kleinanzeigen';
+import {
+  generateSingleReply,
+  generateAlternatives,
+  refineReply,
+  type ReplyAlternative,
+} from '@/lib/kleinanzeigen/reply';
+import { sendKleinanzeigenReply } from '@/lib/kleinanzeigen/send';
+import {
+  actionMenuKeyboard as kzActionMenuKeyboard,
+  previewKeyboard as kzPreviewKeyboard,
+  alternativesKeyboard as kzAlternativesKeyboard,
+  gapResolveKeyboard as kzGapResolveKeyboard,
+  attachmentClearKeyboard as kzAttachmentClearKeyboard,
+} from '@/lib/telegram/kleinanzeigen-keyboard';
+import {
+  buildInitialMessage as kzBuildInitialMessage,
+  buildPreviewMessage as kzBuildPreviewMessage,
+  buildGapPrompt as kzBuildGapPrompt,
+  buildGapInfoPrompt as kzBuildGapInfoPrompt,
+  buildAlternativesMessage as kzBuildAlternativesMessage,
+} from '@/lib/kleinanzeigen/telegram-ui';
+import { clearProfileCache as clearKleinanzeigenProfileCache } from '@/lib/kleinanzeigen/profile';
+import type { KleinanzeigenThread, KleinanzeigenAnalysis, MailAttachment } from '@/types';
 
 interface TelegramUser {
   id: number;
@@ -155,6 +186,8 @@ const HELP_TEXT = [
   '  /fatura                 — adım adım PDF fatura oluştur (DE), müşteriye mail at',
   '  /edit_reply <id> <text> — gelen mesaja taslak cevabı düzenle',
   '  /preview_reply <id>     — taslağı butonlu önizle',
+  '  /refresh-profile        — fly-froth.com/llms.txt cache temizle',
+  '  /export-overrides       — Telegram\'dan eklenen overrideleri JSON olarak ver',
   '  /help                   — bu mesaj',
   '',
   'Yeni FB/IG yorumları otomatik olarak buraya bildirilir.',
@@ -180,6 +213,367 @@ async function notifyError(chatId: number, err: unknown): Promise<void> {
   } catch {
     // swallow secondary errors
   }
+}
+
+const kzAlternativesCache = new Map<string, ReplyAlternative[]>();
+
+function kzReplyContextFromThread(thread: KleinanzeigenThread) {
+  const analysis = (thread.ai_analysis as KleinanzeigenAnalysis | null) ?? {
+    subject: 'Kleinanzeigen Nachricht',
+    lang: 'de',
+    tone_detected: 'unknown' as const,
+    knowledge_gaps: [],
+  };
+  return {
+    buyerName: thread.buyer_name,
+    listingTitle: thread.listing_title,
+    buyerMessage: thread.raw_body,
+    analysis,
+  };
+}
+
+async function kzShowPreview(
+  chatId: number,
+  thread: KleinanzeigenThread,
+  draft: string,
+  source: 'ai' | 'custom' | 'regen',
+): Promise<void> {
+  const updated = await updateKleinanzeigenThread(thread.id, {
+    draft_reply: draft,
+    status: 'drafting',
+  });
+  await sendMessage({
+    chatId,
+    text: kzBuildPreviewMessage(updated, draft, source),
+    replyMarkup: kzPreviewKeyboard(updated.id, (updated.attachments ?? []).length),
+  });
+}
+
+async function kzShowInitial(chatId: number, thread: KleinanzeigenThread): Promise<void> {
+  const analysis = thread.ai_analysis as KleinanzeigenAnalysis | null;
+  const gapTopic = analysis?.knowledge_gaps[0] ?? null;
+  await sendMessage({
+    chatId,
+    text: kzBuildInitialMessage(thread),
+    replyMarkup: kzActionMenuKeyboard(thread.id, gapTopic),
+  });
+}
+
+async function handleKzSuggest(chatId: number, messageId: number, threadId: string): Promise<void> {
+  const thread = await getKleinanzeigenThread(threadId);
+  if (!thread) { await sendMessage({ chatId, text: `❓ Thread bulunamadı: ${threadId}` }); return; }
+  await editMessageReplyMarkup({ chatId, messageId, replyMarkup: undefined });
+  await sendMessage({ chatId, text: '💭 AI cevap üretiyor…' });
+  try {
+    const draft = await generateSingleReply(kzReplyContextFromThread(thread));
+    await kzShowPreview(chatId, thread, draft, 'ai');
+  } catch (err) { await notifyError(chatId, err); }
+}
+
+async function handleKzAlternatives(chatId: number, messageId: number, threadId: string): Promise<void> {
+  const thread = await getKleinanzeigenThread(threadId);
+  if (!thread) { await sendMessage({ chatId, text: `❓ Thread bulunamadı: ${threadId}` }); return; }
+  await editMessageReplyMarkup({ chatId, messageId, replyMarkup: undefined });
+  await sendMessage({ chatId, text: '🤔 3 alternatif üretiliyor…' });
+  try {
+    const alts = await generateAlternatives(kzReplyContextFromThread(thread));
+    if (alts.length === 0) {
+      await sendMessage({ chatId, text: '⚠️ Alternatif üretilemedi, tekrar dene.' });
+      await kzShowInitial(chatId, thread);
+      return;
+    }
+    kzAlternativesCache.set(thread.id, alts);
+    await sendMessage({
+      chatId,
+      text: kzBuildAlternativesMessage(alts),
+      replyMarkup: kzAlternativesKeyboard(thread.id, alts.length),
+    });
+  } catch (err) { await notifyError(chatId, err); }
+}
+
+async function handleKzAltPick(chatId: number, threadId: string, indexStr: string): Promise<void> {
+  const thread = await getKleinanzeigenThread(threadId);
+  if (!thread) return;
+  const alts = kzAlternativesCache.get(threadId) ?? [];
+  const idx = Number(indexStr);
+  const picked = alts[idx];
+  if (!picked) {
+    await sendMessage({ chatId, text: '⚠️ Alternatif kayboldu, tekrar üret.' });
+    return;
+  }
+  await kzShowPreview(chatId, thread, picked.text, 'ai');
+}
+
+async function handleKzCustom(chatId: number, messageId: number, threadId: string): Promise<void> {
+  const thread = await getKleinanzeigenThread(threadId);
+  if (!thread) return;
+  await editMessageReplyMarkup({ chatId, messageId, replyMarkup: undefined });
+  await updateKleinanzeigenThread(thread.id, { status: 'awaiting_custom' });
+  await sendMessage({ chatId, text: '✏️ Cevabını yaz (sonra önizleme + Gönder butonu çıkacak):' });
+}
+
+async function handleKzReject(chatId: number, messageId: number, threadId: string): Promise<void> {
+  const thread = await getKleinanzeigenThread(threadId);
+  if (!thread) return;
+  await editMessageReplyMarkup({ chatId, messageId, replyMarkup: undefined });
+  await updateKleinanzeigenThread(thread.id, { status: 'rejected' });
+  kzAlternativesCache.delete(thread.id);
+  await sendMessage({ chatId, text: '❌ Reddedildi, cevap gönderilmedi.' });
+}
+
+async function handleKzSend(chatId: number, messageId: number, threadId: string): Promise<void> {
+  const thread = await getKleinanzeigenThread(threadId);
+  if (!thread || !thread.draft_reply) {
+    await sendMessage({ chatId, text: '❌ Gönderilecek taslak yok.' });
+    return;
+  }
+  if (thread.status === 'sent') {
+    await sendMessage({ chatId, text: 'Bu cevap zaten gönderilmiş.' });
+    return;
+  }
+  await editMessageReplyMarkup({ chatId, messageId, replyMarkup: undefined });
+  const attachCount = (thread.attachments ?? []).length;
+  await sendMessage({
+    chatId,
+    text: attachCount > 0
+      ? `📤 Cevap gönderiliyor (${attachCount} görsel ekli)…`
+      : '📤 Cevap gönderiliyor…',
+  });
+  try {
+    const result = await sendKleinanzeigenReply(thread, thread.draft_reply);
+    await updateKleinanzeigenThread(thread.id, {
+      status: 'sent',
+      final_reply: thread.draft_reply,
+      sent_at: new Date(),
+    });
+    kzAlternativesCache.delete(thread.id);
+    await sendMessage({
+      chatId,
+      text: [
+        '✅ Cevap gönderildi.',
+        `Kime: ${thread.buyer_name ?? thread.sender_address}`,
+        `Message-ID: ${result.messageId}`,
+      ].join('\n'),
+    });
+  } catch (err) { await notifyError(chatId, err); }
+}
+
+async function handleKzEdit(chatId: number, threadId: string): Promise<void> {
+  const thread = await getKleinanzeigenThread(threadId);
+  if (!thread) return;
+  await updateKleinanzeigenThread(thread.id, { status: 'awaiting_refinement' });
+  await sendMessage({
+    chatId,
+    text: 'Nasıl olsun? (örn. "daha kısa", "fiyat 25€ olsun", "Animation kısmını çıkar")',
+  });
+}
+
+async function handleKzRegen(chatId: number, threadId: string): Promise<void> {
+  const thread = await getKleinanzeigenThread(threadId);
+  if (!thread) return;
+  await sendMessage({ chatId, text: '🔄 Yeniden üretiliyor…' });
+  try {
+    const draft = await generateSingleReply(kzReplyContextFromThread(thread));
+    await kzShowPreview(chatId, thread, draft, 'regen');
+  } catch (err) { await notifyError(chatId, err); }
+}
+
+async function handleKzBack(chatId: number, threadId: string): Promise<void> {
+  const thread = await getKleinanzeigenThread(threadId);
+  if (!thread) return;
+  await updateKleinanzeigenThread(thread.id, { status: 'awaiting_action' });
+  await kzShowInitial(chatId, thread);
+}
+
+async function handleKzGapOpen(chatId: number, threadId: string): Promise<void> {
+  const thread = await getKleinanzeigenThread(threadId);
+  if (!thread) return;
+  const analysis = thread.ai_analysis as KleinanzeigenAnalysis | null;
+  const topic = analysis?.knowledge_gaps[0];
+  if (!topic) { await sendMessage({ chatId, text: 'Bu thread için bilgi boşluğu yok.' }); return; }
+  await updateKleinanzeigenThread(thread.id, { pending_gap_topic: topic });
+  await sendMessage({
+    chatId,
+    text: kzBuildGapPrompt(topic),
+    replyMarkup: kzGapResolveKeyboard(thread.id),
+  });
+}
+
+async function handleKzGapYes(chatId: number, threadId: string): Promise<void> {
+  const thread = await getKleinanzeigenThread(threadId);
+  if (!thread || !thread.pending_gap_topic) return;
+  await updateKleinanzeigenThread(thread.id, { status: 'awaiting_gap_info' });
+  await sendMessage({ chatId, text: kzBuildGapInfoPrompt(thread.pending_gap_topic) });
+}
+
+async function handleKzGapNo(chatId: number, threadId: string): Promise<void> {
+  const thread = await getKleinanzeigenThread(threadId);
+  if (!thread || !thread.pending_gap_topic) return;
+  await upsertKleinanzeigenOverride({
+    topic: thread.pending_gap_topic,
+    kind: 'not_offered',
+    content: 'Bu hizmeti sunmuyoruz, nazikçe yönlendir.',
+  });
+  clearKleinanzeigenProfileCache();
+  await updateKleinanzeigenThread(thread.id, { pending_gap_topic: null, status: 'awaiting_action' });
+  await sendMessage({ chatId, text: '📝 Kaydettim. AI artık bu hizmeti reddedeceğini bilecek.' });
+  await kzShowInitial(chatId, thread);
+}
+
+async function handleKzGapSkip(chatId: number, threadId: string): Promise<void> {
+  const thread = await getKleinanzeigenThread(threadId);
+  if (!thread) return;
+  await updateKleinanzeigenThread(thread.id, { pending_gap_topic: null, status: 'awaiting_action' });
+  await sendMessage({ chatId, text: '⏭️ Atlandı (kaydedilmedi).' });
+  await kzShowInitial(chatId, thread);
+}
+
+async function handleKzAttach(chatId: number, threadId: string): Promise<void> {
+  const thread = await getKleinanzeigenThread(threadId);
+  if (!thread) return;
+  await updateKleinanzeigenThread(thread.id, { status: 'awaiting_image' });
+  const existing = (thread.attachments ?? []).length;
+  const baseText = existing > 0
+    ? `📎 Şu an ${existing} görsel ekli. Yeni görsel(ler) gönder veya temizle:`
+    : '📎 Eklemek istediğin görsel(ler)i gönder (foto veya dosya, her biri max 20 MB). Bitince "Geri"ye bas.';
+  await sendMessage({
+    chatId,
+    text: baseText,
+    replyMarkup: kzAttachmentClearKeyboard(thread.id),
+  });
+}
+
+async function handleKzAttachClear(chatId: number, threadId: string): Promise<void> {
+  const thread = await getKleinanzeigenThread(threadId);
+  if (!thread) return;
+  await updateKleinanzeigenThread(thread.id, { attachments: [] });
+  await sendMessage({ chatId, text: '🗑 Tüm görseller temizlendi.' });
+}
+
+async function handleKzAttachDone(chatId: number, threadId: string): Promise<void> {
+  const thread = await getKleinanzeigenThread(threadId);
+  if (!thread) return;
+  if (thread.draft_reply) {
+    await updateKleinanzeigenThread(thread.id, { status: 'drafting' });
+    await sendMessage({
+      chatId,
+      text: kzBuildPreviewMessage(thread, thread.draft_reply, 'ai'),
+      replyMarkup: kzPreviewKeyboard(thread.id, (thread.attachments ?? []).length),
+    });
+  } else {
+    await updateKleinanzeigenThread(thread.id, { status: 'awaiting_action' });
+    await kzShowInitial(chatId, thread);
+  }
+}
+
+async function kzAppendAttachment(
+  chatId: number,
+  thread: KleinanzeigenThread,
+  file: { fileId: string; filename: string; mime: string; sizeBytes?: number },
+): Promise<void> {
+  const MAX_BYTES = 20 * 1024 * 1024;
+  if (file.sizeBytes && file.sizeBytes > MAX_BYTES) {
+    await sendMessage({ chatId, text: '❌ Dosya 20 MB sınırını aşıyor.' });
+    return;
+  }
+  try {
+    const info = await getFile(file.fileId);
+    const buffer = await downloadFile(info.file_path);
+    const current = thread.attachments ?? [];
+    const next: MailAttachment[] = [
+      ...current,
+      { filename: file.filename, mime: file.mime, base64: buffer.toString('base64') },
+    ];
+    const updated = await updateKleinanzeigenThread(thread.id, { attachments: next });
+    await sendMessage({
+      chatId,
+      text: `📎 Eklendi (${updated.attachments.length} görsel toplam). Bitince "Geri"ye bas.`,
+      replyMarkup: kzAttachmentClearKeyboard(updated.id),
+    });
+  } catch (err) { await notifyError(chatId, err); }
+}
+
+async function handleKzTextInput(
+  chatId: number,
+  thread: KleinanzeigenThread,
+  text: string,
+): Promise<void> {
+  const trimmed = text.trim();
+  if (trimmed.length === 0) {
+    await sendMessage({ chatId, text: '⚠️ Boş mesaj yok sayıldı.' });
+    return;
+  }
+
+  if (thread.status === 'awaiting_custom') {
+    await kzShowPreview(chatId, thread, trimmed, 'custom');
+    return;
+  }
+
+  if (thread.status === 'awaiting_refinement') {
+    const previous = thread.draft_reply ?? '';
+    await sendMessage({ chatId, text: '✏️ Yeniden yazılıyor…' });
+    try {
+      const draft = await refineReply({
+        ctx: kzReplyContextFromThread(thread),
+        previousReply: previous,
+        feedback: trimmed,
+      });
+      await kzShowPreview(chatId, thread, draft, 'regen');
+    } catch (err) { await notifyError(chatId, err); }
+    return;
+  }
+
+  if (thread.status === 'awaiting_gap_info' && thread.pending_gap_topic) {
+    await upsertKleinanzeigenOverride({
+      topic: thread.pending_gap_topic,
+      kind: 'offered',
+      content: trimmed,
+    });
+    clearKleinanzeigenProfileCache();
+    const updated = await updateKleinanzeigenThread(thread.id, {
+      pending_gap_topic: null,
+      status: 'awaiting_action',
+    });
+    const { analyzeKleinanzeigenMessage } = await import('@/lib/kleinanzeigen/analyzer');
+    try {
+      const newAnalysis = await analyzeKleinanzeigenMessage(updated.raw_body);
+      await updateKleinanzeigenThread(updated.id, { ai_analysis: newAnalysis });
+    } catch {
+      // non-fatal
+    }
+    const refreshed = await getKleinanzeigenThread(updated.id);
+    await sendMessage({ chatId, text: '📝 Bilgi kaydedildi. Şimdi AI cevap önereyim mi?' });
+    if (refreshed) await kzShowInitial(chatId, refreshed);
+    return;
+  }
+}
+
+async function handleRefreshProfileCommand(chatId: number): Promise<void> {
+  clearKleinanzeigenProfileCache();
+  try {
+    const { fetchLlmsTxt } = await import('@/lib/kleinanzeigen/profile');
+    const text = await fetchLlmsTxt();
+    await sendMessage({
+      chatId,
+      text: ['🔄 Profil yenilendi.', `Boyut: ${text.length} karakter.`].join('\n'),
+    });
+  } catch (err) { await notifyError(chatId, err); }
+}
+
+async function handleExportOverridesCommand(chatId: number): Promise<void> {
+  const overrides = await listKleinanzeigenOverrides();
+  if (overrides.length === 0) {
+    await sendMessage({ chatId, text: 'Henüz override yok.' });
+    return;
+  }
+  const lines = overrides.map(
+    (o) => `- [${o.kind}] ${o.topic}: ${o.content.replace(/\n/g, ' ')}`,
+  );
+  const blob = ['## Zusätzliche Hinweise (Telegram overrides)', '', ...lines].join('\n');
+  await sendMessage({
+    chatId,
+    text: ['📋 Mevcut overrideler (llms.txt\'e ekleyebilirsin):', '', blob.slice(0, 3500)].join('\n'),
+  });
 }
 
 async function handlePostCommand(
@@ -1547,6 +1941,15 @@ async function handleCommand(
     return;
   }
 
+  if (trimmed === '/refresh-profile' || trimmed === '/refresh_profile') {
+    await handleRefreshProfileCommand(chatId);
+    return;
+  }
+  if (trimmed === '/export-overrides' || trimmed === '/export_overrides') {
+    await handleExportOverridesCommand(chatId);
+    return;
+  }
+
   if (trimmed.startsWith('/edit_reply')) {
     await handleEditReplyCommand(chatId, trimmed.slice('/edit_reply'.length));
     return;
@@ -1603,6 +2006,13 @@ async function handleCommand(
 
   if (trimmed.startsWith('/fatura')) {
     await handleFaturaCommand(chatId);
+    return;
+  }
+
+  // Active Kleinanzeigen thread awaiting text input takes priority.
+  const activeKz = await getActiveKleinanzeigenThread(chatId);
+  if (activeKz) {
+    await handleKzTextInput(chatId, activeKz, trimmed);
     return;
   }
 
@@ -1733,6 +2143,38 @@ async function handleCallback(
       await handleInvoiceDelete(chatId, postId);
     } else if (action === 'inv_send_mail' && postId) {
       await handleInvoiceSendMail(chatId, postId);
+    } else if (action === 'kz_suggest' && postId) {
+      await handleKzSuggest(chatId, messageId, postId);
+    } else if (action === 'kz_alts' && postId) {
+      await handleKzAlternatives(chatId, messageId, postId);
+    } else if (action === 'kz_alt_pick' && postId) {
+      await handleKzAltPick(chatId, postId, rest[0] ?? '0');
+    } else if (action === 'kz_custom' && postId) {
+      await handleKzCustom(chatId, messageId, postId);
+    } else if (action === 'kz_reject' && postId) {
+      await handleKzReject(chatId, messageId, postId);
+    } else if (action === 'kz_send' && postId) {
+      await handleKzSend(chatId, messageId, postId);
+    } else if (action === 'kz_edit' && postId) {
+      await handleKzEdit(chatId, postId);
+    } else if (action === 'kz_regen' && postId) {
+      await handleKzRegen(chatId, postId);
+    } else if (action === 'kz_back' && postId) {
+      await handleKzBack(chatId, postId);
+    } else if (action === 'kz_gap_open' && postId) {
+      await handleKzGapOpen(chatId, postId);
+    } else if (action === 'kz_gap_yes' && postId) {
+      await handleKzGapYes(chatId, postId);
+    } else if (action === 'kz_gap_no' && postId) {
+      await handleKzGapNo(chatId, postId);
+    } else if (action === 'kz_gap_skip' && postId) {
+      await handleKzGapSkip(chatId, postId);
+    } else if (action === 'kz_attach' && postId) {
+      await handleKzAttach(chatId, postId);
+    } else if (action === 'kz_attach_clear' && postId) {
+      await handleKzAttachClear(chatId, postId);
+    } else if (action === 'kz_attach_done' && postId) {
+      await handleKzAttachDone(chatId, postId);
     } else {
       await sendMessage({ chatId, text: `❓ Bilinmeyen aksiyon: ${data}` });
     }
@@ -1765,6 +2207,35 @@ export async function POST(
       }).catch(() => {});
     }
     return NextResponse.json({ ok: true, ignored: 'unauthorized' });
+  }
+
+  // Kleinanzeigen image-attach intercept (priority over mail attachments).
+  {
+    const m = update.message;
+    if (m && (m.photo?.length || m.document)) {
+      const activeKzImage = await getActiveKleinanzeigenImageThread(chatId);
+      if (activeKzImage) {
+        if (m.document) {
+          await kzAppendAttachment(chatId, activeKzImage, {
+            fileId: m.document.file_id,
+            filename: m.document.file_name ?? `attachment-${Date.now()}`,
+            mime: m.document.mime_type ?? 'application/octet-stream',
+            sizeBytes: m.document.file_size,
+          });
+        } else if (m.photo?.length) {
+          const largest = m.photo[m.photo.length - 1];
+          if (largest) {
+            await kzAppendAttachment(chatId, activeKzImage, {
+              fileId: largest.file_id,
+              filename: `photo-${Date.now()}.jpg`,
+              mime: 'image/jpeg',
+              sizeBytes: largest.file_size,
+            });
+          }
+        }
+        return NextResponse.json({ ok: true });
+      }
+    }
   }
 
   // Mail-attachment interception: if a draft is awaiting an attachment,

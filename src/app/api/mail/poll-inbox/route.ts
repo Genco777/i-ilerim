@@ -4,6 +4,7 @@ import { insertInboxMessage } from '@/lib/db/queries/mail-inbox';
 import { notifyIncomingMail } from '@/lib/telegram/notify-mail';
 import { db } from '@/lib/db';
 import { failedJobs } from '@/lib/db/schema';
+import { isKleinanzeigenSender, handleKleinanzeigenMail } from '@/lib/kleinanzeigen';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -93,17 +94,21 @@ export async function GET(req: Request): Promise<NextResponse> {
         received_at: mail.receivedAt,
       });
       try {
-        await notifyIncomingMail(row);
+        if (isKleinanzeigenSender(mail.fromEmail)) {
+          await handleKleinanzeigenMail({
+            fromEmail: mail.fromEmail,
+            messageId: mail.messageId,
+            bodyText: mail.bodyText ?? mail.bodyPreview ?? '',
+          });
+        } else {
+          await notifyIncomingMail(row);
+        }
         stat.notified++;
         notified++;
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         errors.push(`notify ${mail.folder}/${mail.uid}: ${msg}`);
-        await logFailure(
-          'mail_inbox_notify',
-          { folder: mail.folder, uid: mail.uid },
-          msg,
-        );
+        await logFailure('mail_inbox_notify', { folder: mail.folder, uid: mail.uid }, msg);
       }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);

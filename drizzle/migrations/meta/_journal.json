@@ -43,6 +43,13 @@
       "when": 1778900000000,
       "tag": "0005_invoices",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1778958239099,
+      "tag": "0006_kleinanzeigen",
+      "breakpoints": true
     }
   ]
 }
