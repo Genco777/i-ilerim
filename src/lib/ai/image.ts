@@ -39,13 +39,9 @@ export function buildImagePrompt(
     'Lighting: soft, professional studio lighting.',
     'Mood: premium, trustworthy, modern.',
     '',
-    'Branding: Integrate the Fly & Froth logo naturally and subtly into the scene.',
-    'The logo should appear as if it belongs there — on a screen, business card,',
-    'wall signage, or subtle watermark. Never cover the main subject.',
-    'Logo style: minimal gold (#d4a43a) mark on dark background.',
-    '',
     'Avoid: watermarks, low resolution, distorted faces, distorted text,',
     'artificial-looking elements, cluttered composition.',
+    'The Fly & Froth logo will be added automatically in post-processing.',
   ].join('\n');
 }
 

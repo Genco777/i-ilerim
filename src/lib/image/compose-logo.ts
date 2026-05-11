@@ -1,10 +1,17 @@
 import sharp from 'sharp';
 import fs from 'fs/promises';
+import path from 'path';
 import type { BrandKit } from '@/types';
 
 async function loadLogo(url: string): Promise<Buffer> {
   if (url.startsWith('file://')) {
     return fs.readFile(url.replace('file://', ''));
+  }
+  // Local filesystem paths (public/ directory) — works on Vercel and locally
+  if (url.startsWith('/branding/') || url.startsWith('/logo/') || url.startsWith('/public/')) {
+    const relPath = url.startsWith('/public/') ? url : `/public${url}`;
+    const fullPath = path.join(process.cwd(), relPath);
+    return fs.readFile(fullPath);
   }
   const res = await fetch(url);
   if (!res.ok) {

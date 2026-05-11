@@ -27,6 +27,7 @@ function systemPrompt(brandKit: BrandKit): string {
     '',
     'Hashtag-Regeln:',
     '- 5-8 Stück',
+    '- Brand-Hashtag IMMER: #flyfroth (niemals #flyandfroth oder #flyundfroth)',
     '- Mindestens 2 lokal: Karben, Frankfurt, Bad Vilbel, oder Frankfurt-Region',
     '- Mindestens 2 Service-bezogen',
     '- 1-2 generelle Trend-Tags (z.B. #DesignAgentur)',
