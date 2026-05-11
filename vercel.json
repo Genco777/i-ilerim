@@ -7,7 +7,7 @@
     },
     {
       "path": "/api/cron/publish-scheduled",
-      "schedule": "0 * * * *"
+      "schedule": "0 9 * * *"
     },
     {
       "path": "/api/cron/generate-weekly-plan",
