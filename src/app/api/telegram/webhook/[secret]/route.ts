@@ -317,6 +317,7 @@ async function handleKzReject(chatId: number, messageId: number, threadId: strin
   if (!thread) return;
   await editMessageReplyMarkup({ chatId, messageId, replyMarkup: undefined });
   await updateKleinanzeigenThread(thread.id, { status: 'rejected' });
+  kzAlternativesCache.delete(thread.id);
   await sendMessage({ chatId, text: '❌ Reddedildi, cevap gönderilmedi.' });
 }
 
@@ -324,6 +325,10 @@ async function handleKzSend(chatId: number, messageId: number, threadId: string)
   const thread = await getKleinanzeigenThread(threadId);
   if (!thread || !thread.draft_reply) {
     await sendMessage({ chatId, text: '❌ Gönderilecek taslak yok.' });
+    return;
+  }
+  if (thread.status === 'sent') {
+    await sendMessage({ chatId, text: 'Bu cevap zaten gönderilmiş.' });
     return;
   }
   await editMessageReplyMarkup({ chatId, messageId, replyMarkup: undefined });
@@ -341,6 +346,7 @@ async function handleKzSend(chatId: number, messageId: number, threadId: string)
       final_reply: thread.draft_reply,
       sent_at: new Date(),
     });
+    kzAlternativesCache.delete(thread.id);
     await sendMessage({
       chatId,
       text: [
