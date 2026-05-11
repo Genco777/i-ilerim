@@ -13,6 +13,7 @@ export interface NormalizedIncomingMail {
   fromName: string | null;
   subject: string | null;
   bodyPreview: string | null;
+  bodyText: string | null;
   receivedAt: Date;
 }
 
@@ -140,6 +141,7 @@ async function pollFolder(
         fromName: name,
         subject: parsed.subject ?? null,
         bodyPreview: buildPreview(parsed),
+        bodyText: (parsed.text ?? '').trim() || null,
         receivedAt,
       });
     }
