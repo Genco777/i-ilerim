@@ -186,6 +186,7 @@ const HELP_TEXT = [
   '  /fatura                 — adım adım PDF fatura oluştur (DE), müşteriye mail at',
   '  /edit_reply <id> <text> — gelen mesaja taslak cevabı düzenle',
   '  /preview_reply <id>     — taslağı butonlu önizle',
+  '  /poll                   — mail kutusunu hemen kontrol et (anlık tetikleme)',
   '  /refresh-profile        — fly-froth.com/llms.txt cache temizle',
   '  /export-overrides       — Telegram\'dan eklenen overrideleri JSON olarak ver',
   '  /help                   — bu mesaj',
@@ -571,6 +572,48 @@ async function handleExportOverridesCommand(chatId: number): Promise<void> {
     chatId,
     text: ['📋 Mevcut overrideler (llms.txt\'e ekleyebilirsin):', '', blob.slice(0, 3500)].join('\n'),
   });
+}
+
+async function handlePollCommand(chatId: number): Promise<void> {
+  const secret = process.env.CRON_SECRET;
+  if (!secret) {
+    await sendMessage({ chatId, text: '❌ CRON_SECRET env değişkeni Vercel\'de set değil.' });
+    return;
+  }
+  await sendMessage({ chatId, text: '🔄 Mail kutusu kontrol ediliyor…' });
+  try {
+    const res = await fetch('https://admin.fly-froth.com/api/mail/poll-inbox', {
+      headers: { Authorization: `Bearer ${secret}` },
+      cache: 'no-store',
+    });
+    const data = (await res.json()) as {
+      ok?: boolean;
+      fetched?: number;
+      notified?: number;
+      errors?: unknown[];
+    };
+    if (!res.ok || !data.ok) {
+      await sendMessage({
+        chatId,
+        text: `❌ Poll başarısız (${res.status}): ${JSON.stringify(data).slice(0, 500)}`,
+      });
+      return;
+    }
+    const fetched = data.fetched ?? 0;
+    const notified = data.notified ?? 0;
+    const errs = Array.isArray(data.errors) ? data.errors.length : 0;
+    if (fetched === 0) {
+      await sendMessage({ chatId, text: '✅ Yeni mail yok.' });
+    } else {
+      const errLine = errs > 0 ? `\n⚠️ ${errs} hata da var (loglara bak).` : '';
+      await sendMessage({
+        chatId,
+        text: `✅ ${fetched} mail yakalandı, ${notified} bildirim gönderildi.${errLine}`,
+      });
+    }
+  } catch (err) {
+    await notifyError(chatId, err);
+  }
 }
 
 async function handlePostCommand(
@@ -1944,6 +1987,10 @@ async function handleCommand(
   }
   if (trimmed === '/export-overrides' || trimmed === '/export_overrides') {
     await handleExportOverridesCommand(chatId);
+    return;
+  }
+  if (trimmed === '/poll') {
+    await handlePollCommand(chatId);
     return;
   }
 
