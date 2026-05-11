@@ -60,6 +60,17 @@ export function alternativesKeyboard(threadId: string, count: number): InlineKey
   };
 }
 
+export function alternativeTypesKeyboard(threadId: string): InlineKeyboardMarkup {
+  return {
+    inline_keyboard: [
+      [{ text: '🪶 Kısa & rahat', callback_data: `kz_alt_type:${threadId}:short` }],
+      [{ text: '📋 Detaylı + fiyat', callback_data: `kz_alt_type:${threadId}:detailed` }],
+      [{ text: '❓ Önce soru sor', callback_data: `kz_alt_type:${threadId}:question` }],
+      [{ text: '🔙 Geri', callback_data: `kz_back:${threadId}` }],
+    ],
+  };
+}
+
 export function gapResolveKeyboard(threadId: string): InlineKeyboardMarkup {
   return {
     inline_keyboard: [

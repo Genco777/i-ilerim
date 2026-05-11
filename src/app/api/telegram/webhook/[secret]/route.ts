@@ -96,15 +96,15 @@ import {
 } from '@/lib/db/queries/kleinanzeigen';
 import {
   generateSingleReply,
-  generateAlternatives,
+  generateStyledReply,
   refineReply,
-  type ReplyAlternative,
+  type ReplyStyle,
 } from '@/lib/kleinanzeigen/reply';
 import { sendKleinanzeigenReply } from '@/lib/kleinanzeigen/send';
 import {
   actionMenuKeyboard as kzActionMenuKeyboard,
   previewKeyboard as kzPreviewKeyboard,
-  alternativesKeyboard as kzAlternativesKeyboard,
+  alternativeTypesKeyboard as kzAlternativeTypesKeyboard,
   gapResolveKeyboard as kzGapResolveKeyboard,
   attachmentClearKeyboard as kzAttachmentClearKeyboard,
 } from '@/lib/telegram/kleinanzeigen-keyboard';
@@ -113,7 +113,6 @@ import {
   buildPreviewMessage as kzBuildPreviewMessage,
   buildGapPrompt as kzBuildGapPrompt,
   buildGapInfoPrompt as kzBuildGapInfoPrompt,
-  buildAlternativesMessage as kzBuildAlternativesMessage,
 } from '@/lib/kleinanzeigen/telegram-ui';
 import { clearProfileCache as clearKleinanzeigenProfileCache } from '@/lib/kleinanzeigen/profile';
 import type { KleinanzeigenThread, KleinanzeigenAnalysis, MailAttachment } from '@/types';
@@ -215,8 +214,6 @@ async function notifyError(chatId: number, err: unknown): Promise<void> {
   }
 }
 
-const kzAlternativesCache = new Map<string, ReplyAlternative[]>();
-
 function kzReplyContextFromThread(thread: KleinanzeigenThread) {
   const analysis = (thread.ai_analysis as KleinanzeigenAnalysis | null) ?? {
     subject: 'Kleinanzeigen Nachricht',
@@ -274,34 +271,31 @@ async function handleKzAlternatives(chatId: number, messageId: number, threadId:
   const thread = await getKleinanzeigenThread(threadId);
   if (!thread) { await sendMessage({ chatId, text: `❓ Thread bulunamadı: ${threadId}` }); return; }
   await editMessageReplyMarkup({ chatId, messageId, replyMarkup: undefined });
-  await sendMessage({ chatId, text: '🤔 3 alternatif üretiliyor…' });
-  try {
-    const alts = await generateAlternatives(kzReplyContextFromThread(thread));
-    if (alts.length === 0) {
-      await sendMessage({ chatId, text: '⚠️ Alternatif üretilemedi, tekrar dene.' });
-      await kzShowInitial(chatId, thread);
-      return;
-    }
-    kzAlternativesCache.set(thread.id, alts);
-    await sendMessage({
-      chatId,
-      text: kzBuildAlternativesMessage(alts),
-      replyMarkup: kzAlternativesKeyboard(thread.id, alts.length),
-    });
-  } catch (err) { await notifyError(chatId, err); }
+  await sendMessage({
+    chatId,
+    text: '🤔 Hangi tür cevap olsun?',
+    replyMarkup: kzAlternativeTypesKeyboard(thread.id),
+  });
 }
 
-async function handleKzAltPick(chatId: number, threadId: string, indexStr: string): Promise<void> {
-  const thread = await getKleinanzeigenThread(threadId);
-  if (!thread) return;
-  const alts = kzAlternativesCache.get(threadId) ?? [];
-  const idx = Number(indexStr);
-  const picked = alts[idx];
-  if (!picked) {
-    await sendMessage({ chatId, text: '⚠️ Alternatif kayboldu, tekrar üret.' });
+async function handleKzAlternativeType(
+  chatId: number,
+  threadId: string,
+  styleRaw: string,
+): Promise<void> {
+  const validStyles: ReplyStyle[] = ['short', 'detailed', 'question'];
+  if (!validStyles.includes(styleRaw as ReplyStyle)) {
+    await sendMessage({ chatId, text: `❓ Bilinmeyen tür: ${styleRaw}` });
     return;
   }
-  await kzShowPreview(chatId, thread, picked.text, 'ai');
+  const style = styleRaw as ReplyStyle;
+  const thread = await getKleinanzeigenThread(threadId);
+  if (!thread) { await sendMessage({ chatId, text: `❓ Thread bulunamadı: ${threadId}` }); return; }
+  await sendMessage({ chatId, text: '💭 AI cevap üretiyor…' });
+  try {
+    const draft = await generateStyledReply(kzReplyContextFromThread(thread), style);
+    await kzShowPreview(chatId, thread, draft, 'ai');
+  } catch (err) { await notifyError(chatId, err); }
 }
 
 async function handleKzCustom(chatId: number, messageId: number, threadId: string): Promise<void> {
@@ -317,7 +311,6 @@ async function handleKzReject(chatId: number, messageId: number, threadId: strin
   if (!thread) return;
   await editMessageReplyMarkup({ chatId, messageId, replyMarkup: undefined });
   await updateKleinanzeigenThread(thread.id, { status: 'rejected' });
-  kzAlternativesCache.delete(thread.id);
   await sendMessage({ chatId, text: '❌ Reddedildi, cevap gönderilmedi.' });
 }
 
@@ -346,7 +339,6 @@ async function handleKzSend(chatId: number, messageId: number, threadId: string)
       final_reply: thread.draft_reply,
       sent_at: new Date(),
     });
-    kzAlternativesCache.delete(thread.id);
     await sendMessage({
       chatId,
       text: [
@@ -2147,8 +2139,8 @@ async function handleCallback(
       await handleKzSuggest(chatId, messageId, postId);
     } else if (action === 'kz_alts' && postId) {
       await handleKzAlternatives(chatId, messageId, postId);
-    } else if (action === 'kz_alt_pick' && postId) {
-      await handleKzAltPick(chatId, postId, rest[0] ?? '0');
+    } else if (action === 'kz_alt_type' && postId) {
+      await handleKzAlternativeType(chatId, postId, rest[0] ?? '');
     } else if (action === 'kz_custom' && postId) {
       await handleKzCustom(chatId, messageId, postId);
     } else if (action === 'kz_reject' && postId) {

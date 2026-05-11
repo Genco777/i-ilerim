@@ -107,3 +107,35 @@ export async function generateAlternatives(ctx: ReplyContext): Promise<ReplyAlte
   if (!block || block.type !== 'text') return [];
   return parseAlternativesResponse(block.text);
 }
+
+export type ReplyStyle = 'short' | 'detailed' | 'question';
+
+const STYLE_HINTS: Record<ReplyStyle, string> = {
+  short:
+    'STİL: Çok kısa ve rahat tut, max 2-3 cümle. Resmi olma, samimi yaz.',
+  detailed:
+    'STİL: Daha detaylı yaz. Fiyat ve teslim süresini açıkça belirt. 4-5 cümle.',
+  question:
+    'STİL: Cevap vermek yerine ÖNCE alıcıya gerekli bilgileri sor (format, boyut, kullanım amacı, vb). Kısa, samimi soru-cevap.',
+};
+
+export async function generateStyledReply(
+  ctx: ReplyContext,
+  style: ReplyStyle,
+): Promise<string> {
+  const profile = await loadMergedProfile();
+  const userPrompt = replyUserPrompt(ctx) + '\n\n' + STYLE_HINTS[style];
+  const res = await getClient().messages.create({
+    model: MODEL,
+    max_tokens: MAX_TOKENS,
+    system: [
+      { type: 'text', text: replySystemPrompt(profile), cache_control: { type: 'ephemeral' } },
+    ],
+    messages: [{ role: 'user', content: userPrompt }],
+  });
+  const block = res.content[0];
+  if (!block || block.type !== 'text') {
+    throw new Error('No text block in styled reply response');
+  }
+  return cleanReplyText(block.text);
+}
