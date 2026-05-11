@@ -46,6 +46,39 @@ export function logoChoiceKeyboard(postId: string): InlineKeyboardMarkup {
   };
 }
 
+// ───── Email Marketing ─────
+
+export function emailDigestKeyboard(planId: string): InlineKeyboardMarkup {
+  return {
+    inline_keyboard: [
+      [
+        { text: '📧 Bana test gönder', callback_data: `email_digest_test:${planId}` },
+        { text: '📋 Listeye gönder', callback_data: `email_digest_send:${planId}` },
+      ],
+      [
+        { text: '✗ İptal', callback_data: `email_digest_cancel:${planId}` },
+      ],
+    ],
+  };
+}
+
+export function emailOutreachKeyboard(
+  city: string,
+  service: string,
+): InlineKeyboardMarkup {
+  return {
+    inline_keyboard: [
+      [
+        { text: '📧 Bana test gönder', callback_data: `email_outreach_test:${city}:${service}` },
+        { text: '📋 Listeye gönder', callback_data: `email_outreach_send:${city}:${service}` },
+      ],
+      [
+        { text: '✗ İptal', callback_data: `email_outreach_cancel:${city}:${service}` },
+      ],
+    ],
+  };
+}
+
 // Inbound-message keyboard: send / edit / ignore the AI-drafted reply.
 export function replyKeyboard(messageId: string): InlineKeyboardMarkup {
   return {

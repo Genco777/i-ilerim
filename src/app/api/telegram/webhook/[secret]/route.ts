@@ -13,6 +13,8 @@ import {
   previewKeyboard,
   rawKeyboard,
   replyKeyboard,
+  emailDigestKeyboard,
+  emailOutreachKeyboard,
 } from '@/lib/telegram/keyboard';
 import { mailPreviewKeyboard } from '@/lib/telegram/mail-keyboard';
 import {
@@ -89,7 +91,9 @@ import {
   sendPortfolioNewsletter,
   sendReactivation,
 } from '@/lib/email/campaigns';
-import { getLists, createContact } from '@/lib/email/brevo';
+import { weeklyDigest, portfolioNewsletter } from '@/lib/email/templates';
+import type { DigestItem, PortfolioItem } from '@/lib/email/templates';
+import { getLists, createContact, sendEmail } from '@/lib/email/brevo';
 import { generateMailDraft } from '@/lib/mail/generate';
 import { sendMail } from '@/lib/mail/smtp';
 import {
@@ -2244,21 +2248,49 @@ async function handleEmailDigestCommand(chatId: number): Promise<void> {
     return;
   }
 
-  await sendMessage({ chatId, text: `📧 KW${week} email bülteni gönderiliyor…` });
-
-  try {
-    const result = await runWeeklyEmailCampaign(listIds, slots, week, year);
-    if (result.error) {
-      await sendMessage({ chatId, text: `❌ Email hatası: ${result.error}` });
-      return;
-    }
-    const lines = ['✅ Email kampanyası gönderildi!'];
-    if (result.digestId) lines.push(`📊 Weekly Digest: #${result.digestId}`);
-    if (result.portfolioId) lines.push(`🖼 Portfolio Showcase: #${result.portfolioId}`);
-    await sendMessage({ chatId, text: lines.join('\n') });
-  } catch (err) {
-    await notifyError(chatId, err);
+  // Build preview
+  const pillarCounts: Record<string, number> = {};
+  for (const s of slots) {
+    pillarCounts[s.pillar] = (pillarCounts[s.pillar] ?? 0) + 1;
   }
+
+  const portfolioItems = slotsToPortfolioItems(slots);
+  const subject = `Neue Design-Projekte | KW${week} — Fly & Froth Studio Update`;
+
+  let listInfo = '';
+  try {
+    const lists = await getLists();
+    const relevant = lists.filter((l) => listIds.includes(l.id));
+    if (relevant.length > 0) {
+      listInfo = relevant.map((l) => `#${l.id} (${l.totalSubscribers} kişi)`).join(', ');
+    }
+  } catch { listInfo = listIds.join(', '); }
+
+  const pillarEmoji: Record<string, string> = {
+    vitrine: '🖼', prozess: '🎬', insight: '📊', lokal: '📍', reel: '🎥',
+  };
+
+  const preview = [
+    `📧 **KW${week} Email Bülteni — Önizleme**`,
+    '',
+    `📌 Konu: ${subject}`,
+    '',
+    `📋 Hedef Liste: ${listInfo || '—'}`,
+    '',
+    'İçerik:',
+    ...Object.entries(pillarCounts).map(([k, v]) => `  ${pillarEmoji[k] ?? '📌'} ${v}× ${k}`),
+    '',
+    `🖼 Portfolyo: ${portfolioItems.length} proje`,
+    '',
+    '📧 *Bana test gönder* = info@fly-froth.com adresine önizleme',
+    '📋 *Listeye gönder* = tüm listeye kampanya başlat',
+  ].join('\n');
+
+  await sendMessage({
+    chatId,
+    text: preview,
+    replyMarkup: emailDigestKeyboard(plan.id),
+  });
 }
 
 async function handleEmailListsCommand(chatId: number): Promise<void> {
@@ -2329,6 +2361,89 @@ async function handleEmailReactivateCommand(
   } catch (err) {
     await notifyError(chatId, err);
   }
+}
+
+// ───── Email Callback Handlers ─────
+
+async function handleEmailDigestTest(chatId: number, planId: string): Promise<void> {
+  const plan = await getPlan(planId);
+  if (!plan) { await sendMessage({ chatId, text: 'Plan bulunamadı.' }); return; }
+
+  const slots = await getSlotsByPlan(plan.id);
+  if (slots.length === 0) { await sendMessage({ chatId, text: 'Planda slot yok.' }); return; }
+
+  const week = plan.calendar_week;
+  const year = plan.year;
+  const testEmail = process.env.EMAIL_FROM || 'info@fly-froth.com';
+
+  await sendMessage({ chatId, text: `📧 Test maili ${testEmail} adresine gönderiliyor…` });
+
+  try {
+    // Digest
+    const digestItems: DigestItem[] = slots.map((s) => ({
+      topic: s.topic ?? '',
+      pillar: s.pillar,
+      channel: s.channel,
+    }));
+    const digestHtml = weeklyDigest(digestItems, week, year);
+    await sendEmail({
+      to: [{ email: testEmail }],
+      subject: `Dein Weekly Digest | KW${week} — Fly & Froth`,
+      htmlContent: digestHtml,
+      tags: ['test', 'weekly-digest'],
+    });
+
+    // Portfolio
+    const portfolioItems = slotsToPortfolioItems(slots);
+    if (portfolioItems.length > 0) {
+      const portfolioHtml = portfolioNewsletter(portfolioItems);
+      await sendEmail({
+        to: [{ email: testEmail }],
+        subject: `Neue Design-Projekte | KW${week} — Fly & Froth Studio Update`,
+        htmlContent: portfolioHtml,
+        tags: ['test', 'portfolio'],
+      });
+    }
+
+    await sendMessage({
+      chatId,
+      text: `✅ 2 test maili ${testEmail} adresine gönderildi.\nGelen kutunu kontrol et, onaylarsan "Listeye gönder"e tıkla.`,
+    });
+  } catch (err) {
+    await notifyError(chatId, err);
+  }
+}
+
+async function handleEmailDigestSend(chatId: number, planId: string): Promise<void> {
+  const plan = await getPlan(planId);
+  if (!plan) { await sendMessage({ chatId, text: 'Plan bulunamadı.' }); return; }
+
+  const slots = await getSlotsByPlan(plan.id);
+  if (slots.length === 0) { await sendMessage({ chatId, text: 'Planda slot yok.' }); return; }
+
+  const listIds = emailListIds();
+  const week = plan.calendar_week;
+  const year = plan.year;
+
+  await sendMessage({ chatId, text: `📧 KW${week} email bülteni listeye gönderiliyor…` });
+
+  try {
+    const result = await runWeeklyEmailCampaign(listIds, slots, week, year);
+    if (result.error) {
+      await sendMessage({ chatId, text: `❌ Email hatası: ${result.error}` });
+      return;
+    }
+    const lines = ['✅ Email kampanyası gönderildi!'];
+    if (result.digestId) lines.push(`📊 Weekly Digest: #${result.digestId}`);
+    if (result.portfolioId) lines.push(`🖼 Portfolio Showcase: #${result.portfolioId}`);
+    await sendMessage({ chatId, text: lines.join('\n') });
+  } catch (err) {
+    await notifyError(chatId, err);
+  }
+}
+
+async function handleEmailDigestCancel(chatId: number, _planId: string): Promise<void> {
+  await sendMessage({ chatId, text: '✗ Email iptal edildi.' });
 }
 
 async function handleSlotBack(chatId: number, slotId: string): Promise<void> {
@@ -2591,6 +2706,12 @@ async function handleCallback(
       await handleMailCancel(chatId, messageId, postId);
     } else if (action === 'mail_reply' && postId) {
       await handleMailReply(chatId, postId);
+    } else if (action === 'email_digest_test' && postId) {
+      await handleEmailDigestTest(chatId, postId);
+    } else if (action === 'email_digest_send' && postId) {
+      await handleEmailDigestSend(chatId, postId);
+    } else if (action === 'email_digest_cancel' && postId) {
+      await handleEmailDigestCancel(chatId, postId);
     } else if (action === 'inv_type' && postId) {
       const t = postId as InvoiceTypeUnion;
       if (t === 'rechnung' || t === 'teilrechnung' || t === 'schlussrechnung') {
