@@ -210,7 +210,7 @@ export async function regenerateImage(postId: string): Promise<Post> {
 
   const useRealImage = post.content_pillar === 'vitrine' || post.content_pillar === 'prozess';
 
-  let buffer: Buffer;
+  let buffer!: Buffer;
   let provider: string | null = null;
   let prompt: string | null = null;
 
