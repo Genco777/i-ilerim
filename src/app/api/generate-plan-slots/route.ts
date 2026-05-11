@@ -81,7 +81,7 @@ export async function POST(req: Request) {
           '',
           (post.hashtags ?? []).map((h: string) => `#${h.replace(/^#/, '')}`).join(' '),
         ].join('\n').slice(0, 1024),
-        reply_markup: previewKeyboard(post.id, isStory ? 'story' : 'post'),
+        replyMarkup: previewKeyboard(post.id, isStory ? 'story' : 'post'),
       });
 
       ok++;
