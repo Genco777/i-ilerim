@@ -5,10 +5,7 @@
       "path": "/api/cron/poll-comments",
       "schedule": "0 9 * * *"
     },
-    {
-      "path": "/api/cron/publish-scheduled",
-      "schedule": "0 9 * * *"
-    },
+
     {
       "path": "/api/cron/generate-weekly-plan",
       "schedule": "0 7 * * 0"
