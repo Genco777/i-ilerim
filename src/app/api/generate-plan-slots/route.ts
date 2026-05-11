@@ -22,11 +22,10 @@ export async function POST(req: Request) {
     return new NextResponse('Unauthorized', { status: 401 });
   }
 
-  const { planId, chatId, batchSize, batchOffset } = (await req.json()) as {
+  const { planId, chatId, limit } = (await req.json()) as {
     planId: string;
     chatId: number;
-    batchSize?: number;
-    batchOffset?: number;
+    limit?: number;
   };
 
   const plan = await getPlan(planId);
@@ -42,10 +41,9 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: true, processed: 0 });
   }
 
-  // Batch slice
-  const offset = batchOffset ?? 0;
-  const limit = batchSize ?? pending.length;
-  const batch = pending.slice(offset, offset + limit);
+  // Take first N pending slots (batches controlled by caller)
+  const batchSize = limit ?? pending.length;
+  const batch = pending.slice(0, batchSize);
 
   const dayLabels = ['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So'];
   let ok = 0;
@@ -104,17 +102,16 @@ export async function POST(req: Request) {
     }
   }
 
-  const remaining = pending.length - (offset + batch.length);
-  const totalOk = ok; // This batch only
+  const remaining = pending.length - batch.length;
+  const totalOk = ok;
 
-  // Approve plan only when all batches are done
   if (remaining <= 0) {
     await approvePlan(planId);
   }
 
   const progressMsg = remaining > 0
-    ? `\n📊 ${offset + batch.length}/${pending.length} işlendi. Kalan: ${remaining} slot.`
-    : `\n✅ KW${plan.calendar_week} planı onaylandı. ${ok}/${pending.length} post üretildi.`;
+    ? `\n📊 ${ok}/${batch.length} işlendi. Kalan: ${remaining} slot.`
+    : `\n✅ KW${plan.calendar_week} planı onaylandı. Tüm slotlar üretildi.`;
 
   const failNote = fail > 0 ? `\n⚠️ ${fail} slot başarısız (yukarıdaki hata mesajlarına bak).` : '';
 
@@ -132,7 +129,5 @@ export async function POST(req: Request) {
     processed: ok,
     failed: fail,
     remaining,
-    nextOffset: remaining > 0 ? offset + batch.length : undefined,
-    nextBatchSize: remaining > 0 ? Math.min(BATCH_SIZE, remaining) : undefined,
   });
 }

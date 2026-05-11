@@ -2061,11 +2061,11 @@ async function handlePlanApproveAll(chatId: number, messageId: number, planId: s
   }
 
   const BATCH_SIZE = 4;
-  let offset = 0;
   let totalOk = 0;
   let totalFail = 0;
+  let remaining = topicsToGenerate.length;
 
-  while (offset < topicsToGenerate.length) {
+  while (remaining > 0) {
     try {
       const res = await fetch(`${baseUrl}/api/generate-plan-slots`, {
         method: 'POST',
@@ -2073,23 +2073,19 @@ async function handlePlanApproveAll(chatId: number, messageId: number, planId: s
           'Content-Type': 'application/json',
           Authorization: `Bearer ${secret}`,
         },
-        body: JSON.stringify({ planId, chatId, batchSize: BATCH_SIZE, batchOffset: offset }),
+        body: JSON.stringify({ planId, chatId, limit: BATCH_SIZE }),
       });
       const result = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        console.error(`[plan] Batch ${offset} returned ${res.status}:`, result);
-      }
       totalOk += (result.processed ?? 0);
       totalFail += (result.failed ?? 0);
-      offset += BATCH_SIZE;
+      remaining = result.remaining ?? 0;
     } catch (err) {
-      console.error(`[plan] Batch ${offset} dispatch failed:`, err);
-      totalFail += Math.min(BATCH_SIZE, topicsToGenerate.length - offset);
-      offset += BATCH_SIZE;
+      console.error(`[plan] Batch dispatch failed:`, err);
+      totalFail += Math.min(BATCH_SIZE, remaining);
+      remaining = Math.max(0, remaining - BATCH_SIZE);
     }
 
-    // Small gap between batches to let Vercel functions breathe
-    if (offset < topicsToGenerate.length) {
+    if (remaining > 0) {
       await new Promise((r) => setTimeout(r, 2000));
     }
   }
