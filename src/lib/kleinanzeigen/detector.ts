@@ -23,7 +23,7 @@ const LISTING_RE = /Anzeige\s+"([^"]+)"/u;
 const DELIM_RE = /\n-{3,}\n([\s\S]*?)\n-{3,}\n/;
 
 export function parseKleinanzeigenBody(body: string): ParsedKleinanzeigenBody {
-  const trimmed = (body ?? '').trim();
+  const trimmed = (body ?? '').replace(/\r\n/g, '\n').trim();
   if (trimmed.length === 0) {
     return { buyerName: null, listingTitle: null, message: '' };
   }

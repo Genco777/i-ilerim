@@ -65,4 +65,13 @@ Antworte dieser E-Mail direkt, um Jessy zu antworten.`;
     const parsed = parseKleinanzeigenBody('');
     expect(parsed.message).toBe('');
   });
+
+  it('handles CRLF line endings', () => {
+    const body =
+      'Nachricht von Jessy zu deiner Anzeige "Test"\r\n\r\n---\r\nHello buyer\r\n---\r\n';
+    const parsed = parseKleinanzeigenBody(body);
+    expect(parsed.buyerName).toBe('Jessy');
+    expect(parsed.listingTitle).toBe('Test');
+    expect(parsed.message).toBe('Hello buyer');
+  });
 });
