@@ -2072,16 +2072,24 @@ async function handlePlanApproveAll(chatId: number, messageId: number, planId: s
 }
 
 async function handlePlanCancel(chatId: number, messageId: number, planId: string): Promise<void> {
-  await editMessageReplyMarkup({ chatId, messageId, replyMarkup: undefined });
+  await editMessageReplyMarkup({ chatId, messageId, replyMarkup: undefined }).catch(() => {});
   const plan = await getPlan(planId);
   if (!plan) { await sendMessage({ chatId, text: 'Plan bulunamadı.' }); return; }
-  if (plan.status !== 'approved') { await sendMessage({ chatId, text: 'Plan zaten onaylı değil.' }); return; }
+  if (plan.status !== 'approved') {
+    await sendMessage({ chatId, text: `Plan durumu: ${plan.status}. Sadece onaylı planlar iptal edilebilir.` });
+    return;
+  }
 
   const slots = await getSlotsByPlan(planId);
   let deleted = 0;
   for (const s of slots) {
     if (s.post_id) {
-      try { await deletePost(s.post_id); deleted++; } catch (err) { console.error('deletePost failed:', err); }
+      try {
+        await deletePost(s.post_id);
+        deleted++;
+      } catch (err) {
+        await sendMessage({ chatId, text: `Post silme hatası (${s.post_id}): ${err instanceof Error ? err.message : String(err)}` });
+      }
     }
     await updateSlot(s.id, { post_id: null, status: 'pending' });
   }
@@ -2091,8 +2099,8 @@ async function handlePlanCancel(chatId: number, messageId: number, planId: strin
     chatId,
     text: [
       `↩️ KW${plan.calendar_week} planı iptal edildi.`,
-      `${deleted} post silindi, tüm slotlar beklemede.`,
-      'Yeniden /haftalik-plan veya /plan-durum yaz.',
+      `${deleted} post silindi, ${slots.length} slot beklemede.`,
+      'Yeniden /haftalik-plan yazarak yeni plan oluşturabilirsin.',
     ].join('\n'),
   });
 }
