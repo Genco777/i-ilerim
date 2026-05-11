@@ -15,12 +15,12 @@ export function planOverviewKeyboard(planId: string, isApproved = false): Inline
   return {
     inline_keyboard: [
       [
-        { text: '✓ Alle planen', callback_data: `plan_approve_all:${planId}` },
-        { text: '✏️ Slot bearbeiten', callback_data: `plan_edit:${planId}` },
+        { text: '✓ Tümünü onayla', callback_data: `plan_approve_all:${planId}` },
+        { text: '✏️ Slot düzenle', callback_data: `plan_edit:${planId}` },
       ],
       [
-        { text: '🔄 Plan neu', callback_data: `plan_regen:${planId}` },
-        { text: '✗ Verwerfen', callback_data: `plan_discard:${planId}` },
+        { text: '🔄 Planı yenile', callback_data: `plan_regen:${planId}` },
+        { text: '✗ İptal et', callback_data: `plan_discard:${planId}` },
       ],
     ],
   };
@@ -30,15 +30,15 @@ export function slotEditKeyboard(slotId: string, planId: string): InlineKeyboard
   return {
     inline_keyboard: [
       [
-        { text: '✓ Genehmigen', callback_data: `slot_approve:${slotId}` },
-        { text: '🔄 Neues Thema', callback_data: `slot_regen_topic:${slotId}` },
+        { text: '✓ Onayla', callback_data: `slot_approve:${slotId}` },
+        { text: '🔄 Konu yenile', callback_data: `slot_regen_topic:${slotId}` },
       ],
       [
-        { text: '📝 Text bearbeiten', callback_data: `slot_edit_text:${slotId}` },
-        { text: '✗ Löschen', callback_data: `slot_delete:${slotId}` },
+        { text: '📝 Metin düzenle', callback_data: `slot_edit_text:${slotId}` },
+        { text: '✗ Sil', callback_data: `slot_delete:${slotId}` },
       ],
       [
-        { text: '← Zurück', callback_data: `plan_view:${planId}` },
+        { text: '← Geri', callback_data: `plan_view:${planId}` },
       ],
     ],
   };

@@ -73,7 +73,7 @@ export async function generateWeeklyPlan(chatId: number): Promise<{ plan: Conten
 
   const existing = await getPlanByWeek(week, year);
   if (existing) {
-    throw new Error(`Plan für KW${week}/${year} existiert bereits. Nutze /plan-durum zum Anzeigen.`);
+    throw new Error(`KW${week}/${year} için zaten bir plan var. /plan-durum yaz.`);
   }
 
   const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });

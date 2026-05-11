@@ -2081,7 +2081,7 @@ async function handlePlanCancel(chatId: number, messageId: number, planId: strin
   let deleted = 0;
   for (const s of slots) {
     if (s.post_id) {
-      try { await import('@/lib/db/queries/posts').then(m => m.deletePost(s.post_id!)); deleted++; } catch {}
+      try { await deletePost(s.post_id); deleted++; } catch (err) { console.error('deletePost failed:', err); }
     }
     await updateSlot(s.id, { post_id: null, status: 'pending' });
   }
