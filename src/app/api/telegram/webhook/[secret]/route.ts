@@ -2016,18 +2016,43 @@ async function handlePlanApproveAll(chatId: number, messageId: number, planId: s
   if (!plan) { await sendMessage({ chatId, text: 'Plan bulunamadı.' }); return; }
 
   const slots = await getSlotsByPlan(planId);
-  await sendMessage({ chatId, text: `📤 ${slots.length} post onaylanıp sıraya alınıyor…` });
+  await sendMessage({ chatId, text: `📤 ${slots.length} post üretiliyor, görseller gönderilecek…` });
 
   let generated = 0;
   for (const slot of slots) {
     if (!slot.topic) continue;
     try {
+      // Calculate scheduled time from slot's day_of_week
+      const { week, year } = getCurrentWeek();
+      const now = new Date();
+      const mondayBase = new Date(now.getFullYear(), 0, 1 + (week - 1) * 7);
+      // Adjust to actual Monday of the ISO week
+      const day = now.getDate() - now.getDay() + 1 + slot.day_of_week;
+      const [hours, minutes] = slot.time_slot.split(':').map(Number);
+      const scheduledAt = new Date(now.getFullYear(), now.getMonth(), day, hours ?? 18, minutes ?? 30);
+
       const post = await generatePost({
         topic: slot.topic,
         telegramChatId: String(chatId),
         channel: slot.channel === 'reel' ? 'ig_story' : 'post',
+        pillar: slot.pillar,
+        scheduledAt,
       });
       await updateSlot(slot.id, { post_id: post.id, status: 'approved' });
+
+      // Send photo preview
+      const dayLabels = ['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So'];
+      await sendPhoto({
+        chatId,
+        photo: post.final_image_url,
+        caption: [
+          `${dayLabels[slot.day_of_week] ?? '??'} ${slot.time_slot} [${slot.pillar}]`,
+          post.text_de,
+          '',
+          (post.hashtags ?? []).map((h: string) => `#${h}`).join(' '),
+        ].join('\n').slice(0, 1024),
+      });
+
       generated++;
     } catch (err) {
       await updateSlot(slot.id, { status: 'rejected' });
@@ -2040,7 +2065,7 @@ async function handlePlanApproveAll(chatId: number, messageId: number, planId: s
     chatId,
     text: [
       `✅ KW${plan.calendar_week} planı onaylandı.`,
-      `${generated}/${slots.length} post sıraya alındı.`,
+      `${generated}/${slots.length} post üretildi ve yukarıda görselleri gönderildi.`,
       'Planlanan saatte otomatik yayınlanacak.',
     ].join('\n'),
   });
