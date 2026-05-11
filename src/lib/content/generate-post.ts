@@ -77,6 +77,7 @@ export async function generatePost(opts: GeneratePostOpts): Promise<Post> {
       opts.topic,
       brandKit,
       isStory ? 'ig_story' : 'ig_post',
+      opts.pillar,
     );
 
     // Use routed pipeline when pillar is known, fallback to generic generateImage
@@ -144,7 +145,7 @@ export async function regenerateImage(postId: string): Promise<Post> {
     throw new Error('Post not found or has no topic');
   }
   const brandKit = await getBrandKit();
-  const prompt = buildImagePrompt(post.topic, brandKit);
+  const prompt = buildImagePrompt(post.topic, brandKit, undefined, post.content_pillar ?? undefined);
   const { buffer, provider } = await generateImage(prompt);
   const rawBlob = await uploadImage(buffer, `raw-${Date.now()}.png`);
   const shouldOverlay =

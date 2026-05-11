@@ -17,10 +17,23 @@ export const CHANNEL_ASPECT: Record<string, AspectRatio> = {
   popup: '4:5',
 };
 
+const PILLAR_GOLD: Record<string, string> = {
+  vitrine: '#d4a43a Classic Gold — subtle gold reflections on screens/devices, warm golden ambient light, premium product photography style',
+  prozess: '#d4a43a Classic Gold — warm behind-the-scenes lighting, golden desk lamp glow, authentic workspace atmosphere',
+  insight: '#d4a43a Classic Gold — authoritative golden accents, rich contrast, knowledge/authority mood',
+  lokal: '#d4a43a Classic Gold — city skyline with warm golden glow, local landmark feeling, Frankfurt/Rhein-Main vibe',
+  reel: '#d4a43a Classic Gold — bold high-contrast gold, striking visual for reels cover, attention-grabbing',
+  logodesign: '#c9a96e Pale Gold — softer refined gold, elegant paper textures, creative prestige mood',
+  flyerdesign: '#b8943a Burnished Brass — warm brass tones, tactile paper feel, print product photography',
+  druckdesign: '#a08040 Bronze — deeper metallic bronze, industrial yet premium, physical product quality',
+  webdesign: '#d4a43a Classic Gold — screens with golden reflections, modern tech + luxury blend',
+};
+
 export function buildImagePrompt(
   topic: string,
   brandKit: BrandKit,
   channel?: keyof typeof CHANNEL_ASPECT,
+  pillar?: string,
 ): string {
   const channelHint =
     channel === 'ig_story' || channel === 'fb_story' || channel === 'ig_reel'
@@ -29,11 +42,16 @@ export function buildImagePrompt(
         ? '\nFormat: landscape (16:9). Wide composition with negative space for headline overlay.'
         : '\nFormat: square. Balanced composition.';
 
+  const goldHint = pillar && PILLAR_GOLD[pillar]
+    ? `\nGold accent: ${PILLAR_GOLD[pillar]}`
+    : '\nGold accent: #d4a43a Classic Gold';
+
   return [
     brandKit.visual_style_guide,
     '',
     `Subject: ${topic}`,
     channelHint,
+    goldHint,
     '',
     'Style: Photorealistic, high-end photography look. Nothing cartoonish or 3D-rendered.',
     'The image must look like a real professional photograph, not AI-generated.',
