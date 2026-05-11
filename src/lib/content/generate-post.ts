@@ -1,5 +1,3 @@
-import fs from 'fs';
-import path from 'path';
 import { generateText } from '@/lib/ai/text';
 import { generateImage, generateImageRouted, buildImagePrompt } from '@/lib/ai/image';
 import { composeLogo, applyGoldTint } from '@/lib/image/compose-logo';
@@ -8,6 +6,10 @@ import { getBrandKit } from '@/lib/db/queries/brand-kit';
 import { createPost, getPost, updatePost } from '@/lib/db/queries/posts';
 import { pickPortfolioImage } from '@/lib/content/website-images';
 import type { Post, ImageProvider, ContentPillar } from '@/types';
+
+function appBaseUrl(): string {
+  return process.env.APP_URL ?? 'https://admin.fly-froth.com';
+}
 
 export type ContentChannel = 'post' | 'ig_story';
 
@@ -79,10 +81,12 @@ export async function generatePost(opts: GeneratePostOpts): Promise<Post> {
     rawBuffer = opts.manualImageBuffer;
     imageSource = 'manual_upload';
   } else if (useRealImage) {
-    // Use real portfolio image from local filesystem — no AI at all
+    // Use real portfolio image from our own CDN (public/portfolio/) — no AI
     const picked = pickPortfolioImage(opts.topic, opts.pillar);
-    const fsPath = path.join(process.cwd(), 'public', picked.path);
-    rawBuffer = fs.readFileSync(fsPath);
+    const imageUrl = `${appBaseUrl()}${picked.path}`;
+    const res = await fetch(imageUrl);
+    if (!res.ok) throw new Error(`Portfolio image fetch failed (${res.status}): ${imageUrl}`);
+    rawBuffer = Buffer.from(await res.arrayBuffer());
     imageSource = 'manual_upload';
     imageProvider = 'website';
     imagePrompt = `Real portfolio: ${picked.description} (${picked.service})`;
@@ -171,8 +175,10 @@ export async function regenerateImage(postId: string): Promise<Post> {
 
   if (useRealImage) {
     const picked = pickPortfolioImage(post.topic, post.content_pillar ?? undefined);
-    const fsPath = path.join(process.cwd(), 'public', picked.path);
-    buffer = fs.readFileSync(fsPath);
+    const imageUrl = `${appBaseUrl()}${picked.path}`;
+    const fetchRes = await fetch(imageUrl);
+    if (!fetchRes.ok) throw new Error(`Portfolio image fetch failed (${fetchRes.status}): ${imageUrl}`);
+    buffer = Buffer.from(await fetchRes.arrayBuffer());
     provider = 'website';
     prompt = `Real portfolio: ${picked.description} (${picked.service})`;
   } else {
