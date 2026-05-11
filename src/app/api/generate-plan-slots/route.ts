@@ -61,7 +61,7 @@ export async function POST(req: Request) {
           slotLabel,
           post.text_de,
           '',
-          (post.hashtags ?? []).map((h: string) => `#${h}`).join(' '),
+          (post.hashtags ?? []).map((h: string) => `#${h.replace(/^#/, '')}`).join(' '),
         ].join('\n').slice(0, 1024),
       });
 

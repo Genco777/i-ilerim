@@ -144,7 +144,7 @@ export async function generateWeeklyPlan(chatId: number): Promise<{ plan: Conten
   const jsonMatch = block.text.match(/\{[\s\S]*\}/);
   if (!jsonMatch) throw new Error('No JSON in Claude response');
 
-  const generated = JSON.parse(jsonMatch[0]) as GeneratedPlan;
+  const generated = safeParsePlanJson(jsonMatch[0]);
   if (!generated.slots?.length) throw new Error('Empty slots array');
 
   const plan = await createPlan({
@@ -170,6 +170,35 @@ export async function generateWeeklyPlan(chatId: number): Promise<{ plan: Conten
   const slots = await createSlots(slotData);
 
   return { plan, slots };
+}
+
+function safeParsePlanJson(raw: string): GeneratedPlan {
+  try {
+    return JSON.parse(raw) as GeneratedPlan;
+  } catch {
+    // Repair: extract each slot topic individually via regex
+    const slotMatches = raw.match(/\{[^}]+\}/g);
+    if (!slotMatches) throw new Error(`Unparseable plan JSON: ${raw.slice(0, 300)}`);
+    const slots: PlanSlot[] = [];
+    for (const m of slotMatches) {
+      const day = m.match(/"dayLabel"\s*:\s*"([^"]*)"/)?.[1];
+      const time = m.match(/"time"\s*:\s*"([^"]*)"/)?.[1];
+      const pillar = m.match(/"pillar"\s*:\s*"([^"]*)"/)?.[1];
+      const channel = m.match(/"channel"\s*:\s*"([^"]*)"/)?.[1];
+      const topic = m.match(/"topic"\s*:\s*"([^"]*)"/)?.[1];
+      if (day && time && pillar && channel && topic) {
+        slots.push({
+          dayLabel: day,
+          time,
+          pillar: pillar as ContentPillar,
+          channel: channel as 'feed' | 'reel' | 'story',
+          topic,
+        });
+      }
+    }
+    if (slots.length === 0) throw new Error(`No repairable slots in plan JSON: ${raw.slice(0, 300)}`);
+    return { slots };
+  }
 }
 
 export function formatPlanForTelegram(plan: ContentPlan, slots: ContentSlot[]): string {
@@ -263,7 +292,7 @@ export async function generateNextWeekPlan(chatId: number): Promise<{ plan: Cont
   const jsonMatch = block.text.match(/\{[\s\S]*\}/);
   if (!jsonMatch) throw new Error('No JSON in Claude response');
 
-  const generated = JSON.parse(jsonMatch[0]) as GeneratedPlan;
+  const generated = safeParsePlanJson(jsonMatch[0]);
   if (!generated.slots?.length) throw new Error('Empty slots array');
 
   const plan = await createPlan({

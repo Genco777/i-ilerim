@@ -90,10 +90,24 @@ export async function generateText(
   if (!jsonMatch) {
     throw new Error(`No JSON in Claude response: ${raw.slice(0, 200)}`);
   }
-  const parsed = JSON.parse(jsonMatch[0]) as {
-    text?: unknown;
-    hashtags?: unknown;
-  };
+
+  let parsed: { text?: unknown; hashtags?: unknown };
+
+  // Try direct parse first
+  try {
+    parsed = JSON.parse(jsonMatch[0]);
+  } catch {
+    // Claude sometimes returns malformed JSON (unescaped quotes in German text).
+    // Attempt repair: extract text and hashtags via regex fallback.
+    const textMatch = jsonMatch[0].match(/"text"\s*:\s*"((?:[^"\\]|\\.)*)"/);
+    const hashtagsMatch = jsonMatch[0].match(/"hashtags"\s*:\s*\[([^\]]*)\]/);
+    if (textMatch && hashtagsMatch && hashtagsMatch[1] !== undefined) {
+      const rawTags = hashtagsMatch[1].match(/"([^"]*)"/g)?.map((t) => t.replace(/^"|"$/g, '')) ?? [];
+      parsed = { text: textMatch[1], hashtags: rawTags };
+    } else {
+      throw new Error(`Unparseable Claude JSON at pos: ${raw.slice(0, 300)}`);
+    }
+  }
 
   if (typeof parsed.text !== 'string' || !Array.isArray(parsed.hashtags)) {
     throw new Error(`Invalid Claude output shape: ${raw.slice(0, 200)}`);
