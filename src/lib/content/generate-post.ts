@@ -69,7 +69,7 @@ export async function generatePost(opts: GeneratePostOpts): Promise<Post> {
   });
 
   // 2. Image: real portfolio images for vitrine/prozess, AI for insight/lokal/reel
-  let rawBuffer: Buffer;
+  let rawBuffer!: Buffer;
   let imageProvider: string | null = null;
   let imagePrompt: string | null = null;
   let imageSource: 'ai_generated' | 'manual_upload' = 'ai_generated';
