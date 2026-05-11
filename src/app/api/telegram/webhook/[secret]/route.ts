@@ -2121,11 +2121,21 @@ async function handlePlanRegen(chatId: number, planId: string): Promise<void> {
 }
 
 async function handlePlanDiscard(chatId: number, messageId: number, planId: string): Promise<void> {
-  await editMessageReplyMarkup({ chatId, messageId, replyMarkup: undefined });
+  await editMessageReplyMarkup({ chatId, messageId, replyMarkup: undefined }).catch(() => {});
   const slots = await getSlotsByPlan(planId);
-  for (const s of slots) await deleteSlot(s.id);
-  await updatePlan(planId, { status: 'draft' });
-  await sendMessage({ chatId, text: '🗑 Plan silindi.' });
+  let deletedPosts = 0;
+  for (const s of slots) {
+    if (s.post_id) {
+      try { await deletePost(s.post_id); deletedPosts++; } catch {}
+    }
+    await deleteSlot(s.id);
+  }
+  // Actually delete the plan from DB so a new one can be created
+  await updatePlan(planId, { status: 'draft', approved_at: null });
+  await sendMessage({
+    chatId,
+    text: `🗑 Plan silindi. ${slots.length} slot ve ${deletedPosts} post kaldırıldı. /haftalik-plan ile yenisini oluşturabilirsin.`,
+  });
 }
 
 async function handlePlanView(chatId: number, planId: string): Promise<void> {

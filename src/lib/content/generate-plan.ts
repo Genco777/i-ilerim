@@ -72,8 +72,20 @@ export async function generateWeeklyPlan(chatId: number): Promise<{ plan: Conten
   const { week, year } = getCurrentWeek();
 
   const existing = await getPlanByWeek(week, year);
+  if (existing && existing.status === 'approved') {
+    throw new Error(`KW${week}/${year} onaylı plan mevcut. İptal için /plan-durum yaz.`);
+  }
+
+  // Clean up old draft plan if exists
   if (existing) {
-    throw new Error(`KW${week}/${year} için zaten bir plan var. /plan-durum yaz.`);
+    const { getSlotsByPlan, deleteSlot } = await import('@/lib/db/queries/plans');
+    const oldSlots = await getSlotsByPlan(existing.id);
+    for (const s of oldSlots) {
+      if (s.post_id) {
+        try { const { deletePost } = await import('@/lib/db/queries/posts'); await deletePost(s.post_id); } catch {}
+      }
+      await deleteSlot(s.id);
+    }
   }
 
   const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
