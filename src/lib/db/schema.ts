@@ -12,6 +12,7 @@ import {
   bigint,
   index,
   uniqueIndex,
+  unique,
 } from 'drizzle-orm/pg-core';
 
 // pgcrypto encrypted bytea — encrypt/decrypt is performed via SQL helpers
@@ -418,7 +419,7 @@ export const businessProfileOverrides = pgTable(
     updated_at: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => ({
-    topicKindIdx: uniqueIndex('business_profile_overrides_topic_kind_idx').on(t.topic, t.kind),
+    topicKindUnique: unique('business_profile_overrides_topic_kind_unique').on(t.topic, t.kind),
   }),
 );
 
