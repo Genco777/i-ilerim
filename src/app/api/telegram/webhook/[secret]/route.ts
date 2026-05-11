@@ -186,6 +186,8 @@ const HELP_TEXT = [
   '  /fatura                 — adım adım PDF fatura oluştur (DE), müşteriye mail at',
   '  /edit_reply <id> <text> — gelen mesaja taslak cevabı düzenle',
   '  /preview_reply <id>     — taslağı butonlu önizle',
+  '  /refresh-profile        — fly-froth.com/llms.txt cache temizle',
+  '  /export-overrides       — Telegram\'dan eklenen overrideleri JSON olarak ver',
   '  /help                   — bu mesaj',
   '',
   'Yeni FB/IG yorumları otomatik olarak buraya bildirilir.',
@@ -538,6 +540,34 @@ async function handleKzTextInput(
     if (refreshed) await kzShowInitial(chatId, refreshed);
     return;
   }
+}
+
+async function handleRefreshProfileCommand(chatId: number): Promise<void> {
+  clearKleinanzeigenProfileCache();
+  try {
+    const { fetchLlmsTxt } = await import('@/lib/kleinanzeigen/profile');
+    const text = await fetchLlmsTxt();
+    await sendMessage({
+      chatId,
+      text: ['🔄 Profil yenilendi.', `Boyut: ${text.length} karakter.`].join('\n'),
+    });
+  } catch (err) { await notifyError(chatId, err); }
+}
+
+async function handleExportOverridesCommand(chatId: number): Promise<void> {
+  const overrides = await listKleinanzeigenOverrides();
+  if (overrides.length === 0) {
+    await sendMessage({ chatId, text: 'Henüz override yok.' });
+    return;
+  }
+  const lines = overrides.map(
+    (o) => `- [${o.kind}] ${o.topic}: ${o.content.replace(/\n/g, ' ')}`,
+  );
+  const blob = ['## Zusätzliche Hinweise (Telegram overrides)', '', ...lines].join('\n');
+  await sendMessage({
+    chatId,
+    text: ['📋 Mevcut overrideler (llms.txt\'e ekleyebilirsin):', '', blob.slice(0, 3500)].join('\n'),
+  });
 }
 
 async function handlePostCommand(
@@ -1902,6 +1932,15 @@ async function handleCommand(
   }
   if (trimmed === '/help') {
     await sendMessage({ chatId, text: HELP_TEXT });
+    return;
+  }
+
+  if (trimmed === '/refresh-profile' || trimmed === '/refresh_profile') {
+    await handleRefreshProfileCommand(chatId);
+    return;
+  }
+  if (trimmed === '/export-overrides' || trimmed === '/export_overrides') {
+    await handleExportOverridesCommand(chatId);
     return;
   }
 
