@@ -100,6 +100,11 @@ export async function generateText(
   }
   return {
     text: parsed.text,
-    hashtags: parsed.hashtags.filter((h): h is string => typeof h === 'string'),
+    hashtags: [...new Set(
+      parsed.hashtags
+        .filter((h): h is string => typeof h === 'string')
+        .map((h) => h.replace(/^#/, '').trim().toLowerCase())
+        .filter((h) => h.length > 1),
+    )],
   };
 }
