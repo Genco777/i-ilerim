@@ -1,3 +1,5 @@
+import fs from 'fs';
+import path from 'path';
 import { generateText } from '@/lib/ai/text';
 import { generateImage, generateImageRouted, buildImagePrompt } from '@/lib/ai/image';
 import { composeLogo, applyGoldTint } from '@/lib/image/compose-logo';
@@ -77,13 +79,10 @@ export async function generatePost(opts: GeneratePostOpts): Promise<Post> {
     rawBuffer = opts.manualImageBuffer;
     imageSource = 'manual_upload';
   } else if (useRealImage) {
-    // Use real portfolio image from fly-froth.com — no AI at all
+    // Use real portfolio image from local filesystem — no AI at all
     const picked = pickPortfolioImage(opts.topic, opts.pillar);
-    const res = await fetch(picked.url);
-    if (!res.ok) {
-      throw new Error(`Website image fetch failed (${res.status}): ${picked.url}`);
-    }
-    rawBuffer = Buffer.from(await res.arrayBuffer());
+    const fsPath = path.join(process.cwd(), 'public', picked.path);
+    rawBuffer = fs.readFileSync(fsPath);
     imageSource = 'manual_upload';
     imageProvider = 'website';
     imagePrompt = `Real portfolio: ${picked.description} (${picked.service})`;
@@ -172,9 +171,8 @@ export async function regenerateImage(postId: string): Promise<Post> {
 
   if (useRealImage) {
     const picked = pickPortfolioImage(post.topic, post.content_pillar ?? undefined);
-    const res = await fetch(picked.url);
-    if (!res.ok) throw new Error(`Website image fetch failed (${res.status})`);
-    buffer = Buffer.from(await res.arrayBuffer());
+    const fsPath = path.join(process.cwd(), 'public', picked.path);
+    buffer = fs.readFileSync(fsPath);
     provider = 'website';
     prompt = `Real portfolio: ${picked.description} (${picked.service})`;
   } else {

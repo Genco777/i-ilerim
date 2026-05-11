@@ -16,8 +16,9 @@ function getClient(): Replicate {
 
 export async function recraftGenerate(
   prompt: string,
-  opts?: { style?: RecraftStyle },
+  opts?: { style?: RecraftStyle; maxRetries?: number },
 ): Promise<Buffer> {
+  const maxRetries = opts?.maxRetries ?? 3;
   const style = opts?.style ?? 'design_mockup';
   const input: Record<string, unknown> = {
     prompt,
@@ -25,20 +26,35 @@ export async function recraftGenerate(
     output_format: 'png',
   };
 
-  const output = await getClient().run(MODEL as `${string}/${string}:${string}`, { input });
+  let lastError: Error | undefined;
 
-  let url: string | undefined;
-  if (typeof output === 'string') {
-    url = output;
-  } else if (Array.isArray(output) && typeof output[0] === 'string') {
-    url = output[0];
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    try {
+      const output = await getClient().run(MODEL as `${string}/${string}:${string}`, { input });
+
+      let url: string | undefined;
+      if (typeof output === 'string') {
+        url = output;
+      } else if (Array.isArray(output) && typeof output[0] === 'string') {
+        url = output[0];
+      }
+
+      if (!url) {
+        throw new Error('Unexpected Recraft output: ' + JSON.stringify(output).slice(0, 200));
+      }
+
+      const res = await fetch(url);
+      if (!res.ok) throw new Error(`Recraft image fetch failed (${res.status})`);
+      return Buffer.from(await res.arrayBuffer());
+    } catch (err) {
+      lastError = err instanceof Error ? err : new Error(String(err));
+      if (attempt < maxRetries - 1) {
+        const delay = Math.min(1000 * Math.pow(2, attempt), 8000);
+        console.warn(`[recraft] Attempt ${attempt + 1}/${maxRetries} failed, retrying in ${delay}ms: ${lastError.message}`);
+        await new Promise((r) => setTimeout(r, delay));
+      }
+    }
   }
 
-  if (!url) {
-    throw new Error('Unexpected Recraft output: ' + JSON.stringify(output).slice(0, 200));
-  }
-
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(`Recraft image fetch failed (${res.status})`);
-  return Buffer.from(await res.arrayBuffer());
+  throw lastError ?? new Error('Recraft generation failed after retries');
 }

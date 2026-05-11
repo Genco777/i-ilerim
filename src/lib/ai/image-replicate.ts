@@ -23,15 +23,21 @@ function getClient(): Replicate {
   return _client;
 }
 
+async function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 export async function replicateGenerate(
   prompt: string,
   opts?: {
     aspectRatio?: AspectRatio;
     model?: FluxModel;
     referenceImages?: string[];
+    maxRetries?: number;
   },
 ): Promise<Buffer> {
   const modelId = MODEL_MAP[opts?.model ?? 'flux-2-flex'];
+  const maxRetries = opts?.maxRetries ?? 3;
   const input: Record<string, unknown> = {
     prompt,
     aspect_ratio: opts?.aspectRatio ?? '1:1',
@@ -43,27 +49,42 @@ export async function replicateGenerate(
     input.reference_images = opts.referenceImages.slice(0, 10);
   }
 
-  const output = await getClient().run(modelId as `${string}/${string}:${string}`, { input });
+  let lastError: Error | undefined;
 
-  let url: string | undefined;
-  if (typeof output === 'string') {
-    url = output;
-  } else if (Array.isArray(output) && typeof output[0] === 'string') {
-    url = output[0];
-  } else if (
-    output &&
-    typeof output === 'object' &&
-    'url' in output &&
-    typeof (output as { url: unknown }).url === 'function'
-  ) {
-    url = (output as { url: () => string }).url();
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    try {
+      const output = await getClient().run(modelId as `${string}/${string}:${string}`, { input });
+
+      let url: string | undefined;
+      if (typeof output === 'string') {
+        url = output;
+      } else if (Array.isArray(output) && typeof output[0] === 'string') {
+        url = output[0];
+      } else if (
+        output &&
+        typeof output === 'object' &&
+        'url' in output &&
+        typeof (output as { url: unknown }).url === 'function'
+      ) {
+        url = (output as { url: () => string }).url();
+      }
+
+      if (!url) {
+        throw new Error('Unexpected Replicate output shape: ' + JSON.stringify(output).slice(0, 200));
+      }
+
+      const res = await fetch(url);
+      if (!res.ok) throw new Error(`Replicate image fetch failed (${res.status})`);
+      return Buffer.from(await res.arrayBuffer());
+    } catch (err) {
+      lastError = err instanceof Error ? err : new Error(String(err));
+      if (attempt < maxRetries - 1) {
+        const delay = Math.min(1000 * Math.pow(2, attempt), 8000);
+        console.warn(`[replicate] Attempt ${attempt + 1}/${maxRetries} failed, retrying in ${delay}ms: ${lastError.message}`);
+        await sleep(delay);
+      }
+    }
   }
 
-  if (!url) {
-    throw new Error('Unexpected Replicate output shape: ' + JSON.stringify(output).slice(0, 200));
-  }
-
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(`Replicate image fetch failed (${res.status})`);
-  return Buffer.from(await res.arrayBuffer());
+  throw lastError ?? new Error('Replicate generation failed after retries');
 }
