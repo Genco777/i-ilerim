@@ -2016,58 +2016,45 @@ async function handlePlanApproveAll(chatId: number, messageId: number, planId: s
   if (!plan) { await sendMessage({ chatId, text: 'Plan bulunamadı.' }); return; }
 
   const slots = await getSlotsByPlan(planId);
-  await sendMessage({ chatId, text: `📤 ${slots.length} post üretiliyor, görseller gönderilecek…` });
+  const topicsToGenerate = slots.filter((s) => s.topic);
 
-  let generated = 0;
-  for (const slot of slots) {
-    if (!slot.topic) continue;
-    try {
-      // Calculate scheduled time from slot's day_of_week
-      const { week, year } = getCurrentWeek();
-      const now = new Date();
-      const mondayBase = new Date(now.getFullYear(), 0, 1 + (week - 1) * 7);
-      // Adjust to actual Monday of the ISO week
-      const day = now.getDate() - now.getDay() + 1 + slot.day_of_week;
-      const [hours, minutes] = slot.time_slot.split(':').map(Number);
-      const scheduledAt = new Date(now.getFullYear(), now.getMonth(), day, hours ?? 18, minutes ?? 30);
-
-      const post = await generatePost({
-        topic: slot.topic,
-        telegramChatId: String(chatId),
-        channel: slot.channel === 'reel' ? 'ig_story' : 'post',
-        pillar: slot.pillar,
-        scheduledAt,
-      });
-      await updateSlot(slot.id, { post_id: post.id, status: 'approved' });
-
-      // Send photo preview
-      const dayLabels = ['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So'];
-      await sendPhoto({
-        chatId,
-        photo: post.final_image_url,
-        caption: [
-          `${dayLabels[slot.day_of_week] ?? '??'} ${slot.time_slot} [${slot.pillar}]`,
-          post.text_de,
-          '',
-          (post.hashtags ?? []).map((h: string) => `#${h}`).join(' '),
-        ].join('\n').slice(0, 1024),
-      });
-
-      generated++;
-    } catch (err) {
-      await updateSlot(slot.id, { status: 'rejected' });
-      console.error(`Slot ${slot.id} generation failed:`, err);
-    }
+  if (topicsToGenerate.length === 0) {
+    await sendMessage({ chatId, text: '⚠️ Planda konusu olan slot yok.' });
+    return;
   }
 
-  await approvePlan(planId);
   await sendMessage({
     chatId,
     text: [
-      `✅ KW${plan.calendar_week} planı onaylandı.`,
-      `${generated}/${slots.length} post üretildi ve yukarıda görselleri gönderildi.`,
-      'Planlanan saatte otomatik yayınlanacak.',
+      `📤 ${topicsToGenerate.length} post üretiliyor.`,
+      'Her biri hazır oldukça görseli buraya gelecek.',
+      'Hata olursa burada bildirilecek.',
+      '',
+      `Plan: KW${plan.calendar_week}/${plan.year}`,
     ].join('\n'),
+  });
+
+  const baseUrl = process.env.APP_URL ?? 'https://admin.fly-froth.com';
+  const secret = process.env.CRON_SECRET;
+  if (!secret) {
+    await sendMessage({ chatId, text: '🔴 İç hata: CRON_SECRET eksik.' });
+    return;
+  }
+
+  topicsToGenerate.forEach((slot, i) => {
+    const delay = i * 300;
+    setTimeout(() => {
+      fetch(`${baseUrl}/api/generate-slot`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${secret}`,
+        },
+        body: JSON.stringify({ slotId: slot.id, chatId, planId }),
+      }).catch((err) => {
+        console.error(`[plan] Failed to dispatch slot ${slot.id}:`, err);
+      });
+    }, delay);
   });
 }
 
