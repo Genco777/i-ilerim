@@ -2041,20 +2041,17 @@ async function handlePlanApproveAll(chatId: number, messageId: number, planId: s
     return;
   }
 
-  topicsToGenerate.forEach((slot, i) => {
-    const delay = i * 300;
-    setTimeout(() => {
-      fetch(`${baseUrl}/api/generate-slot`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${secret}`,
-        },
-        body: JSON.stringify({ slotId: slot.id, chatId, planId }),
-      }).catch((err) => {
-        console.error(`[plan] Failed to dispatch slot ${slot.id}:`, err);
-      });
-    }, delay);
+  // Call batch endpoint that processes all slots sequentially.
+  // This runs in its own function invocation with a separate timeout budget.
+  fetch(`${baseUrl}/api/generate-plan-slots`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${secret}`,
+    },
+    body: JSON.stringify({ planId, chatId }),
+  }).catch((err) => {
+    console.error('[plan] Failed to dispatch batch:', err);
   });
 }
 
