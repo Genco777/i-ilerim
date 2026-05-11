@@ -2052,7 +2052,7 @@ async function handlePlanApproveAll(chatId: number, messageId: number, planId: s
     ].join('\n'),
   });
 
-  // Process all slots synchronously via batch endpoint.
+  // Process slots in batches of 4 (Vercel 300s timeout + Telegram rate limits)
   const baseUrl = process.env.APP_URL ?? 'https://admin.fly-froth.com';
   const secret = process.env.CRON_SECRET;
   if (!secret) {
@@ -2060,26 +2060,44 @@ async function handlePlanApproveAll(chatId: number, messageId: number, planId: s
     return;
   }
 
-  try {
-    const res = await fetch(`${baseUrl}/api/generate-plan-slots`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${secret}`,
-      },
-      body: JSON.stringify({ planId, chatId }),
-    });
-    if (!res.ok) {
-      const errBody = await res.text().catch(() => 'unknown');
-      console.error(`[plan] Batch endpoint returned ${res.status}: ${errBody}`);
+  const BATCH_SIZE = 4;
+  let offset = 0;
+  let totalOk = 0;
+  let totalFail = 0;
+
+  while (offset < topicsToGenerate.length) {
+    try {
+      const res = await fetch(`${baseUrl}/api/generate-plan-slots`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${secret}`,
+        },
+        body: JSON.stringify({ planId, chatId, batchSize: BATCH_SIZE, batchOffset: offset }),
+      });
+      const result = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        console.error(`[plan] Batch ${offset} returned ${res.status}:`, result);
+      }
+      totalOk += (result.processed ?? 0);
+      totalFail += (result.failed ?? 0);
+      offset += BATCH_SIZE;
+    } catch (err) {
+      console.error(`[plan] Batch ${offset} dispatch failed:`, err);
+      totalFail += Math.min(BATCH_SIZE, topicsToGenerate.length - offset);
+      offset += BATCH_SIZE;
     }
-  } catch (err) {
-    console.error('[plan] Batch dispatch failed:', err);
-    await sendMessage({
-      chatId,
-      text: `🔴 Plan işleme başlatılamadı: ${err instanceof Error ? err.message : String(err)}`,
-    });
+
+    // Small gap between batches to let Vercel functions breathe
+    if (offset < topicsToGenerate.length) {
+      await new Promise((r) => setTimeout(r, 2000));
+    }
   }
+
+  await sendMessage({
+    chatId,
+    text: `✅ Tüm batch'ler tamamlandı. ${totalOk}/${topicsToGenerate.length} başarılı, ${totalFail} hatalı.`,
+  });
 }
 
 async function handlePlanCancel(chatId: number, messageId: number, planId: string): Promise<void> {
