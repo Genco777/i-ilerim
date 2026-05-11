@@ -20,7 +20,7 @@ export function getNextWeek(): { week: number; year: number } {
   return { week: Math.ceil((days + start.getDay() + 1) / 7), year: next.getFullYear() };
 }
 
-// 9 feed posts + 3 reels + 6 stories = 18 slots per week
+// 7 feed posts + 3 reels + 6 stories = 16 slots per week
 const WEEKLY_CALENDAR: {
   day: number;
   pillar: ContentPillar;
@@ -114,7 +114,25 @@ function systemPrompt(): string {
 }
 
 function userPrompt(week: number, year: number, slotCount: number): string {
-  return `Erstelle Social-Media-Themen für Kalenderwoche ${week}, ${year}. Genau ${slotCount} Slots.`;
+  // Build the exact slot template so Claude fills every position
+  const slotPlan = WEEKLY_CALENDAR.map((s) => {
+    const day = GERMAN_DAYS[s.day] ?? '??';
+    return `  ${day} ${s.time} [${s.pillar}] ${s.channel}`;
+  }).join('\n');
+
+  return [
+    `Erstelle Social-Media-Themen für Kalenderwoche ${week}, ${year}.`,
+    '',
+    `Du MUSST genau ${slotCount} Slots ausfüllen — weder mehr noch weniger:`,
+    slotPlan,
+    '',
+    'Jeder Slot braucht ein konkretes, realistisches Topic (max 80 Zeichen).',
+    'Story-Slots: max 50 Zeichen, passend zum Feed-Post des gleichen Tages.',
+    'Keinen Slot auslassen. Jeder Eintrag in der Liste MUSS ein Topic bekommen.',
+    '',
+    'Antworte NUR mit dem JSON-Array im Format:',
+    '{ "slots": [{ "dayLabel": "Montag", "time": "18:30", "pillar": "insight", "channel": "feed", "topic": "..." }, ...] }',
+  ].join('\n');
 }
 
 export async function generateWeeklyPlan(chatId: number): Promise<{ plan: ContentPlan; slots: ContentSlot[] }> {
