@@ -82,6 +82,14 @@ import {
   ignoreMessage,
 } from '@/lib/messages/reply-manager';
 import { parseMailCommand } from '@/lib/mail/parse-mail-command';
+import {
+  runWeeklyEmailCampaign,
+  runCityOutreach,
+  slotsToPortfolioItems,
+  sendPortfolioNewsletter,
+  sendReactivation,
+} from '@/lib/email/campaigns';
+import { getLists } from '@/lib/email/brevo';
 import { generateMailDraft } from '@/lib/mail/generate';
 import { sendMail } from '@/lib/mail/smtp';
 import {
@@ -204,6 +212,10 @@ const HELP_TEXT = [
   '  /export-overrides       — Telegram\'dan eklenen overrideleri JSON olarak ver',
   '  /haftalik-plan           — Haftalık IG+FB içerik planı oluştur (AI)',
   '  /plan-durum              — Bu haftanın plan durumunu göster',
+  '  /email-digest            — Haftalık planı email bülteni olarak gönder',
+  '  /email-outreach <şehir>  — Lokal business outreach emaili (19 şehir)',
+  '  /email-reactivate <email> <isim> <proje> — Eski müşteriye yeniden aktivasyon maili',
+  '  /email-lists             — Brevo email listelerini göster',
   '  /help                   — bu mesaj',
   '',
   'Yeni FB/IG yorumları otomatik olarak buraya bildirilir.',
@@ -2204,6 +2216,121 @@ async function handleSlotGenerate(chatId: number, messageId: number, slotId: str
   } catch (err) { await notifyError(chatId, err); }
 }
 
+// ───── Email Marketing Handlers ─────
+
+function emailListIds(): number[] {
+  const raw = process.env.BREVO_LIST_IDS;
+  if (!raw) return [];
+  return raw.split(',').map((s) => Number(s.trim())).filter((n) => Number.isFinite(n));
+}
+
+async function handleEmailDigestCommand(chatId: number): Promise<void> {
+  const listIds = emailListIds();
+  if (listIds.length === 0) {
+    await sendMessage({ chatId, text: '⚠️ BREVO_LIST_IDS env eksik. .env.local\'a ekleyin.' });
+    return;
+  }
+
+  const { week, year } = getCurrentWeek();
+  const plan = await getPlanByWeek(week, year);
+  if (!plan) {
+    await sendMessage({ chatId, text: `KW${week}/${year} için plan yok. Önce /haftalik-plan yaz.` });
+    return;
+  }
+
+  const slots = await getSlotsByPlan(plan.id);
+  if (slots.length === 0) {
+    await sendMessage({ chatId, text: 'Planda slot yok.' });
+    return;
+  }
+
+  await sendMessage({ chatId, text: `📧 KW${week} email bülteni gönderiliyor…` });
+
+  try {
+    const result = await runWeeklyEmailCampaign(listIds, slots, week, year);
+    if (result.error) {
+      await sendMessage({ chatId, text: `❌ Email hatası: ${result.error}` });
+      return;
+    }
+    const lines = ['✅ Email kampanyası gönderildi!'];
+    if (result.digestId) lines.push(`📊 Weekly Digest: #${result.digestId}`);
+    if (result.portfolioId) lines.push(`🖼 Portfolio Showcase: #${result.portfolioId}`);
+    await sendMessage({ chatId, text: lines.join('\n') });
+  } catch (err) {
+    await notifyError(chatId, err);
+  }
+}
+
+async function handleEmailListsCommand(chatId: number): Promise<void> {
+  try {
+    const lists = await getLists();
+    if (lists.length === 0) {
+      await sendMessage({ chatId, text: 'Brevo\'da henüz liste yok. Brevo panelinde bir liste oluşturup ID\'sini BREVO_LIST_IDS env\'ye ekle.' });
+      return;
+    }
+    const lines = lists.map((l) => `• #${l.id}: ${l.name} (${l.totalSubscribers} kişi)`);
+    await sendMessage({ chatId, text: ['📋 Brevo Listeleri:', ...lines].join('\n') });
+  } catch (err) {
+    await notifyError(chatId, err);
+  }
+}
+
+async function handleEmailOutreachCommand(chatId: number, city: string): Promise<void> {
+  const validCities = [
+    'Karben', 'Frankfurt', 'Bad Vilbel', 'Friedberg', 'Hanau', 'Bad Homburg',
+    'Oberursel', 'Kronberg', 'Königstein', 'Bad Soden', 'Eschborn', 'Hofheim',
+    'Bad Nauheim', 'Butzbach', 'Niddatal', 'Rosbach', 'Wöllstadt', 'Nidderau', 'Bruchköbel',
+  ];
+  const match = validCities.find((c) => c.toLowerCase() === city.toLowerCase());
+  if (!match) {
+    await sendMessage({
+      chatId,
+      text: `❓ "${city}" Rhein-Main listesinde yok.\nGeçerli: ${validCities.join(', ')}`,
+    });
+    return;
+  }
+
+  await sendMessage({
+    chatId,
+    text: [
+      `📧 ${match} için lokal outreach emaili hazırlanıyor…`,
+      '',
+      'Bu özellik şu anda test aşamasında.',
+      'Göndermek için alıcı email adreslerini yaz (virgülle):',
+      'Örnek: ahmet@firma1.com, mehmet@firma2.de',
+      '',
+      'Veya BREVO_LIST_IDS ile otomatik listeye gönderilecek.',
+    ].join('\n'),
+  });
+
+  // Note: full automation requires contact list with local businesses.
+  // For now, the user can manually follow up.
+}
+
+async function handleEmailReactivateCommand(
+  chatId: number,
+  email: string,
+  name: string,
+  project: string,
+): Promise<void> {
+  if (!email.includes('@')) {
+    await sendMessage({ chatId, text: '⚠️ Geçerli bir email adresi yaz.' });
+    return;
+  }
+
+  await sendMessage({ chatId, text: `📧 ${name} için reaktivasyon maili gönderiliyor…` });
+
+  try {
+    await sendReactivation(email, name, project);
+    await sendMessage({
+      chatId,
+      text: `✅ Reaktivasyon maili ${email} adresine gönderildi.\nKonu: ${name}, lass uns wieder zusammenarbeiten`,
+    });
+  } catch (err) {
+    await notifyError(chatId, err);
+  }
+}
+
 async function handleSlotBack(chatId: number, slotId: string): Promise<void> {
   const slot = await getSlot(slotId);
   if (!slot) return;
@@ -2309,6 +2436,40 @@ async function handleCommand(
 
   if (trimmed === '/plan-durum' || trimmed === '/plan_durum') {
     await handlePlanStatusCommand(chatId);
+    return;
+  }
+
+  if (trimmed === '/email-digest' || trimmed === '/email_digest') {
+    await handleEmailDigestCommand(chatId);
+    return;
+  }
+
+  if (trimmed === '/email-lists' || trimmed === '/email_lists') {
+    await handleEmailListsCommand(chatId);
+    return;
+  }
+
+  if (trimmed.startsWith('/email-outreach') || trimmed.startsWith('/email_outreach')) {
+    const city = trimmed.replace(/^\/email[-_]outreach(@\w+)?\s*/, '').trim();
+    if (!city) {
+      await sendMessage({ chatId, text: 'Kullanım: /email-outreach <şehir>\nÖrnek: /email-outreach Frankfurt' });
+      return;
+    }
+    await handleEmailOutreachCommand(chatId, city);
+    return;
+  }
+
+  if (trimmed.startsWith('/email-reactivate') || trimmed.startsWith('/email_reactivate')) {
+    const args = trimmed.replace(/^\/email[-_]reactivate(@\w+)?\s*/, '').trim();
+    const parts = args.split(/\s+/);
+    if (parts.length < 3) {
+      await sendMessage({ chatId, text: 'Kullanım: /email-reactivate <email> <isim> <son_proje>\nÖrnek: /email-reactivate ahmet@x.com Ahmet "Logo Tasarımı"' });
+      return;
+    }
+    const email = parts[0]!;
+    const name = parts[1]!;
+    const project = parts.slice(2).join(' ');
+    await handleEmailReactivateCommand(chatId, email, name, project);
     return;
   }
 
