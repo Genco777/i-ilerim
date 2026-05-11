@@ -1,6 +1,6 @@
 import { db } from '@/lib/db';
 import { kleinanzeigenThreads, businessProfileOverrides } from '@/lib/db/schema';
-import { and, desc, eq, sql } from 'drizzle-orm';
+import { and, desc, eq, inArray } from 'drizzle-orm';
 import type {
   KleinanzeigenThread,
   NewKleinanzeigenThread,
@@ -20,7 +20,7 @@ export async function getThread(id: string): Promise<KleinanzeigenThread | null>
 
 export async function updateThread(
   id: string,
-  patch: Partial<KleinanzeigenThread>,
+  patch: Partial<NewKleinanzeigenThread>,
 ): Promise<KleinanzeigenThread> {
   const [row] = await db
     .update(kleinanzeigenThreads)
@@ -38,7 +38,7 @@ export async function getActiveThreadAwaitingText(chatId: number): Promise<Klein
     .where(
       and(
         eq(kleinanzeigenThreads.telegram_chat_id, chatId),
-        sql`${kleinanzeigenThreads.status} IN ('awaiting_custom','awaiting_refinement','awaiting_gap_info')`,
+        inArray(kleinanzeigenThreads.status, ['awaiting_custom', 'awaiting_refinement', 'awaiting_gap_info']),
       ),
     )
     .orderBy(desc(kleinanzeigenThreads.updated_at))
