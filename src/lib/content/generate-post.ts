@@ -1,10 +1,10 @@
 import { generateText } from '@/lib/ai/text';
-import { generateImage, buildImagePrompt } from '@/lib/ai/image';
+import { generateImage, generateImageRouted, buildImagePrompt } from '@/lib/ai/image';
 import { composeLogo } from '@/lib/image/compose-logo';
 import { uploadImage } from '@/lib/blob';
 import { getBrandKit } from '@/lib/db/queries/brand-kit';
 import { createPost, getPost, updatePost } from '@/lib/db/queries/posts';
-import type { Post, ImageProvider } from '@/types';
+import type { Post, ImageProvider, ContentPillar } from '@/types';
 
 export type ContentChannel = 'post' | 'ig_story';
 
@@ -18,6 +18,14 @@ export interface GeneratePostOpts {
   rawMode?: boolean;
   rawText?: string;
   channel?: ContentChannel;
+  pillar?: ContentPillar;
+  scheduledAt?: Date;
+}
+
+function getCalendarWeek(date: Date): number {
+  const start = new Date(date.getFullYear(), 0, 1);
+  const days = Math.floor((date.getTime() - start.getTime()) / (24 * 60 * 60 * 1000));
+  return Math.ceil((days + start.getDay() + 1) / 7);
 }
 
 export async function generatePost(opts: GeneratePostOpts): Promise<Post> {
@@ -70,18 +78,34 @@ export async function generatePost(opts: GeneratePostOpts): Promise<Post> {
       brandKit,
       isStory ? 'ig_story' : 'ig_post',
     );
-    const result = await generateImage(imagePrompt, {
-      forceProvider: opts.forceProvider,
-      aspectRatio: isStory ? '9:16' : '1:1',
-    });
-    rawBuffer = result.buffer;
-    imageProvider = result.provider;
+
+    // Use routed pipeline when pillar is known, fallback to generic generateImage
+    if (opts.pillar) {
+      const result = await generateImageRouted(
+        imagePrompt,
+        opts.pillar,
+        opts.topic,
+        {
+          forceProvider: opts.forceProvider,
+          aspectRatio: isStory ? '9:16' : '1:1',
+        },
+      );
+      rawBuffer = result.buffer;
+      imageProvider = result.provider;
+    } else {
+      const result = await generateImage(imagePrompt, {
+        forceProvider: opts.forceProvider,
+        aspectRatio: isStory ? '9:16' : '1:1',
+      });
+      rawBuffer = result.buffer;
+      imageProvider = result.provider;
+    }
   }
 
   // 3. Upload raw (logo-less) version
   const rawBlob = await uploadImage(rawBuffer, `raw-${Date.now()}.png`);
 
-  // 4. Logo overlay decision
+  // 4. Logo overlay decision (Sharp post-processing for manual uploads)
   const shouldOverlay =
     !opts.noLogo &&
     brandKit.logo_position !== 'none' &&
@@ -107,6 +131,10 @@ export async function generatePost(opts: GeneratePostOpts): Promise<Post> {
     created_via: 'telegram',
     telegram_chat_id: opts.telegramChatId ?? null,
     telegram_message_id: opts.telegramMessageId ?? null,
+    content_pillar: opts.pillar ?? null,
+    calendar_week: opts.scheduledAt ? getCalendarWeek(opts.scheduledAt) : null,
+    channel: isStory ? 'story' : 'feed',
+    scheduled_at: opts.scheduledAt ?? null,
   });
 }
 
