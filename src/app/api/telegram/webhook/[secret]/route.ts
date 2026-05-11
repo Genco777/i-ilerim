@@ -186,7 +186,6 @@ const HELP_TEXT = [
   '  /fatura                 — adım adım PDF fatura oluştur (DE), müşteriye mail at',
   '  /edit_reply <id> <text> — gelen mesaja taslak cevabı düzenle',
   '  /preview_reply <id>     — taslağı butonlu önizle',
-  '  /kz_test [mesaj]        — sahte Kleinanzeigen mesajı ile bot akışını test et',
   '  /refresh-profile        — fly-froth.com/llms.txt cache temizle',
   '  /export-overrides       — Telegram\'dan eklenen overrideleri JSON olarak ver',
   '  /help                   — bu mesaj',
@@ -327,24 +326,6 @@ async function handleKzSend(chatId: number, messageId: number, threadId: string)
   }
   if (thread.status === 'sent') {
     await sendMessage({ chatId, text: 'Bu cevap zaten gönderilmiş.' });
-    return;
-  }
-  if (thread.routing_token.startsWith('test-')) {
-    await editMessageReplyMarkup({ chatId, messageId, replyMarkup: undefined });
-    await updateKleinanzeigenThread(thread.id, {
-      status: 'sent',
-      final_reply: thread.draft_reply,
-      sent_at: new Date(),
-    });
-    await sendMessage({
-      chatId,
-      text: [
-        '🧪 Test modu: gerçek mail gönderilmedi.',
-        '',
-        `Hedef (sahte): ${thread.sender_address}`,
-        `Cevap: ${thread.draft_reply.slice(0, 800)}`,
-      ].join('\n'),
-    });
     return;
   }
   await editMessageReplyMarkup({ chatId, messageId, replyMarkup: undefined });
@@ -590,45 +571,6 @@ async function handleExportOverridesCommand(chatId: number): Promise<void> {
     chatId,
     text: ['📋 Mevcut overrideler (llms.txt\'e ekleyebilirsin):', '', blob.slice(0, 3500)].join('\n'),
   });
-}
-
-async function handleKzTestCommand(chatId: number, argText: string): Promise<void> {
-  const trimmed = argText.trim();
-  const buyerText = trimmed.length > 0
-    ? trimmed
-    : 'Hi, kannst du mir ein Logo machen? Wie viel kostet das und wie lange dauert es?';
-
-  const token = `test-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
-  const senderAddress = `${token}@mail.kleinanzeigen.de`;
-  const messageId = `<test-${Date.now()}@local>`;
-
-  const syntheticBody = [
-    'Hallo Mehmet,',
-    '',
-    'du hast eine Nachricht von Test-Käufer zu deiner Anzeige "Test Listing (Simülasyon)" erhalten:',
-    '',
-    '---',
-    buyerText,
-    '---',
-    '',
-    'Antworte dieser E-Mail direkt, um Test-Käufer zu antworten.',
-  ].join('\n');
-
-  await sendMessage({
-    chatId,
-    text: '🧪 Test Kleinanzeigen mesajı oluşturuluyor… (analiz biraz sürebilir)',
-  });
-
-  try {
-    const { handleKleinanzeigenMail } = await import('@/lib/kleinanzeigen');
-    await handleKleinanzeigenMail({
-      fromEmail: senderAddress,
-      messageId,
-      bodyText: syntheticBody,
-    });
-  } catch (err) {
-    await notifyError(chatId, err);
-  }
 }
 
 async function handlePostCommand(
@@ -2002,11 +1944,6 @@ async function handleCommand(
   }
   if (trimmed === '/export-overrides' || trimmed === '/export_overrides') {
     await handleExportOverridesCommand(chatId);
-    return;
-  }
-  if (trimmed === '/kz_test' || trimmed.startsWith('/kz_test ')) {
-    const arg = trimmed.startsWith('/kz_test ') ? trimmed.slice('/kz_test '.length) : '';
-    await handleKzTestCommand(chatId, arg);
     return;
   }
 
