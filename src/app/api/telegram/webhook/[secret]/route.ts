@@ -73,7 +73,7 @@ import {
   regenerateText,
 } from '@/lib/content/generate-post';
 import { generateWeeklyPlan, formatPlanForTelegram, getCurrentWeek } from '@/lib/content/generate-plan';
-import { getPost, deletePost } from '@/lib/db/queries/posts';
+import { getPost, updatePost, deletePost } from '@/lib/db/queries/posts';
 import { publishPost, publishStory } from '@/lib/meta/publisher';
 import {
   getIncomingMessage,
@@ -144,6 +144,10 @@ import {
 } from '@/lib/kleinanzeigen/telegram-ui';
 import { clearProfileCache as clearKleinanzeigenProfileCache } from '@/lib/kleinanzeigen/profile';
 import type { KleinanzeigenThread, KleinanzeigenAnalysis, MailAttachment } from '@/types';
+
+// In-memory session for manual text editing (post caption)
+const textEditSessions = new Map<number, string>(); // chatId -> postId
+const planEditSessions = new Map<number, string>(); // chatId -> planId
 
 interface TelegramUser {
   id: number;
@@ -868,6 +872,49 @@ async function handleRegenText(
   } catch (err) {
     await notifyError(chatId, err);
   }
+}
+
+async function handleEditText(
+  chatId: number,
+  postId: string,
+): Promise<void> {
+  const post = await getPost(postId);
+  if (!post) { await sendMessage({ chatId, text: 'Post bulunamadı.' }); return; }
+  textEditSessions.set(chatId, postId);
+  await sendMessage({
+    chatId,
+    text: [
+      '✏️ **Yeni metni yaz** (hashtag\'ler otomatik eklenir):',
+      '',
+      `Mevcut: ${(post.text_de ?? '').slice(0, 200)}…`,
+    ].join('\n'),
+  });
+}
+
+async function handleEditTextInput(
+  chatId: number,
+  newText: string,
+): Promise<boolean> {
+  const postId = textEditSessions.get(chatId);
+  if (!postId) return false;
+  textEditSessions.delete(chatId);
+
+  const post = await getPost(postId);
+  if (!post) { await sendMessage({ chatId, text: 'Post bulunamadı.' }); return true; }
+
+  await updatePost(postId, { text_de: newText });
+  const caption = [
+    newText,
+    '',
+    (post.hashtags ?? []).map((h: string) => `#${h.replace(/^#/, '')}`).join(' '),
+  ].join('\n');
+
+  await sendMessage({
+    chatId,
+    text: `✅ Metin güncellendi:\n\n${caption.slice(0, 3500)}`,
+    replyMarkup: previewKeyboard(postId, 'post'),
+  });
+  return true;
 }
 
 async function handleDelete(
@@ -2174,13 +2221,14 @@ async function handlePlanView(chatId: number, planId: string): Promise<void> {
 async function handlePlanEditPrompt(chatId: number, planId: string): Promise<void> {
   const slots = await getSlotsByPlan(planId);
   if (!slots.length) { await sendMessage({ chatId, text: 'Planda slot yok.' }); return; }
+  planEditSessions.set(chatId, planId);
   const lines = slots.map((s, i) => {
     const day = ['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So'][s.day_of_week] ?? '??';
     return `${i + 1}. ${day} ${s.time_slot} [${s.pillar}] ${s.topic ?? '(leer)'}`;
   });
   await sendMessage({
     chatId,
-    text: ['✏️ Slot seçmek için numarasını yaz (örn. "3"), veya:', '', ...lines].join('\n'),
+    text: ['✏️ Slot seçmek için numarasını yaz (örn. "3"), veya "iptal":', '', ...lines].join('\n'),
   });
 }
 
@@ -2193,15 +2241,17 @@ async function handleSlotApprove(chatId: number, messageId: number, slotId: stri
     const post = await generatePost({
       topic: slot.topic,
       telegramChatId: String(chatId),
-      channel: slot.channel === 'reel' ? 'ig_story' : 'post',
+      channel: slot.channel === 'reel' || slot.channel === 'story' ? 'ig_story' : 'post',
+      pillar: slot.pillar,
     });
     await updateSlot(slotId, { post_id: post.id, status: 'approved' });
+    const variant = slot.channel === 'story' ? 'story' as const : 'post' as const;
     await sendPhoto({
       chatId,
       photo: post.final_image_url,
       caption: `${post.text_de}\n\n${(post.hashtags ?? []).map((h: string) => `#${h}`).join(' ')}`.slice(0, 1024),
+      replyMarkup: previewKeyboard(post.id, variant),
     });
-    await sendMessage({ chatId, text: '✅ Slot onaylandı ve post hazır.' });
   } catch (err) { await notifyError(chatId, err); }
 }
 
@@ -2225,13 +2275,16 @@ async function handleSlotGenerate(chatId: number, messageId: number, slotId: str
     const post = await generatePost({
       topic: slot.topic,
       telegramChatId: String(chatId),
-      channel: slot.channel === 'reel' ? 'ig_story' : 'post',
+      channel: slot.channel === 'reel' || slot.channel === 'story' ? 'ig_story' : 'post',
+      pillar: slot.pillar,
     });
     await updateSlot(slotId, { post_id: post.id, status: 'approved' });
+    const variant = slot.channel === 'story' ? 'story' as const : 'post' as const;
     await sendPhoto({
       chatId,
       photo: post.final_image_url,
       caption: `${post.text_de}`.slice(0, 1024),
+      replyMarkup: previewKeyboard(post.id, variant),
     });
   } catch (err) { await notifyError(chatId, err); }
 }
@@ -2643,6 +2696,47 @@ async function handleCommand(
     return;
   }
 
+  // Active text-edit session: user is manually editing a post caption
+  if (textEditSessions.has(chatId)) {
+    const handled = await handleEditTextInput(chatId, trimmed);
+    if (handled) return;
+  }
+
+  // Active plan-edit session: user is selecting a slot by number
+  const planId = planEditSessions.get(chatId);
+  if (planId) {
+    if (trimmed.toLowerCase() === 'iptal') {
+      planEditSessions.delete(chatId);
+      await handlePlanView(chatId, planId);
+      return;
+    }
+    const slotNum = parseInt(trimmed, 10);
+    if (!isNaN(slotNum) && slotNum >= 1) {
+      planEditSessions.delete(chatId);
+      const slots = await getSlotsByPlan(planId);
+      const slot = slots[slotNum - 1];
+      if (!slot) {
+        await sendMessage({ chatId, text: `1-${slots.length} arası bir sayı yaz.` });
+        planEditSessions.set(chatId, planId);
+        return;
+      }
+      const day = ['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So'][slot.day_of_week] ?? '??';
+      await sendMessage({
+        chatId,
+        text: [
+          `✏️ **Slot ${slotNum}**`,
+          `${day} ${slot.time_slot} [${slot.pillar}]`,
+          `Konu: ${slot.topic ?? '(yok)'}`,
+          `Durum: ${slot.status}${slot.post_id ? ` (post: ${slot.post_id})` : ''}`,
+        ].join('\n'),
+        replyMarkup: slotEditKeyboard(slot.id, planId),
+      });
+      return;
+    }
+    await sendMessage({ chatId, text: 'Geçerli bir slot numarası yaz veya "iptal".' });
+    return;
+  }
+
   // Active Kleinanzeigen thread awaiting text input takes priority.
   const activeKz = await getActiveKleinanzeigenThread(chatId);
   if (activeKz) {
@@ -2736,6 +2830,8 @@ async function handleCallback(
       await handleRegenImage(chatId, postId);
     } else if (action === 'regen_text' && postId) {
       await handleRegenText(chatId, postId);
+    } else if (action === 'edit_text' && postId) {
+      await handleEditText(chatId, postId);
     } else if (action === 'delete' && postId) {
       await handleDelete(chatId, messageId, postId);
     } else if (action === 'set_logo' && postId) {

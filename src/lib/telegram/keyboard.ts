@@ -16,6 +16,9 @@ export function previewKeyboard(
       ],
       [
         { text: '📝 Metni yenile', callback_data: `regen_text:${postId}` },
+        { text: '✏️ Metni düzenle', callback_data: `edit_text:${postId}` },
+      ],
+      [
         { text: '✗ Sil', callback_data: `delete:${postId}` },
       ],
     ],
