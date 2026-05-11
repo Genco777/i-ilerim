@@ -9,6 +9,8 @@ import {
   invoices,
   kleinanzeigenThreads,
   businessProfileOverrides,
+  contentPlans,
+  contentSlots,
 } from '@/lib/db/schema';
 import type { InferSelectModel, InferInsertModel } from 'drizzle-orm';
 
@@ -31,6 +33,11 @@ export type KleinanzeigenThread = InferSelectModel<typeof kleinanzeigenThreads>;
 export type NewKleinanzeigenThread = InferInsertModel<typeof kleinanzeigenThreads>;
 export type BusinessProfileOverride = InferSelectModel<typeof businessProfileOverrides>;
 export type NewBusinessProfileOverride = InferInsertModel<typeof businessProfileOverrides>;
+export type ContentPlan = InferSelectModel<typeof contentPlans>;
+export type NewContentPlan = InferInsertModel<typeof contentPlans>;
+export type ContentSlot = InferSelectModel<typeof contentSlots>;
+export type NewContentSlot = InferInsertModel<typeof contentSlots>;
+export type ContentPillar = 'vitrine' | 'prozess' | 'insight' | 'lokal' | 'reel';
 export type { KleinanzeigenAnalysis } from '@/lib/db/schema';
 export type { MailAttachment } from '@/lib/db/schema';
 
