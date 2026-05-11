@@ -102,7 +102,6 @@ export async function deleteOverride(id: string): Promise<void> {
 
 export async function getConversationHistory(
   routingToken: string,
-  limit = 10,
 ): Promise<ConversationTurn[]> {
   const rows = await db
     .select({
@@ -117,8 +116,7 @@ export async function getConversationHistory(
         eq(kleinanzeigenThreads.status, 'sent'),
       ),
     )
-    .orderBy(desc(kleinanzeigenThreads.sent_at))
-    .limit(limit);
+    .orderBy(desc(kleinanzeigenThreads.sent_at));
 
   return rows
     .filter((r) => r.ourReply !== null && r.sentAt !== null)
