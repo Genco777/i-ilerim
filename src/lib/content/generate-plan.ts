@@ -101,7 +101,7 @@ export async function generateWeeklyPlan(chatId: number): Promise<{ plan: Conten
   });
 
   const slotData = generated.slots.slice(0, 10).map((s, i) => {
-    const template = WEEKLY_CALENDAR[i] ?? WEEKLY_CALENDAR[0];
+    const template = WEEKLY_CALENDAR[i % WEEKLY_CALENDAR.length]!;
     return {
       plan_id: plan.id,
       day_of_week: template.day,
