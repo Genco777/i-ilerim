@@ -2034,6 +2034,7 @@ async function handlePlanApproveAll(chatId: number, messageId: number, planId: s
     ].join('\n'),
   });
 
+  // Process all slots synchronously via batch endpoint.
   const baseUrl = process.env.APP_URL ?? 'https://admin.fly-froth.com';
   const secret = process.env.CRON_SECRET;
   if (!secret) {
@@ -2041,18 +2042,26 @@ async function handlePlanApproveAll(chatId: number, messageId: number, planId: s
     return;
   }
 
-  // Call batch endpoint that processes all slots sequentially.
-  // This runs in its own function invocation with a separate timeout budget.
-  fetch(`${baseUrl}/api/generate-plan-slots`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${secret}`,
-    },
-    body: JSON.stringify({ planId, chatId }),
-  }).catch((err) => {
-    console.error('[plan] Failed to dispatch batch:', err);
-  });
+  try {
+    const res = await fetch(`${baseUrl}/api/generate-plan-slots`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${secret}`,
+      },
+      body: JSON.stringify({ planId, chatId }),
+    });
+    if (!res.ok) {
+      const errBody = await res.text().catch(() => 'unknown');
+      console.error(`[plan] Batch endpoint returned ${res.status}: ${errBody}`);
+    }
+  } catch (err) {
+    console.error('[plan] Batch dispatch failed:', err);
+    await sendMessage({
+      chatId,
+      text: `🔴 Plan işleme başlatılamadı: ${err instanceof Error ? err.message : String(err)}`,
+    });
+  }
 }
 
 async function handlePlanCancel(chatId: number, messageId: number, planId: string): Promise<void> {
