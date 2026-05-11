@@ -1,6 +1,6 @@
 import { generateText } from '@/lib/ai/text';
 import { generateImage, generateImageRouted, buildImagePrompt } from '@/lib/ai/image';
-import { composeLogo, applyGoldTint } from '@/lib/image/compose-logo';
+import { composeLogo, applyGoldTint, cropToStoryAspect } from '@/lib/image/compose-logo';
 import { uploadImage } from '@/lib/blob';
 import { getBrandKit } from '@/lib/db/queries/brand-kit';
 import { createPost, getPost, updatePost } from '@/lib/db/queries/posts';
@@ -162,13 +162,16 @@ export async function generatePost(opts: GeneratePostOpts): Promise<Post> {
     }
   }
 
-  // 3. Gold tint overlay — subtle warm gold wash on ALL images
-  const goldBuffer = await applyGoldTint(rawBuffer, opts.pillar);
+  // 3. Story images must be 9:16 vertical — crop from center before gold tint
+  const sizedBuffer = isStory ? await cropToStoryAspect(rawBuffer) : rawBuffer;
 
-  // 4. Upload gold-tinted raw version
+  // 4. Gold tint overlay — subtle warm gold wash on ALL images
+  const goldBuffer = await applyGoldTint(sizedBuffer, opts.pillar);
+
+  // 5. Upload gold-tinted raw version
   const rawBlob = await uploadImage(goldBuffer, `raw-${Date.now()}.png`);
 
-  // 5. Logo overlay decision (Sharp post-processing)
+  // 6. Logo overlay decision (Sharp post-processing)
   const shouldOverlay =
     !opts.noLogo &&
     brandKit.logo_position !== 'none' &&
@@ -180,7 +183,7 @@ export async function generatePost(opts: GeneratePostOpts): Promise<Post> {
     ? await uploadImage(finalBuffer, `final-${Date.now()}.png`)
     : rawBlob;
 
-  // 6. Persist
+  // 7. Persist
   return createPost({
     status: 'draft',
     topic: opts.topic,
@@ -246,8 +249,10 @@ export async function regenerateImage(postId: string): Promise<Post> {
     provider = result.provider;
   }
 
-  const goldBuffer = await applyGoldTint(buffer, post.content_pillar);
+  const isStoryRegen = post.channel === 'story' || post.channel === 'reel';
+  const sizedBuffer = isStoryRegen ? await cropToStoryAspect(buffer) : buffer;
 
+  const goldBuffer = await applyGoldTint(sizedBuffer, post.content_pillar);
   const rawBlob = await uploadImage(goldBuffer, `raw-${Date.now()}.png`);
   const shouldOverlay =
     brandKit.logo_position !== 'none' && !!brandKit.logo_url;

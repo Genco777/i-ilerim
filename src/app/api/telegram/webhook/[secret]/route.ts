@@ -833,6 +833,41 @@ async function handleApprove(
   }
 }
 
+async function handleSchedule(
+  chatId: number,
+  messageId: number,
+  postId: string,
+  isStory: boolean,
+): Promise<void> {
+  const post = await getPost(postId);
+  if (!post) {
+    await sendMessage({ chatId, text: '⚠️ Post bulunamadı.' });
+    return;
+  }
+
+  await updatePost(postId, { status: 'scheduled' });
+  await editMessageReplyMarkup({ chatId, messageId, replyMarkup: undefined });
+
+  const scheduledStr = post.scheduled_at
+    ? new Date(post.scheduled_at).toLocaleString('tr-TR', {
+        timeZone: 'Europe/Berlin',
+        day: '2-digit',
+        month: '2-digit',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+      })
+    : 'planlanan saatte';
+
+  await sendMessage({
+    chatId,
+    text: [
+      '✅ Post plana dahil edildi.',
+      `📅 ${scheduledStr} tarihinde otomatik yayınlanacak.`,
+    ].join('\n'),
+  });
+}
+
 async function handleRegenImage(
   chatId: number,
   postId: string,
@@ -2826,6 +2861,10 @@ async function handleCallback(
       await handleApprove(chatId, messageId, postId, false);
     } else if (action === 'approve_story' && postId) {
       await handleApprove(chatId, messageId, postId, true);
+    } else if (action === 'schedule' && postId) {
+      await handleSchedule(chatId, messageId, postId, false);
+    } else if (action === 'schedule_story' && postId) {
+      await handleSchedule(chatId, messageId, postId, true);
     } else if (action === 'regen_image' && postId) {
       await handleRegenImage(chatId, postId);
     } else if (action === 'regen_text' && postId) {

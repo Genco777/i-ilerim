@@ -8,17 +8,19 @@ export function previewKeyboard(
   variant: 'post' | 'story' = 'post',
 ): InlineKeyboardMarkup {
   const approveAction = variant === 'story' ? 'approve_story' : 'approve';
+  const scheduleAction = variant === 'story' ? 'schedule_story' : 'schedule';
   return {
     inline_keyboard: [
       [
         { text: '✓ Şimdi yayınla', callback_data: `${approveAction}:${postId}` },
+        { text: '⏰ Plana göre', callback_data: `${scheduleAction}:${postId}` },
+      ],
+      [
         { text: '🔄 Görseli yenile', callback_data: `regen_image:${postId}` },
-      ],
-      [
         { text: '📝 Metni yenile', callback_data: `regen_text:${postId}` },
-        { text: '✏️ Metni düzenle', callback_data: `edit_text:${postId}` },
       ],
       [
+        { text: '✏️ Metni düzenle', callback_data: `edit_text:${postId}` },
         { text: '✗ Sil', callback_data: `delete:${postId}` },
       ],
     ],

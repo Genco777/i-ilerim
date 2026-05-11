@@ -3,6 +3,42 @@ import fs from 'fs/promises';
 import path from 'path';
 import type { BrandKit } from '@/types';
 
+/**
+ * Crop image to 9:16 portrait aspect ratio (center crop).
+ * Stories require vertical format. For landscape images this crops
+ * from the center; for portrait it trims the sides proportionally.
+ */
+export async function cropToStoryAspect(imageBuffer: Buffer): Promise<Buffer> {
+  const meta = await sharp(imageBuffer).metadata();
+  const w = meta.width ?? 1080;
+  const h = meta.height ?? 1920;
+
+  const targetRatio = 9 / 16;
+  const currentRatio = w / h;
+
+  let cropWidth: number;
+  let cropHeight: number;
+
+  if (currentRatio > targetRatio) {
+    // Image is wider than 9:16 — crop width from center
+    cropHeight = h;
+    cropWidth = Math.round(h * targetRatio);
+  } else {
+    // Image is taller than 9:16 — crop height from center
+    cropWidth = w;
+    cropHeight = Math.round(w / targetRatio);
+  }
+
+  const left = Math.max(0, Math.round((w - cropWidth) / 2));
+  const top = Math.max(0, Math.round((h - cropHeight) / 2));
+
+  return sharp(imageBuffer)
+    .extract({ left, top, width: cropWidth, height: cropHeight })
+    .resize(1080, 1920, { fit: 'fill' })
+    .png()
+    .toBuffer();
+}
+
 const PILLAR_GOLD_HEX: Record<string, string> = {
   vitrine: '#d4a43a',
   prozess: '#d4a43a',

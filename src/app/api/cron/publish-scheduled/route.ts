@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { posts } from '@/lib/db/schema';
-import { eq, and, lte, isNull } from 'drizzle-orm';
+import { eq, and, or, lte, isNull } from 'drizzle-orm';
 import { publishPost, publishStory } from '@/lib/meta/publisher';
 import { sendMessage } from '@/lib/telegram/bot';
 
@@ -32,7 +32,7 @@ export async function GET(req: Request) {
     .from(posts)
     .where(
       and(
-        eq(posts.status, 'draft'),
+        or(eq(posts.status, 'draft'), eq(posts.status, 'scheduled')),
         lte(posts.scheduled_at, now),
         isNull(posts.published_at),
       ),
