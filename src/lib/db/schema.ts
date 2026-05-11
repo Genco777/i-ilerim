@@ -79,6 +79,33 @@ export const invoiceType = pgEnum('invoice_type', [
   'schlussrechnung',
 ]);
 
+export const contentPillar = pgEnum('content_pillar', [
+  'vitrine',
+  'prozess',
+  'insight',
+  'lokal',
+  'reel',
+]);
+
+export const planStatus = pgEnum('plan_status', [
+  'draft',
+  'approved',
+  'scheduled',
+]);
+
+export const slotStatus = pgEnum('slot_status', [
+  'pending',
+  'generated',
+  'approved',
+  'rejected',
+]);
+
+export const contentChannel = pgEnum('content_channel', [
+  'feed',
+  'story',
+  'reel',
+]);
+
 // ───── Posts ─────
 export const posts = pgTable('posts', {
   id: uuid('id').primaryKey().defaultRandom(),
@@ -102,6 +129,9 @@ export const posts = pgTable('posts', {
   created_via: text('created_via').notNull(), // 'telegram' | 'web_admin'
   telegram_chat_id: text('telegram_chat_id'),
   telegram_message_id: text('telegram_message_id'),
+  content_pillar: contentPillar('content_pillar'),
+  calendar_week: integer('calendar_week'),
+  channel: contentChannel('channel').default('feed'),
   created_at: timestamp('created_at', { withTimezone: true })
     .notNull()
     .defaultNow(),
@@ -435,3 +465,40 @@ export const failedJobs = pgTable('failed_jobs', {
     .defaultNow(),
   retried_at: timestamp('retried_at', { withTimezone: true }),
 });
+
+// ───── Content Planning ─────
+export const contentPlans = pgTable('content_plans', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  calendar_week: integer('calendar_week').notNull(),
+  year: integer('year').notNull(),
+  status: planStatus('status').notNull().default('draft'),
+  telegram_chat_id: bigint('telegram_chat_id', { mode: 'number' }).notNull(),
+  telegram_message_id: integer('telegram_message_id'),
+  created_at: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  approved_at: timestamp('approved_at', { withTimezone: true }),
+});
+
+export const contentSlots = pgTable(
+  'content_slots',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    plan_id: uuid('plan_id')
+      .notNull()
+      .references(() => contentPlans.id, { onDelete: 'cascade' }),
+    day_of_week: integer('day_of_week').notNull(),
+    time_slot: text('time_slot').notNull(),
+    pillar: contentPillar('pillar').notNull(),
+    channel: contentChannel('channel').notNull().default('feed'),
+    topic: text('topic'),
+    post_id: uuid('post_id').references(() => posts.id, { onDelete: 'set null' }),
+    status: slotStatus('status').notNull().default('pending'),
+    created_at: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    planDayTimeUnique: uniqueIndex('content_slots_plan_day_time_idx').on(
+      t.plan_id,
+      t.day_of_week,
+      t.time_slot,
+    ),
+  }),
+);

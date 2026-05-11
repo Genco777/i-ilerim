@@ -50,6 +50,13 @@
       "when": 1778958239099,
       "tag": "0006_kleinanzeigen",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1778486573974,
+      "tag": "0007_known_mandrill",
+      "breakpoints": true
     }
   ]
 }
