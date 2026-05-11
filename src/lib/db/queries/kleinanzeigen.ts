@@ -7,6 +7,12 @@ import type {
   BusinessProfileOverride,
 } from '@/types';
 
+export interface ConversationTurn {
+  buyerMessage: string;
+  ourReply: string;
+  sentAt: Date;
+}
+
 export async function createThread(data: NewKleinanzeigenThread): Promise<KleinanzeigenThread> {
   const [row] = await db.insert(kleinanzeigenThreads).values(data).returning();
   if (!row) throw new Error('Failed to insert kleinanzeigen_threads row');
@@ -92,4 +98,34 @@ export async function listOverrides(): Promise<BusinessProfileOverride[]> {
 
 export async function deleteOverride(id: string): Promise<void> {
   await db.delete(businessProfileOverrides).where(eq(businessProfileOverrides.id, id));
+}
+
+export async function getConversationHistory(
+  routingToken: string,
+  limit = 10,
+): Promise<ConversationTurn[]> {
+  const rows = await db
+    .select({
+      buyerMessage: kleinanzeigenThreads.raw_body,
+      ourReply: kleinanzeigenThreads.final_reply,
+      sentAt: kleinanzeigenThreads.sent_at,
+    })
+    .from(kleinanzeigenThreads)
+    .where(
+      and(
+        eq(kleinanzeigenThreads.routing_token, routingToken),
+        eq(kleinanzeigenThreads.status, 'sent'),
+      ),
+    )
+    .orderBy(desc(kleinanzeigenThreads.sent_at))
+    .limit(limit);
+
+  return rows
+    .filter((r) => r.ourReply !== null && r.sentAt !== null)
+    .map((r) => ({
+      buyerMessage: r.buyerMessage,
+      ourReply: r.ourReply as string,
+      sentAt: r.sentAt as Date,
+    }))
+    .reverse();
 }

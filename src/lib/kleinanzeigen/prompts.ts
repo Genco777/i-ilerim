@@ -1,4 +1,18 @@
 import type { KleinanzeigenAnalysis } from '@/types';
+import type { ConversationTurn } from '@/lib/db/queries/kleinanzeigen';
+
+export function formatConversationHistory(history: ConversationTurn[]): string {
+  if (history.length === 0) return '';
+  const lines: string[] = ['', 'KONUŞMA GEÇMİŞİ (eski → yeni):'];
+  for (const turn of history) {
+    const buyer = turn.buyerMessage.slice(0, 800);
+    const ours = turn.ourReply.slice(0, 800);
+    lines.push('');
+    lines.push(`ALICI: ${buyer}`);
+    lines.push(`SEN: ${ours}`);
+  }
+  return lines.join('\n');
+}
 
 export function analysisSystemPrompt(profile: string): string {
   return [
@@ -26,8 +40,12 @@ export function analysisSystemPrompt(profile: string): string {
   ].join('\n');
 }
 
-export function analysisUserPrompt(buyerMessage: string): string {
-  return ['ALICI MESAJI:', '"""', buyerMessage, '"""', '', 'JSON output:'].join('\n');
+export function analysisUserPrompt(
+  buyerMessage: string,
+  history?: ConversationTurn[],
+): string {
+  const historyBlock = history && history.length > 0 ? formatConversationHistory(history) + '\n' : '';
+  return [historyBlock, 'ALICI MESAJI (yeni):', '"""', buyerMessage, '"""', '', 'JSON output:'].join('\n');
 }
 
 export function replySystemPrompt(profile: string): string {
@@ -59,22 +77,26 @@ export interface ReplyContext {
   listingTitle: string | null;
   buyerMessage: string;
   analysis: KleinanzeigenAnalysis;
+  history?: ConversationTurn[];
 }
 
 export function replyUserPrompt(ctx: ReplyContext): string {
+  const historyBlock = ctx.history && ctx.history.length > 0
+    ? formatConversationHistory(ctx.history) + '\n'
+    : '';
   return [
     `ALICI: ${ctx.buyerName ?? '(bilinmiyor)'}`,
     `İLAN: ${ctx.listingTitle ?? '(bilinmiyor)'}`,
     '',
     'PRE-ANALİZ:',
     JSON.stringify(ctx.analysis, null, 2),
-    '',
-    'ALICI MESAJI:',
+    historyBlock,
+    'ALICI MESAJI (yeni):',
     '"""',
     ctx.buyerMessage,
     '"""',
     '',
-    'Cevabı yaz:',
+    'Cevabı yaz (geçmiş varsa onunla tutarlı kal):',
   ].join('\n');
 }
 

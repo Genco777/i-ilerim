@@ -31,6 +31,7 @@ export function buildPreviewMessage(
   thread: KleinanzeigenThread,
   draft: string,
   source: 'ai' | 'custom' | 'regen' = 'ai',
+  historyCount = 0,
 ): string {
   const a = thread.ai_analysis as KleinanzeigenAnalysis | null;
   const meta = a ? `(${a.tone_detected} · ${a.lang.toUpperCase()})` : '';
@@ -46,7 +47,16 @@ export function buildPreviewMessage(
           .map((a) => a.filename)
           .join(', ')}\n`
       : '';
-  return [`${headerByType[source]} ${meta}`, attachLine, '', draft].join('\n').slice(0, 4000);
+  const historyLine = historyCount > 0 ? `📚 ${historyCount} önceki mesaj kullanıldı\n` : '';
+  return [
+    `${headerByType[source]} ${meta}`,
+    historyLine,
+    attachLine,
+    '',
+    draft,
+  ]
+    .join('\n')
+    .slice(0, 4000);
 }
 
 export function buildGapPrompt(topic: string): string {

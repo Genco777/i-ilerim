@@ -31,9 +31,12 @@ export async function handleKleinanzeigenMail(input: KleinanzeigenInput): Promis
   const parsed = parseKleinanzeigenBody(input.bodyText);
   const chatId = notifyChatId();
 
+  const { getConversationHistory } = await import('@/lib/db/queries/kleinanzeigen');
+  const history = await getConversationHistory(token).catch(() => []);
+
   let analysis: KleinanzeigenAnalysis;
   try {
-    analysis = await analyzeKleinanzeigenMessage(parsed.message);
+    analysis = await analyzeKleinanzeigenMessage(parsed.message, history);
   } catch (err) {
     analysis = { subject: 'Kleinanzeigen Nachricht', lang: 'de', tone_detected: 'unknown', knowledge_gaps: [] };
     console.error('Kleinanzeigen analysis failed:', err);

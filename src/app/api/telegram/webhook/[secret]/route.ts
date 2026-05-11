@@ -93,6 +93,7 @@ import {
   getActiveThreadAwaitingImage as getActiveKleinanzeigenImageThread,
   upsertOverride as upsertKleinanzeigenOverride,
   listOverrides as listKleinanzeigenOverrides,
+  getConversationHistory as getKleinanzeigenHistory,
 } from '@/lib/db/queries/kleinanzeigen';
 import {
   generateSingleReply,
@@ -214,18 +215,20 @@ async function notifyError(chatId: number, err: unknown): Promise<void> {
   }
 }
 
-function kzReplyContextFromThread(thread: KleinanzeigenThread) {
+async function kzReplyContextFromThread(thread: KleinanzeigenThread) {
   const analysis = (thread.ai_analysis as KleinanzeigenAnalysis | null) ?? {
     subject: 'Kleinanzeigen Nachricht',
     lang: 'de',
     tone_detected: 'unknown' as const,
     knowledge_gaps: [],
   };
+  const history = await getKleinanzeigenHistory(thread.routing_token).catch(() => []);
   return {
     buyerName: thread.buyer_name,
     listingTitle: thread.listing_title,
     buyerMessage: thread.raw_body,
     analysis,
+    history,
   };
 }
 
@@ -239,9 +242,10 @@ async function kzShowPreview(
     draft_reply: draft,
     status: 'drafting',
   });
+  const history = await getKleinanzeigenHistory(updated.routing_token).catch(() => []);
   await sendMessage({
     chatId,
-    text: kzBuildPreviewMessage(updated, draft, source),
+    text: kzBuildPreviewMessage(updated, draft, source, history.length),
     replyMarkup: kzPreviewKeyboard(updated.id, (updated.attachments ?? []).length),
   });
 }
@@ -262,7 +266,7 @@ async function handleKzSuggest(chatId: number, messageId: number, threadId: stri
   await editMessageReplyMarkup({ chatId, messageId, replyMarkup: undefined });
   await sendMessage({ chatId, text: '💭 AI cevap üretiyor…' });
   try {
-    const draft = await generateSingleReply(kzReplyContextFromThread(thread));
+    const draft = await generateSingleReply(await kzReplyContextFromThread(thread));
     await kzShowPreview(chatId, thread, draft, 'ai');
   } catch (err) { await notifyError(chatId, err); }
 }
@@ -293,7 +297,7 @@ async function handleKzAlternativeType(
   if (!thread) { await sendMessage({ chatId, text: `❓ Thread bulunamadı: ${threadId}` }); return; }
   await sendMessage({ chatId, text: '💭 AI cevap üretiyor…' });
   try {
-    const draft = await generateStyledReply(kzReplyContextFromThread(thread), style);
+    const draft = await generateStyledReply(await kzReplyContextFromThread(thread), style);
     await kzShowPreview(chatId, thread, draft, 'ai');
   } catch (err) { await notifyError(chatId, err); }
 }
@@ -365,7 +369,7 @@ async function handleKzRegen(chatId: number, threadId: string): Promise<void> {
   if (!thread) return;
   await sendMessage({ chatId, text: '🔄 Yeniden üretiliyor…' });
   try {
-    const draft = await generateSingleReply(kzReplyContextFromThread(thread));
+    const draft = await generateSingleReply(await kzReplyContextFromThread(thread));
     await kzShowPreview(chatId, thread, draft, 'regen');
   } catch (err) { await notifyError(chatId, err); }
 }
@@ -447,9 +451,10 @@ async function handleKzAttachDone(chatId: number, threadId: string): Promise<voi
   if (!thread) return;
   if (thread.draft_reply) {
     await updateKleinanzeigenThread(thread.id, { status: 'drafting' });
+    const history = await getKleinanzeigenHistory(thread.routing_token).catch(() => []);
     await sendMessage({
       chatId,
-      text: kzBuildPreviewMessage(thread, thread.draft_reply, 'ai'),
+      text: kzBuildPreviewMessage(thread, thread.draft_reply, 'ai', history.length),
       replyMarkup: kzPreviewKeyboard(thread.id, (thread.attachments ?? []).length),
     });
   } else {
@@ -506,7 +511,7 @@ async function handleKzTextInput(
     await sendMessage({ chatId, text: '✏️ Yeniden yazılıyor…' });
     try {
       const draft = await refineReply({
-        ctx: kzReplyContextFromThread(thread),
+        ctx: await kzReplyContextFromThread(thread),
         previousReply: previous,
         feedback: trimmed,
       });

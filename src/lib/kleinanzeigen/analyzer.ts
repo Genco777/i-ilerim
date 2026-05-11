@@ -58,6 +58,7 @@ export function parseAnalysisResponse(raw: string): KleinanzeigenAnalysis {
 
 export async function analyzeKleinanzeigenMessage(
   buyerMessage: string,
+  history?: import('@/lib/db/queries/kleinanzeigen').ConversationTurn[],
 ): Promise<KleinanzeigenAnalysis> {
   const profile = await loadMergedProfile();
   const response = await getClient().messages.create({
@@ -66,7 +67,7 @@ export async function analyzeKleinanzeigenMessage(
     system: [
       { type: 'text', text: analysisSystemPrompt(profile), cache_control: { type: 'ephemeral' } },
     ],
-    messages: [{ role: 'user', content: analysisUserPrompt(buyerMessage) }],
+    messages: [{ role: 'user', content: analysisUserPrompt(buyerMessage, history) }],
   });
   const block = response.content[0];
   if (!block || block.type !== 'text') return parseAnalysisResponse('');
