@@ -54,10 +54,23 @@ import {
 import type { Invoice } from '@/types';
 import { getBrandKit } from '@/lib/db/queries/brand-kit';
 import {
+  createPlan,
+  getPlan,
+  getPlanByWeek,
+  updatePlan,
+  approvePlan,
+  getSlotsByPlan,
+  updateSlot,
+  deleteSlot,
+  getSlot,
+} from '@/lib/db/queries/plans';
+import { planOverviewKeyboard, slotEditKeyboard } from '@/lib/telegram/plan-keyboard';
+import {
   generatePost,
   regenerateImage,
   regenerateText,
 } from '@/lib/content/generate-post';
+import { generateWeeklyPlan, formatPlanForTelegram, getCurrentWeek } from '@/lib/content/generate-plan';
 import { getPost, deletePost } from '@/lib/db/queries/posts';
 import { publishPost, publishStory } from '@/lib/meta/publisher';
 import {
@@ -189,6 +202,8 @@ const HELP_TEXT = [
   '  /poll                   — mail kutusunu hemen kontrol et (anlık tetikleme)',
   '  /refresh-profile        — fly-froth.com/llms.txt cache temizle',
   '  /export-overrides       — Telegram\'dan eklenen overrideleri JSON olarak ver',
+  '  /haftalik-plan           — Haftalık IG+FB içerik planı oluştur (AI)',
+  '  /plan-durum              — Bu haftanın plan durumunu göster',
   '  /help                   — bu mesaj',
   '',
   'Yeni FB/IG yorumları otomatik olarak buraya bildirilir.',
@@ -1965,6 +1980,178 @@ async function handleInvoiceSendMail(
   }
 }
 
+// ───── Haftalik Plan Handlers ─────
+
+async function handleWeeklyPlanCommand(chatId: number): Promise<void> {
+  await sendMessage({ chatId, text: '📅 Haftalık plan oluşturuluyor… (15-30 saniye)' });
+  try {
+    const { plan, slots } = await generateWeeklyPlan(chatId);
+    const text = formatPlanForTelegram(plan, slots);
+    const sent = await sendMessage({
+      chatId,
+      text,
+      replyMarkup: planOverviewKeyboard(plan.id),
+    });
+    await updatePlan(plan.id, { telegram_message_id: sent.message_id });
+  } catch (err) {
+    await notifyError(chatId, err);
+  }
+}
+
+async function handlePlanStatusCommand(chatId: number): Promise<void> {
+  const { week, year } = getCurrentWeek();
+  const plan = await getPlanByWeek(week, year);
+  if (!plan) {
+    await sendMessage({ chatId, text: `KW${week}/${year} için henüz plan yok. /haftalik-plan yaz.` });
+    return;
+  }
+  const slots = await getSlotsByPlan(plan.id);
+  const text = formatPlanForTelegram(plan, slots);
+  await sendMessage({ chatId, text, replyMarkup: planOverviewKeyboard(plan.id) });
+}
+
+async function handlePlanApproveAll(chatId: number, messageId: number, planId: string): Promise<void> {
+  await editMessageReplyMarkup({ chatId, messageId, replyMarkup: undefined });
+  const plan = await getPlan(planId);
+  if (!plan) { await sendMessage({ chatId, text: 'Plan bulunamadı.' }); return; }
+
+  const slots = await getSlotsByPlan(planId);
+  await sendMessage({ chatId, text: `📤 ${slots.length} post onaylanıp sıraya alınıyor…` });
+
+  let generated = 0;
+  for (const slot of slots) {
+    if (!slot.topic) continue;
+    try {
+      const post = await generatePost({
+        topic: slot.topic,
+        telegramChatId: String(chatId),
+        channel: slot.channel === 'reel' ? 'ig_story' : 'post',
+      });
+      await updateSlot(slot.id, { post_id: post.id, status: 'approved' });
+      generated++;
+    } catch (err) {
+      await updateSlot(slot.id, { status: 'rejected' });
+      console.error(`Slot ${slot.id} generation failed:`, err);
+    }
+  }
+
+  await approvePlan(planId);
+  await sendMessage({
+    chatId,
+    text: [
+      `✅ KW${plan.calendar_week} planı onaylandı.`,
+      `${generated}/${slots.length} post sıraya alındı.`,
+      'Planlanan saatte otomatik yayınlanacak.',
+    ].join('\n'),
+  });
+}
+
+async function handlePlanRegen(chatId: number, planId: string): Promise<void> {
+  const plan = await getPlan(planId);
+  if (!plan) { await sendMessage({ chatId, text: 'Plan bulunamadı.' }); return; }
+  const oldSlots = await getSlotsByPlan(planId);
+  for (const s of oldSlots) await deleteSlot(s.id);
+  await sendMessage({ chatId, text: '🔄 Plan yeniden oluşturuluyor…' });
+  try {
+    const { slots } = await generateWeeklyPlan(chatId);
+    await updatePlan(planId, { status: 'draft' });
+    const text = formatPlanForTelegram(plan, slots);
+    const sent = await sendMessage({ chatId, text, replyMarkup: planOverviewKeyboard(planId) });
+    await updatePlan(planId, { telegram_message_id: sent.message_id });
+  } catch (err) { await notifyError(chatId, err); }
+}
+
+async function handlePlanDiscard(chatId: number, messageId: number, planId: string): Promise<void> {
+  await editMessageReplyMarkup({ chatId, messageId, replyMarkup: undefined });
+  const slots = await getSlotsByPlan(planId);
+  for (const s of slots) await deleteSlot(s.id);
+  await updatePlan(planId, { status: 'draft' });
+  await sendMessage({ chatId, text: '🗑 Plan silindi.' });
+}
+
+async function handlePlanView(chatId: number, planId: string): Promise<void> {
+  const plan = await getPlan(planId);
+  if (!plan) { await sendMessage({ chatId, text: 'Plan bulunamadı.' }); return; }
+  const slots = await getSlotsByPlan(planId);
+  const text = formatPlanForTelegram(plan, slots);
+  await sendMessage({ chatId, text, replyMarkup: planOverviewKeyboard(planId) });
+}
+
+async function handlePlanEditPrompt(chatId: number, planId: string): Promise<void> {
+  const slots = await getSlotsByPlan(planId);
+  if (!slots.length) { await sendMessage({ chatId, text: 'Planda slot yok.' }); return; }
+  const lines = slots.map((s, i) => {
+    const day = ['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So'][s.day_of_week] ?? '??';
+    return `${i + 1}. ${day} ${s.time_slot} [${s.pillar}] ${s.topic ?? '(leer)'}`;
+  });
+  await sendMessage({
+    chatId,
+    text: ['✏️ Slot seçmek için numarasını yaz (örn. "3"), veya:', '', ...lines].join('\n'),
+  });
+}
+
+async function handleSlotApprove(chatId: number, messageId: number, slotId: string): Promise<void> {
+  await editMessageReplyMarkup({ chatId, messageId, replyMarkup: undefined });
+  const slot = await getSlot(slotId);
+  if (!slot || !slot.topic) { await sendMessage({ chatId, text: 'Slot bulunamadı veya konu yok.' }); return; }
+  await sendMessage({ chatId, text: '🎨 Post üretiliyor…' });
+  try {
+    const post = await generatePost({
+      topic: slot.topic,
+      telegramChatId: String(chatId),
+      channel: slot.channel === 'reel' ? 'ig_story' : 'post',
+    });
+    await updateSlot(slotId, { post_id: post.id, status: 'approved' });
+    await sendPhoto({
+      chatId,
+      photo: post.final_image_url,
+      caption: `${post.text_de}\n\n${(post.hashtags ?? []).map((h: string) => `#${h}`).join(' ')}`.slice(0, 1024),
+    });
+    await sendMessage({ chatId, text: '✅ Slot onaylandı ve post hazır.' });
+  } catch (err) { await notifyError(chatId, err); }
+}
+
+async function handleSlotRegenTopic(chatId: number, slotId: string): Promise<void> {
+  await sendMessage({ chatId, text: '✏️ Yeni konuyu mesaj olarak yaz. Kaydedilecek.' });
+  // Topic editing through text input is handled by the state machine when a slot is selected
+}
+
+async function handleSlotDelete(chatId: number, messageId: number, slotId: string): Promise<void> {
+  const slot = await getSlot(slotId);
+  await deleteSlot(slotId);
+  await sendMessage({ chatId, text: `🗑 Slot ${slot?.topic ?? slotId} silindi.` });
+}
+
+async function handleSlotGenerate(chatId: number, messageId: number, slotId: string): Promise<void> {
+  await editMessageReplyMarkup({ chatId, messageId, replyMarkup: undefined });
+  const slot = await getSlot(slotId);
+  if (!slot || !slot.topic) return;
+  await sendMessage({ chatId, text: '🎨 Post üretiliyor…' });
+  try {
+    const post = await generatePost({
+      topic: slot.topic,
+      telegramChatId: String(chatId),
+      channel: slot.channel === 'reel' ? 'ig_story' : 'post',
+    });
+    await updateSlot(slotId, { post_id: post.id, status: 'approved' });
+    await sendPhoto({
+      chatId,
+      photo: post.final_image_url,
+      caption: `${post.text_de}`.slice(0, 1024),
+    });
+  } catch (err) { await notifyError(chatId, err); }
+}
+
+async function handleSlotBack(chatId: number, slotId: string): Promise<void> {
+  const slot = await getSlot(slotId);
+  if (!slot) return;
+  const plan = await getPlan(slot.plan_id);
+  if (!plan) return;
+  const slots = await getSlotsByPlan(plan.id);
+  const text = formatPlanForTelegram(plan, slots);
+  await sendMessage({ chatId, text, replyMarkup: planOverviewKeyboard(plan.id) });
+}
+
 async function handleCommand(
   chatId: number,
   messageId: number,
@@ -2050,6 +2237,16 @@ async function handleCommand(
 
   if (trimmed.startsWith('/fatura')) {
     await handleFaturaCommand(chatId);
+    return;
+  }
+
+  if (trimmed === '/haftalik-plan' || trimmed === '/haftalik_plan') {
+    await handleWeeklyPlanCommand(chatId);
+    return;
+  }
+
+  if (trimmed === '/plan-durum' || trimmed === '/plan_durum') {
+    await handlePlanStatusCommand(chatId);
     return;
   }
 
@@ -2219,6 +2416,26 @@ async function handleCallback(
       await handleKzAttachClear(chatId, postId);
     } else if (action === 'kz_attach_done' && postId) {
       await handleKzAttachDone(chatId, postId);
+    } else if (action === 'plan_approve_all' && postId) {
+      await handlePlanApproveAll(chatId, messageId, postId);
+    } else if (action === 'plan_regen' && postId) {
+      await handlePlanRegen(chatId, postId);
+    } else if (action === 'plan_discard' && postId) {
+      await handlePlanDiscard(chatId, messageId, postId);
+    } else if (action === 'plan_view' && postId) {
+      await handlePlanView(chatId, postId);
+    } else if (action === 'plan_edit' && postId) {
+      await handlePlanEditPrompt(chatId, postId);
+    } else if (action === 'slot_approve' && postId) {
+      await handleSlotApprove(chatId, messageId, postId);
+    } else if (action === 'slot_regen_topic' && postId) {
+      await handleSlotRegenTopic(chatId, postId);
+    } else if (action === 'slot_delete' && postId) {
+      await handleSlotDelete(chatId, messageId, postId);
+    } else if (action === 'slot_generate' && postId) {
+      await handleSlotGenerate(chatId, messageId, postId);
+    } else if (action === 'slot_back' && postId) {
+      await handleSlotBack(chatId, postId);
     } else {
       await sendMessage({ chatId, text: `❓ Bilinmeyen aksiyon: ${data}` });
     }
