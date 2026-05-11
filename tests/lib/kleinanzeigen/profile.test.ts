@@ -40,6 +40,14 @@ describe('fetchLlmsTxt', () => {
     vi.stubGlobal('fetch', vi.fn(async () => new Response('not found', { status: 404 })));
     await expect(fetchLlmsTxt()).rejects.toThrow(/404/);
   });
+
+  it('returns stale cache on non-2xx when cache is populated', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(SAMPLE, { status: 200 })));
+    await fetchLlmsTxt();
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('error', { status: 503 })));
+    const text = await fetchLlmsTxt();
+    expect(text).toBe(SAMPLE);
+  });
 });
 
 describe('buildMergedProfile', () => {
@@ -73,5 +81,30 @@ describe('buildMergedProfile', () => {
   it('omits the override block when there are no overrides', () => {
     const merged = buildMergedProfile(SAMPLE, []);
     expect(merged).toBe(SAMPLE);
+  });
+
+  it('renders distinct labels for not_offered and tone overrides', () => {
+    const merged = buildMergedProfile(SAMPLE, [
+      {
+        id: 'a',
+        topic: '3d-rendering',
+        kind: 'not_offered',
+        content: 'Bieten wir nicht an, höflich ablehnen.',
+        origin: 'telegram',
+        created_at: new Date(),
+        updated_at: new Date(),
+      },
+      {
+        id: 'b',
+        topic: 'voice',
+        kind: 'tone',
+        content: 'lockerer als der Standard.',
+        origin: 'telegram',
+        created_at: new Date(),
+        updated_at: new Date(),
+      },
+    ]);
+    expect(merged).toContain('[NICHT ANGEBOTEN] 3d-rendering');
+    expect(merged).toContain('[TON] voice');
   });
 });
