@@ -1990,7 +1990,7 @@ async function handleWeeklyPlanCommand(chatId: number): Promise<void> {
     const sent = await sendMessage({
       chatId,
       text,
-      replyMarkup: planOverviewKeyboard(plan.id),
+      replyMarkup: planOverviewKeyboard(plan.id, plan.status === 'approved'),
     });
     await updatePlan(plan.id, { telegram_message_id: sent.message_id });
   } catch (err) {
@@ -2007,7 +2007,7 @@ async function handlePlanStatusCommand(chatId: number): Promise<void> {
   }
   const slots = await getSlotsByPlan(plan.id);
   const text = formatPlanForTelegram(plan, slots);
-  await sendMessage({ chatId, text, replyMarkup: planOverviewKeyboard(plan.id) });
+  await sendMessage({ chatId, text, replyMarkup: planOverviewKeyboard(plan.id, plan.status === 'approved') });
 }
 
 async function handlePlanApproveAll(chatId: number, messageId: number, planId: string): Promise<void> {
@@ -2071,6 +2071,32 @@ async function handlePlanApproveAll(chatId: number, messageId: number, planId: s
   });
 }
 
+async function handlePlanCancel(chatId: number, messageId: number, planId: string): Promise<void> {
+  await editMessageReplyMarkup({ chatId, messageId, replyMarkup: undefined });
+  const plan = await getPlan(planId);
+  if (!plan) { await sendMessage({ chatId, text: 'Plan bulunamadı.' }); return; }
+  if (plan.status !== 'approved') { await sendMessage({ chatId, text: 'Plan zaten onaylı değil.' }); return; }
+
+  const slots = await getSlotsByPlan(planId);
+  let deleted = 0;
+  for (const s of slots) {
+    if (s.post_id) {
+      try { await import('@/lib/db/queries/posts').then(m => m.deletePost(s.post_id!)); deleted++; } catch {}
+    }
+    await updateSlot(s.id, { post_id: null, status: 'pending' });
+  }
+  await updatePlan(planId, { status: 'draft', approved_at: null });
+
+  await sendMessage({
+    chatId,
+    text: [
+      `↩️ KW${plan.calendar_week} planı iptal edildi.`,
+      `${deleted} post silindi, tüm slotlar beklemede.`,
+      'Yeniden /haftalik-plan veya /plan-durum yaz.',
+    ].join('\n'),
+  });
+}
+
 async function handlePlanRegen(chatId: number, planId: string): Promise<void> {
   const plan = await getPlan(planId);
   if (!plan) { await sendMessage({ chatId, text: 'Plan bulunamadı.' }); return; }
@@ -2081,7 +2107,7 @@ async function handlePlanRegen(chatId: number, planId: string): Promise<void> {
     const { slots } = await generateWeeklyPlan(chatId);
     await updatePlan(planId, { status: 'draft' });
     const text = formatPlanForTelegram(plan, slots);
-    const sent = await sendMessage({ chatId, text, replyMarkup: planOverviewKeyboard(planId) });
+    const sent = await sendMessage({ chatId, text, replyMarkup: planOverviewKeyboard(planId, false) });
     await updatePlan(planId, { telegram_message_id: sent.message_id });
   } catch (err) { await notifyError(chatId, err); }
 }
@@ -2099,7 +2125,7 @@ async function handlePlanView(chatId: number, planId: string): Promise<void> {
   if (!plan) { await sendMessage({ chatId, text: 'Plan bulunamadı.' }); return; }
   const slots = await getSlotsByPlan(planId);
   const text = formatPlanForTelegram(plan, slots);
-  await sendMessage({ chatId, text, replyMarkup: planOverviewKeyboard(planId) });
+  await sendMessage({ chatId, text, replyMarkup: planOverviewKeyboard(plan.id, plan.status === 'approved') });
 }
 
 async function handlePlanEditPrompt(chatId: number, planId: string): Promise<void> {
@@ -2174,7 +2200,7 @@ async function handleSlotBack(chatId: number, slotId: string): Promise<void> {
   if (!plan) return;
   const slots = await getSlotsByPlan(plan.id);
   const text = formatPlanForTelegram(plan, slots);
-  await sendMessage({ chatId, text, replyMarkup: planOverviewKeyboard(plan.id) });
+  await sendMessage({ chatId, text, replyMarkup: planOverviewKeyboard(plan.id, plan.status === 'approved') });
 }
 
 async function handleCommand(
@@ -2461,6 +2487,8 @@ async function handleCallback(
       await handleSlotGenerate(chatId, messageId, postId);
     } else if (action === 'slot_back' && postId) {
       await handleSlotBack(chatId, postId);
+    } else if (action === 'plan_cancel' && postId) {
+      await handlePlanCancel(chatId, messageId, postId);
     } else {
       await sendMessage({ chatId, text: `❓ Bilinmeyen aksiyon: ${data}` });
     }

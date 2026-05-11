@@ -1,6 +1,17 @@
 import type { InlineKeyboardMarkup } from './bot';
 
-export function planOverviewKeyboard(planId: string): InlineKeyboardMarkup {
+export function planOverviewKeyboard(planId: string, isApproved = false): InlineKeyboardMarkup {
+  if (isApproved) {
+    return {
+      inline_keyboard: [
+        [
+          { text: '📋 Planı görüntüle', callback_data: `plan_view:${planId}` },
+          { text: '↩️ Planı iptal et', callback_data: `plan_cancel:${planId}` },
+        ],
+      ],
+    };
+  }
+
   return {
     inline_keyboard: [
       [
