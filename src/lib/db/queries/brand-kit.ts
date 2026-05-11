@@ -3,7 +3,7 @@ import { brandKit } from '@/lib/db/schema';
 import { eq } from 'drizzle-orm';
 import type { BrandKit, NewBrandKit } from '@/types';
 
-const DEFAULT_VISUAL = `minimal, modern, premium dark aesthetic, gold accent #d4a43a, clean composition, professional German design studio aesthetic, no text in image, photorealistic, well-lit, centered subject`;
+const DEFAULT_VISUAL = `photorealistic, high-end professional photography style, premium German design studio Fly & Froth, gold accent #d4a43a, dark elegant mood, cinematic lighting, natural depth of field, no text in image, dynamic composition, looks like a real photograph not AI-generated, engaging and informative visual storytelling`;
 
 const DEFAULT_TONE = `Du schreibst für Fly & Froth, ein Grafik- und Webdesignstudio in Karben (Frankfurt-Region). Inhaber: Mehmet Genco. Ton: kompetent, freundlich, präzise. Maximal 2 Emojis pro Beitrag. Hashtags am Ende, 5-8 Stück, Karben/Frankfurt-fokussiert. Verwende nicht 'günstig' oder 'billig' — stattdessen 'fair' oder 'transparent'. Schließe immer mit Call-to-Action.`;
 

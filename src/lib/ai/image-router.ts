@@ -30,22 +30,23 @@ export function routeImageTool(pillar: ContentPillar, topic: string): RouteResul
     return { tool: 'recraft', recraftStyle: 'brand_board' };
   }
 
-  // FLUX.2 flex for reel covers (vertical)
+  // FLUX.2 pro for reel covers (vertical, photorealistic)
   if (pillar === 'reel') {
-    return { tool: 'flux', model: 'flux-2-flex' };
+    return { tool: 'flux', model: 'flux-2-pro' };
   }
 
-  // FLUX.2 flex for prozess and lokal (need photorealism)
+  // FLUX.2 pro for prozess and lokal (photorealism is key)
   if (pillar === 'prozess' || pillar === 'lokal') {
-    return { tool: 'flux', model: 'flux-2-flex' };
+    return { tool: 'flux', model: 'flux-2-pro' };
   }
 
-  // FLUX.2 max for vitrine showcase posts (highest quality)
+  // FLUX.2 max for vitrine showcase posts (highest fidelity for portfolio)
   if (pillar === 'vitrine') {
     return { tool: 'flux', model: 'flux-2-max' };
   }
 
-  return { tool: 'flux', model: 'flux-2-flex' };
+  // FLUX.2 pro as default (best photorealism)
+  return { tool: 'flux', model: 'flux-2-pro' };
 }
 
 export async function generateWithRouter(
