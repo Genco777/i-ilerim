@@ -1,15 +1,17 @@
 import Replicate from 'replicate';
 
-// Flux Pro 1.1 Ultra: 4 megapixel, photorealism > DALL-E
-// Pricing: ~$0.06 per image (vs $0.04 for non-ultra)
-const MODEL = 'black-forest-labs/flux-1.1-pro-ultra' as const;
+// FLUX.2 flex — top-ranked photorealism model on Artificial Analysis
+// Also supports flux-2-max (larger) and flux-2-pro (fast)
+// Reference images: up to 10 URLs for style guidance
+export type AspectRatio = '1:1' | '9:16' | '16:9' | '4:5';
 
-// Aspect ratios per channel
-export type AspectRatio =
-  | '1:1'      // IG/FB post (square)
-  | '9:16'     // IG/FB story, Reels (vertical)
-  | '16:9'     // Blog hero, FB cover (landscape)
-  | '4:5';     // IG portrait
+export type FluxModel = 'flux-2-flex' | 'flux-2-max' | 'flux-2-pro';
+
+const MODEL_MAP: Record<FluxModel, `${string}/${string}`> = {
+  'flux-2-flex': 'black-forest-labs/flux-2-flex',
+  'flux-2-max': 'black-forest-labs/flux-2-max',
+  'flux-2-pro': 'black-forest-labs/flux-2-pro',
+};
 
 let _client: Replicate | null = null;
 function getClient(): Replicate {
@@ -23,17 +25,25 @@ function getClient(): Replicate {
 
 export async function replicateGenerate(
   prompt: string,
-  opts?: { aspectRatio?: AspectRatio },
+  opts?: {
+    aspectRatio?: AspectRatio;
+    model?: FluxModel;
+    referenceImages?: string[];
+  },
 ): Promise<Buffer> {
-  const output = await getClient().run(MODEL, {
-    input: {
-      prompt,
-      aspect_ratio: opts?.aspectRatio ?? '1:1',
-      output_format: 'png',
-      safety_tolerance: 2,
-      raw: false,
-    },
-  });
+  const modelId = MODEL_MAP[opts?.model ?? 'flux-2-flex'];
+  const input: Record<string, unknown> = {
+    prompt,
+    aspect_ratio: opts?.aspectRatio ?? '1:1',
+    output_format: 'png',
+    safety_tolerance: 2,
+  };
+
+  if (opts?.referenceImages?.length) {
+    input.reference_images = opts.referenceImages.slice(0, 10);
+  }
+
+  const output = await getClient().run(modelId as `${string}/${string}:${string}`, { input });
 
   let url: string | undefined;
   if (typeof output === 'string') {
@@ -50,15 +60,10 @@ export async function replicateGenerate(
   }
 
   if (!url) {
-    throw new Error(
-      'Unexpected Replicate output shape: ' +
-        JSON.stringify(output).slice(0, 200),
-    );
+    throw new Error('Unexpected Replicate output shape: ' + JSON.stringify(output).slice(0, 200));
   }
 
   const res = await fetch(url);
-  if (!res.ok) {
-    throw new Error(`Replicate image fetch failed (${res.status})`);
-  }
+  if (!res.ok) throw new Error(`Replicate image fetch failed (${res.status})`);
   return Buffer.from(await res.arrayBuffer());
 }

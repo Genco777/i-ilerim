@@ -1,11 +1,11 @@
 import { openaiGenerate, type ImageQuality } from './image-openai';
 import { replicateGenerate, type AspectRatio } from './image-replicate';
-import type { BrandKit, ImageProvider } from '@/types';
+import { routeImageTool, generateWithRouter } from './image-router';
+import type { BrandKit, ImageProvider, ContentPillar } from '@/types';
 
 export type { AspectRatio };
 
 // Per-channel aspect ratio map.
-// Used by content generator when producing channel-specific assets.
 export const CHANNEL_ASPECT: Record<string, AspectRatio> = {
   ig_post: '1:1',
   fb_post: '1:1',
@@ -39,9 +39,13 @@ export function buildImagePrompt(
     'Lighting: soft, professional studio lighting.',
     'Mood: premium, trustworthy, modern.',
     '',
-    'Avoid: text in image, logos in image, watermarks, low resolution,',
-    'distorted faces, distorted text, artificial-looking elements,',
-    'cluttered composition.',
+    'Branding: Integrate the Fly & Froth logo naturally and subtly into the scene.',
+    'The logo should appear as if it belongs there — on a screen, business card,',
+    'wall signage, or subtle watermark. Never cover the main subject.',
+    'Logo style: minimal gold (#d4a43a) mark on dark background.',
+    '',
+    'Avoid: watermarks, low resolution, distorted faces, distorted text,',
+    'artificial-looking elements, cluttered composition.',
   ].join('\n');
 }
 
@@ -60,7 +64,6 @@ function resolveProvider(forced?: ImageProvider): ImageProvider {
   if (forced) return forced;
   const env = process.env.IMAGE_PROVIDER;
   if (env === 'openai' || env === 'replicate') return env;
-  // Default switched to replicate (Flux Pro 1.1 Ultra) — better photorealism.
   return 'replicate';
 }
 
@@ -101,5 +104,32 @@ export async function generateImage(
       aspectRatio: opts?.aspectRatio,
     });
     return { buffer, provider: 'replicate' };
+  }
+}
+
+export async function generateImageRouted(
+  prompt: string,
+  pillar: ContentPillar,
+  topic: string,
+  opts?: GenerateOptions,
+): Promise<GenerateResult> {
+  const route = routeImageTool(pillar, topic);
+
+  try {
+    const { buffer, tool } = await generateWithRouter(prompt, route, {
+      aspectRatio: opts?.aspectRatio,
+    });
+    return {
+      buffer,
+      provider: tool === 'openai' ? 'openai' : 'replicate',
+    };
+  } catch (err) {
+    // Fallback to OpenAI if Replicate tools fail
+    if (route.tool !== 'openai') {
+      console.warn(`[image] ${route.tool} failed, falling back to OpenAI`);
+      const buffer = await openaiGenerate(prompt, { quality: opts?.quality });
+      return { buffer, provider: 'openai' };
+    }
+    throw err;
   }
 }
