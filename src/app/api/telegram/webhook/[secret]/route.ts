@@ -485,6 +485,61 @@ async function kzAppendAttachment(
   } catch (err) { await notifyError(chatId, err); }
 }
 
+async function handleKzTextInput(
+  chatId: number,
+  thread: KleinanzeigenThread,
+  text: string,
+): Promise<void> {
+  const trimmed = text.trim();
+  if (trimmed.length === 0) {
+    await sendMessage({ chatId, text: '⚠️ Boş mesaj yok sayıldı.' });
+    return;
+  }
+
+  if (thread.status === 'awaiting_custom') {
+    await kzShowPreview(chatId, thread, trimmed, 'custom');
+    return;
+  }
+
+  if (thread.status === 'awaiting_refinement') {
+    const previous = thread.draft_reply ?? '';
+    await sendMessage({ chatId, text: '✏️ Yeniden yazılıyor…' });
+    try {
+      const draft = await refineReply({
+        ctx: kzReplyContextFromThread(thread),
+        previousReply: previous,
+        feedback: trimmed,
+      });
+      await kzShowPreview(chatId, thread, draft, 'regen');
+    } catch (err) { await notifyError(chatId, err); }
+    return;
+  }
+
+  if (thread.status === 'awaiting_gap_info' && thread.pending_gap_topic) {
+    await upsertKleinanzeigenOverride({
+      topic: thread.pending_gap_topic,
+      kind: 'offered',
+      content: trimmed,
+    });
+    clearKleinanzeigenProfileCache();
+    const updated = await updateKleinanzeigenThread(thread.id, {
+      pending_gap_topic: null,
+      status: 'awaiting_action',
+    });
+    const { analyzeKleinanzeigenMessage } = await import('@/lib/kleinanzeigen/analyzer');
+    try {
+      const newAnalysis = await analyzeKleinanzeigenMessage(updated.raw_body);
+      await updateKleinanzeigenThread(updated.id, { ai_analysis: newAnalysis });
+    } catch {
+      // non-fatal
+    }
+    const refreshed = await getKleinanzeigenThread(updated.id);
+    await sendMessage({ chatId, text: '📝 Bilgi kaydedildi. Şimdi AI cevap önereyim mi?' });
+    if (refreshed) await kzShowInitial(chatId, refreshed);
+    return;
+  }
+}
+
 async function handlePostCommand(
   chatId: number,
   messageId: number,
@@ -1909,6 +1964,13 @@ async function handleCommand(
     return;
   }
 
+  // Active Kleinanzeigen thread awaiting text input takes priority.
+  const activeKz = await getActiveKleinanzeigenThread(chatId);
+  if (activeKz) {
+    await handleKzTextInput(chatId, activeKz, trimmed);
+    return;
+  }
+
   // Active invoice draft: drive the multi-step state machine first.
   const activeInvoice = await getActiveInvoiceDraft(chatId);
   if (activeInvoice && activeInvoice.status === 'collecting') {
@@ -2100,6 +2162,35 @@ export async function POST(
       }).catch(() => {});
     }
     return NextResponse.json({ ok: true, ignored: 'unauthorized' });
+  }
+
+  // Kleinanzeigen image-attach intercept (priority over mail attachments).
+  {
+    const m = update.message;
+    if (m && (m.photo?.length || m.document)) {
+      const activeKzImage = await getActiveKleinanzeigenImageThread(chatId);
+      if (activeKzImage) {
+        if (m.document) {
+          await kzAppendAttachment(chatId, activeKzImage, {
+            fileId: m.document.file_id,
+            filename: m.document.file_name ?? `attachment-${Date.now()}`,
+            mime: m.document.mime_type ?? 'application/octet-stream',
+            sizeBytes: m.document.file_size,
+          });
+        } else if (m.photo?.length) {
+          const largest = m.photo[m.photo.length - 1];
+          if (largest) {
+            await kzAppendAttachment(chatId, activeKzImage, {
+              fileId: largest.file_id,
+              filename: `photo-${Date.now()}.jpg`,
+              mime: 'image/jpeg',
+              sizeBytes: largest.file_size,
+            });
+          }
+        }
+        return NextResponse.json({ ok: true });
+      }
+    }
   }
 
   // Mail-attachment interception: if a draft is awaiting an attachment,
