@@ -170,6 +170,19 @@ export const emailPreferences = pgTable('email_preferences', {
   updated_at: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
+// ── Email Campaigns (history for dedup) ──
+export const emailCampaigns = pgTable('email_campaigns', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  subject_line: text('subject_line').notNull(),
+  concept_title: text('concept_title').notNull(),
+  campaign_type: text('campaign_type').notNull(),
+  theme: text('theme').notNull(),
+  content_json: jsonb('content_json').notNull(),
+  brevo_campaign_id: integer('brevo_campaign_id'),
+  recipient_email: text('recipient_email'),
+  created_at: timestamp('created_at', { withTimezone: true }).defaultNow(),
+});
+
 // ───── Secrets (encrypted with pgcrypto) ─────
 export const secrets = pgTable('secrets', {
   key: text('key').primaryKey(),
