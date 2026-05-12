@@ -161,6 +161,34 @@ import {
 } from '@/lib/kleinanzeigen/telegram-ui';
 import { clearProfileCache as clearKleinanzeigenProfileCache } from '@/lib/kleinanzeigen/profile';
 import type { KleinanzeigenThread, KleinanzeigenAnalysis, MailAttachment } from '@/types';
+import {
+  createAdsDraft,
+  getActiveAdsDraft,
+  getAdsDraft,
+  updateAdsDraft,
+  cancelActiveAdsDrafts,
+  type AdsDraft,
+} from '@/lib/db/queries/ads-drafts';
+import {
+  campaignTypeKeyboard,
+  conversionGoalKeyboard,
+  adsPreviewKeyboard,
+  adsCancelKeyboard,
+} from '@/lib/telegram/ads-keyboard';
+import { generateAdCopy } from '@/lib/google-ads/ads-copy';
+import { generateKeywords } from '@/lib/google-ads/keywords';
+import { checkBudget } from '@/lib/google-ads/budget-guard';
+import {
+  createSearchCampaign,
+  pauseCampaign as pauseGoogleCampaign,
+  resumeCampaign as resumeGoogleCampaign,
+} from '@/lib/google-ads/campaigns';
+import {
+  listCampaignsByChat,
+  getCampaign as getAdsCampaign,
+} from '@/lib/db/queries/ads-campaigns';
+import { getAdsPreferences } from '@/lib/db/queries/ads-preferences';
+import type { AdsCampaignType } from '@/lib/db/queries/ads-campaigns'; // used in Task 15
 
 // In-memory session for manual text editing (post caption)
 const textEditSessions = new Map<number, string>(); // chatId -> postId
@@ -1151,6 +1179,32 @@ function formatMailPreview(draft: MailDraft): string {
     .slice(0, 4000);
 }
 
+function formatAdsPreview(draft: AdsDraft): string {
+  const p = draft.draft_payload;
+  const copy = draft.generated_copy;
+  const keywords = draft.generated_keywords ?? [];
+  return [
+    `🎯 Google Ads — ${p.type ?? '?'}`,
+    `🔗 Hedef: ${p.target_url ?? '-'}`,
+    `🎯 Goal: ${p.conversion_action ?? '-'}`,
+    `💶 Günlük: €${((p.daily_budget_cents ?? 0) / 100).toFixed(2)}`,
+    `📅 ${p.start_date ?? '?'} → ${p.end_date ?? 'açık uçlu'}`,
+    '',
+    '📝 Başlıklar:',
+    ...(copy?.headlines ?? []).map((h, i) => `  ${i + 1}. ${h}`),
+    '',
+    '📄 Açıklamalar:',
+    ...(copy?.descriptions ?? []).map((d, i) => `  ${i + 1}. ${d}`),
+    '',
+    `🔑 ${keywords.length} anahtar kelime: ${keywords
+      .slice(0, 5)
+      .map((k) => k.keyword)
+      .join(', ')}${keywords.length > 5 ? '…' : ''}`,
+  ]
+    .join('\n')
+    .slice(0, 4000);
+}
+
 async function handleMailCommand(
   chatId: number,
   text: string,
@@ -1200,6 +1254,92 @@ async function handleMailCommand(
     });
     await updateDraft(draft.id, {
       telegram_preview_msg_id: sent.message_id,
+    });
+  } catch (err) {
+    await notifyError(chatId, err);
+  }
+}
+
+async function handleAdsCommand(chatId: number, text: string): Promise<void> {
+  const rest = text.replace(/^\/ads(@\w+)?\s*/, '').trim();
+  const subcommand = rest.split(/\s+/)[0] || 'new';
+
+  if (subcommand === 'new' || subcommand === '') {
+    await cancelActiveAdsDrafts(chatId);
+    const draft = await createAdsDraft(chatId);
+    await sendMessage({
+      chatId,
+      text:
+        '🎯 Google Ads kampanya sihirbazı.\nAdım 1/4: Kampanya tipini seç.',
+      replyMarkup: campaignTypeKeyboard(draft.id),
+    });
+    return;
+  }
+
+  if (subcommand === 'list') {
+    await handleAdsList(chatId);
+    return;
+  }
+
+  if (subcommand === 'pause' || subcommand === 'resume') {
+    const idArg = rest.split(/\s+/)[1];
+    if (!idArg) {
+      await sendMessage({
+        chatId,
+        text: `Kullanım: /ads ${subcommand} <id>`,
+      });
+      return;
+    }
+    await handleAdsStatusChange(chatId, idArg, subcommand);
+    return;
+  }
+
+  await sendMessage({
+    chatId,
+    text:
+      'Kullanım:\n  /ads new              — yeni kampanya sihirbazı\n  /ads list             — aktif kampanyalar\n  /ads pause <id>       — durdur\n  /ads resume <id>      — devam ettir',
+  });
+}
+
+async function handleAdsList(chatId: number): Promise<void> {
+  const rows = await listCampaignsByChat(chatId, ['enabled', 'paused']);
+  if (rows.length === 0) {
+    await sendMessage({ chatId, text: '📭 Aktif kampanya yok. /ads new ile başla.' });
+    return;
+  }
+  const lines = rows.map((r) => {
+    const flag = r.status === 'enabled' ? '🟢' : '⏸️';
+    const budget = `€${(r.daily_budget_cents / 100).toFixed(2)}/gün`;
+    const shortId = r.id.slice(0, 8);
+    return `${flag} ${shortId}  ${r.name}  ${budget}`;
+  });
+  await sendMessage({
+    chatId,
+    text: ['📋 Kampanyalar:', ...lines, '', '/ads pause <id> ile durdur'].join('\n'),
+  });
+}
+
+async function handleAdsStatusChange(
+  chatId: number,
+  idArg: string,
+  action: 'pause' | 'resume',
+): Promise<void> {
+  // Allow short-prefix matching (first 8 chars displayed in /ads list)
+  let campaign = await getAdsCampaign(idArg);
+  if (!campaign) {
+    const all = await listCampaignsByChat(chatId, ['enabled', 'paused']);
+    campaign = all.find((c) => c.id.startsWith(idArg)) ?? null;
+  }
+  if (!campaign) {
+    await sendMessage({ chatId, text: `❌ Kampanya bulunamadı: ${idArg}` });
+    return;
+  }
+  try {
+    if (action === 'pause') await pauseGoogleCampaign(campaign.id);
+    else await resumeGoogleCampaign(campaign.id);
+    await sendMessage({
+      chatId,
+      text: `${action === 'pause' ? '⏸️ Durduruldu' : '▶️ Yeniden başladı'}: ${campaign.name}`,
     });
   } catch (err) {
     await notifyError(chatId, err);
