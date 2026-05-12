@@ -108,3 +108,63 @@ export function invoicePreviewKeyboard(
     ],
   };
 }
+
+export function angebotFooterKeyboard(draftId: string): InlineKeyboardMarkup {
+  return {
+    inline_keyboard: [
+      [
+        {
+          text: 'Angebot freibleibend',
+          callback_data: `ang_fp:${draftId}:ap1`,
+        },
+      ],
+      [
+        { text: '✏️ Manuel yaz', callback_data: `ang_footer_manual:${draftId}` },
+        { text: '— Not yok', callback_data: `ang_footer_skip:${draftId}` },
+      ],
+    ],
+  };
+}
+
+export function angebotNumberKeyboard(
+  draftId: string,
+  autoNumber: string,
+): InlineKeyboardMarkup {
+  return {
+    inline_keyboard: [
+      [
+        {
+          text: `✓ ${autoNumber}`,
+          callback_data: `ang_number_auto:${draftId}`,
+        },
+        {
+          text: '✏️ Değiştir',
+          callback_data: `ang_number_manual:${draftId}`,
+        },
+      ],
+    ],
+  };
+}
+
+export function angebotPreviewKeyboard(
+  angebotId: string,
+): InlineKeyboardMarkup {
+  return {
+    inline_keyboard: [
+      [
+        {
+          text: '📧 Müşteriye mail at',
+          callback_data: `ang_send_mail:${angebotId}`,
+        },
+      ],
+      [
+        { text: '💾 Sadece kaydet', callback_data: `ang_save:${angebotId}` },
+        { text: '🔄 Faturaya çevir', callback_data: `ang_convert:${angebotId}` },
+      ],
+      [
+        { text: '🔄 Yeniden başla', callback_data: `ang_restart:${angebotId}` },
+        { text: '🗑 Sil', callback_data: `ang_delete:${angebotId}` },
+      ],
+    ],
+  };
+}
