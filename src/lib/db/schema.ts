@@ -556,6 +556,57 @@ export const failedJobs = pgTable('failed_jobs', {
   retried_at: timestamp('retried_at', { withTimezone: true }),
 });
 
+// ───── Ads Drafts (Telegram /ads wizard state) ─────
+export interface AdsDraftPayload {
+  type?: 'search' | 'pmax' | 'display' | 'retargeting' | 'local';
+  target_url?: string;
+  conversion_action?: string;
+  campaign_name?: string;
+  daily_budget_cents?: number;
+  start_date?: string;
+  end_date?: string;
+}
+
+export interface AdsGeneratedCopy {
+  headlines: string[];
+  descriptions: string[];
+}
+
+export interface AdsGeneratedKeyword {
+  keyword: string;
+  match_type: 'BROAD' | 'PHRASE' | 'EXACT';
+  estimated_monthly_volume?: number;
+}
+
+export const adsDrafts = pgTable(
+  'ads_drafts',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    status: adsDraftStatus('status').notNull().default('collecting'),
+    current_step: text('current_step').notNull().default('type'),
+    draft_payload: jsonb('draft_payload')
+      .$type<AdsDraftPayload>()
+      .notNull()
+      .default({}),
+    generated_copy: jsonb('generated_copy').$type<AdsGeneratedCopy | null>(),
+    generated_keywords: jsonb('generated_keywords')
+      .$type<AdsGeneratedKeyword[] | null>(),
+    telegram_chat_id: bigint('telegram_chat_id', { mode: 'number' }).notNull(),
+    telegram_preview_msg_id: integer('telegram_preview_msg_id'),
+    error: text('error'),
+    created_at: timestamp('created_at', { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    sent_at: timestamp('sent_at', { withTimezone: true }),
+  },
+  (t) => ({
+    chatStatusIdx: index('ads_drafts_chat_status_idx').on(
+      t.telegram_chat_id,
+      t.status,
+    ),
+  }),
+);
+
 // ───── Content Planning ─────
 export const contentPlans = pgTable('content_plans', {
   id: uuid('id').primaryKey().defaultRandom(),
