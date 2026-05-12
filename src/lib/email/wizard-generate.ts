@@ -211,11 +211,11 @@ export async function generateReactivationContent(
 
 // ── Concept Generation ──
 
-const FIRMEN_INFO = `Fly & Froth — Grafik & Webdesign Studio, Karben (Rhein-Main)
-Hizmetler: Webdesign (499€+), Logodesign (79€+), Druckdesign/Flyer/Visitenkarten (29€+),
-Google Business Profil (99€), WhatsApp Business (49€), Online-Terminbuchung (149€), Online-Menü (79€)
-USP: 1000+ proje, 5.0 Google (22 yorum), Festpreisgarantie, Express 24h, tek muhatap, %100 memnuniyet
-Hedef kitle: Küçük/orta işletmeler, gastronomi, sağlık, el sanatları, Rhein-Main ve Almanya geneli
+const FIRMEN_INFO = `Fly & Froth — Grafik- & Webdesign Studio, Karben (Rhein-Main)
+Leistungen: Webdesign (ab 499 €), Logodesign (ab 79 €), Druckdesign/Flyer/Visitenkarten (ab 29 €),
+Google Business Profil (99 €), WhatsApp Business (49 €), Online-Terminbuchung (149 €), Online-Menü (79 €)
+USP: 1000+ Projekte, 5.0 Google (22 Bewertungen), Festpreisgarantie, Express 24h, ein Ansprechpartner, 100 % Zufriedenheit
+Zielgruppe: KMU, Gastronomie, Gesundheit, Handwerk, Rhein-Main & deutschlandweit
 Website: fly-froth.com | Instagram: @fly.froth`;
 
 export async function generateConcepts(
@@ -226,40 +226,40 @@ export async function generateConcepts(
   const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
   const pastBlock = pastSubjects.length > 0
-    ? `Geçmiş kampanya konuları (BUNLARI ASLA tekrarlama):\n${pastSubjects.map((s, i) => `${i + 1}. "${s}"`).join('\n')}`
-    : 'Henüz geçmiş kampanya yok.';
+    ? `Frühere Kampagnenthemen (diese NIEMALS wiederholen):\n${pastSubjects.map((s, i) => `${i + 1}. "${s}"`).join('\n')}`
+    : 'Noch keine früheren Kampagnen.';
 
   const contextBlock = campaignType === 'reactivation' && context?.clientName
-    ? `Bu bir REAKTİVASYON kampanyası.\nEski müşteri: ${context.clientName}\nSon projesi: ${context.lastProject ?? 'bilinmiyor'}\nKişisel, samimi ama profesyonel ol.`
-    : 'Bu bir GENEL BÜLTEN. Mevcut mailing listindeki herkese gidecek.';
+    ? `Dies ist eine REAKTIVIERUNGS-Kampagne.\nEhemaliger Kunde: ${context.clientName}\nLetztes Projekt: ${context.lastProject ?? 'unbekannt'}\nPersönlich, herzlich aber professionell.`
+    : 'Dies ist ein ALLGEMEINER NEWSLETTER. Geht an die gesamte Mailingliste.';
 
   const system = [
-    'Sen Fly & Froth için email pazarlama konseptleri üreten bir stratejistsin.',
+    'Du bist ein Email-Marketing-Stratege, der Kampagnenkonzepte für Fly & Froth entwickelt.',
     '',
-    'FİRMA BİLGİSİ:',
+    'FIRMENINFO:',
     FIRMEN_INFO,
     '',
-    'REFERANS: Premium tasarım ajanslarının bülten stratejilerini referans al.',
-    'Satış odaklı, profesyonel, özgün. Genel "tasarım ajansı bülteni" gibi olmasın.',
+    'REFERENZ: Orientiere dich an Newsletter-Strategien von Premium-Designagenturen.',
+    'Verkaufsorientiert, professionell, originell. Kein generischer "Designagentur-Newsletter".',
     '',
     pastBlock,
     '',
     contextBlock,
     '',
-    '2 FARKLI konsept üret. Her biri FARKLI bir açıdan yaklaşsın.',
-    'Örnek açılar: portfolyo vitrini, sektörel trend/ipucu, başarı hikayesi/müşteri yolculuğu, hizmet derinlemesine, sezonluk kampanya, dijital dönüşüm tavsiyesi',
-    'Her konsept satışa yönlendirmeli.',
+    'Generiere 2 VERSCHIEDENE Konzepte. Jedes aus einem ANDEREN Blickwinkel.',
+    'Mögliche Ansätze: Portfolio-Showcase, Branchentrend/Tipp, Erfolgsgeschichte/Kundenreise, Service-Detail, Saisonale Kampagne, Digitalisierungstipp',
+    'Jedes Konzept soll zum Verkauf führen.',
     '',
-    'JSON formatında dön:',
+    'Antworte im JSON-Format:',
     '{',
     '  "concepts": [',
     '    {',
-    '      "title": "Konsept başlığı (butonda gösterilecek, max 40 karakter)",',
-    '      "angle": "Satış açısı (1 cümle)",',
-    '      "subjectLine": "Önerilen konu satırı (max 60 karakter)",',
-    '      "introText": "2-3 cümle giriş metni",',
-    '      "closingText": "1 cümle kapanış + CTA",',
-    '      "portfolioFocus": ["hizmet1", "hizmet2"]',
+    '      "title": "Konzept-Titel (auf dem Button, max 40 Zeichen)",',
+    '      "angle": "Verkaufsansatz (1 Satz)",',
+    '      "subjectLine": "Vorgeschlagene Betreffzeile (max 60 Zeichen)",',
+    '      "introText": "2-3 einleitende Sätze",',
+    '      "closingText": "1 Satz Abschluss + CTA",',
+    '      "portfolioFocus": ["Leistung1", "Leistung2"]',
     '    }',
     '  ]',
     '}',
@@ -269,7 +269,7 @@ export async function generateConcepts(
     model: MODEL,
     max_tokens: 2048,
     system,
-    messages: [{ role: 'user', content: '2 email kampanya konsepti üret.' }],
+    messages: [{ role: 'user', content: 'Generiere 2 Email-Kampagnenkonzepte.' }],
   }).then((r) => {
     const block = r.content[0];
     if (!block || block.type !== 'text') throw new Error('No text from Claude');
