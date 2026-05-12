@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import Anthropic from '@anthropic-ai/sdk';
 import {
   sendMessage,
   sendPhoto,
@@ -95,7 +96,21 @@ import { weeklyDigest, portfolioNewsletter } from '@/lib/email/templates';
 import type { DigestItem, PortfolioItem } from '@/lib/email/templates';
 import { generateEmailContent } from '@/lib/email/generate-content';
 import type { EmailContent } from '@/lib/email/generate-content';
-import { getLists, createContact, sendEmail, getAccount } from '@/lib/email/brevo';
+import { getLists, createContact, sendEmail, getAccount, createCampaign, sendCampaignNow } from '@/lib/email/brevo';
+import {
+  getWizardState,
+  setWizardState,
+  clearWizardState,
+  type WizardState,
+} from '@/lib/email/wizard-cache';
+import {
+  generateDigestContent,
+  generateOutreachContent,
+  generateReactivationContent,
+} from '@/lib/email/wizard-generate';
+import { getEmailPreferences, updateEmailPreferences } from '@/lib/db/queries/email-preferences';
+import { THEME_META, type ThemeId, renderTheme } from '@/lib/email/themes';
+import { renderPortfolioNewsletter, renderWeeklyDigest } from '@/lib/email/templates';
 import { generateMailDraft } from '@/lib/mail/generate';
 import { sendMail } from '@/lib/mail/smtp';
 import {
@@ -2142,48 +2157,70 @@ async function handlePlanApproveAll(chatId: number, messageId: number, planId: s
     ].join('\n'),
   });
 
-  // Process slots in batches of 4 (Vercel 300s timeout + Telegram rate limits)
+  // Kick off the first batch. The generate-plan-slots endpoint now
+  // self-iterates: each batch triggers the next one via a new function
+  // invocation, so the chain survives even if this webhook times out.
   const baseUrl = process.env.APP_URL ?? 'https://admin.fly-froth.com';
-  const secret = process.env.CRON_SECRET;
-  if (!secret) {
+  const cronSecret = process.env.CRON_SECRET;
+  if (!cronSecret) {
     await sendMessage({ chatId, text: '🔴 İç hata: CRON_SECRET eksik.' });
     return;
   }
 
-  const BATCH_SIZE = 4;
-  let totalOk = 0;
-  let totalFail = 0;
-  let remaining = topicsToGenerate.length;
-
-  while (remaining > 0) {
-    try {
-      const res = await fetch(`${baseUrl}/api/generate-plan-slots`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${secret}`,
-        },
-        body: JSON.stringify({ planId, chatId, limit: BATCH_SIZE }),
-      });
-      const result = await res.json().catch(() => ({}));
-      totalOk += (result.processed ?? 0);
-      totalFail += (result.failed ?? 0);
-      remaining = result.remaining ?? 0;
-    } catch (err) {
-      console.error(`[plan] Batch dispatch failed:`, err);
-      totalFail += Math.min(BATCH_SIZE, remaining);
-      remaining = Math.max(0, remaining - BATCH_SIZE);
-    }
-
+  try {
+    const res = await fetch(`${baseUrl}/api/generate-plan-slots`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${cronSecret}`,
+      },
+      body: JSON.stringify({ planId, chatId, limit: 4 }),
+    });
+    const result = await res.json().catch(() => ({}));
+    const processed = result.processed ?? 0;
+    const remaining = result.remaining ?? 0;
     if (remaining > 0) {
-      await new Promise((r) => setTimeout(r, 2000));
+      await sendMessage({
+        chatId,
+        text: `📤 İlk batch: ${processed} slot işlendi. Kalan ${remaining} slot zincirleme işleniyor — sonuçlar buraya gelecek.`,
+      });
+    } else {
+      await sendMessage({
+        chatId,
+        text: `✅ Tüm slotlar işlendi. ${processed}/${topicsToGenerate.length} başarılı.`,
+      });
+    }
+  } catch (err) {
+    console.error(`[plan] Initial batch dispatch failed:`, err);
+    // Check if the endpoint managed to start the chain despite the fetch error
+    try {
+      const slots = await getSlotsByPlan(planId);
+      const stillPending = slots.filter(
+        (s) => s.status === 'pending' && s.topic,
+      ).length;
+      if (stillPending === 0) {
+        await sendMessage({
+          chatId,
+          text: `✅ Slotlar işlenmiş görünüyor (batch zinciri devraldı).`,
+        });
+      } else if (stillPending < topicsToGenerate.length) {
+        await sendMessage({
+          chatId,
+          text: `⚠️ Kısmi ilerleme: ${topicsToGenerate.length - stillPending} işlendi, ${stillPending} kaldı. "/plan-durum" ile kontrol et, gerekirse tekrar "/plan-onayla" yaz.`,
+        });
+      } else {
+        await sendMessage({
+          chatId,
+          text: `⚠️ Batch zinciri başlatılamadı: ${err instanceof Error ? err.message.slice(0, 200) : String(err).slice(0, 200)}. Tekrar "/plan-onayla" yaz.`,
+        });
+      }
+    } catch {
+      await sendMessage({
+        chatId,
+        text: `⚠️ Batch başlatılamadı. Tekrar "/plan-onayla" yaz.`,
+      });
     }
   }
-
-  await sendMessage({
-    chatId,
-    text: `✅ Tüm batch'ler tamamlandı. ${totalOk}/${topicsToGenerate.length} başarılı, ${totalFail} hatalı.`,
-  });
 }
 
 async function handlePlanCancel(chatId: number, messageId: number, planId: string): Promise<void> {
@@ -2341,36 +2378,6 @@ function emailListIds(): number[] {
 }
 
 async function handleEmailDigestCommand(chatId: number): Promise<void> {
-  const listIds = emailListIds();
-  if (listIds.length === 0) {
-    await sendMessage({ chatId, text: '⚠️ BREVO_LIST_IDS env eksik. Vercel Environment Variables\'a ekleyin.\n\nBrevo\'da bir liste oluşturun, liste ID\'sini BREVO_LIST_IDS olarak tanımlayın (virgülle birden fazla).' });
-    return;
-  }
-
-  // Brevo bağlantı kontrolü
-  try {
-    const account = await getAccount();
-    if (!account?.email) throw new Error('Invalid account');
-  } catch (err) {
-    const detail = err instanceof Error ? err.message : String(err);
-    await sendMessage({ chatId, text: `⚠️ Brevo API bağlantısı başarısız.\n\nHata: ${detail.slice(0, 300)}\n\nBREVO_API_KEY env değişkenini Vercel dashboard > Settings > Environment Variables altına ekleyin, sonra redeploy yapın.` });
-    return;
-  }
-
-  // Liste doğrulama
-  let validListIds: number[] = [];
-  try {
-    const lists = await getLists();
-    validListIds = lists.map((l) => l.id);
-    const missing = listIds.filter((id) => !validListIds.includes(id));
-    if (missing.length > 0) {
-      await sendMessage({ chatId, text: `⚠️ BREVO_LIST_IDS'teki ${missing.join(', ')} ID'li liste(ler) Brevo'da bulunamadı.\n\nMevcut listeler:\n${lists.map((l) => `  • #${l.id}: ${l.name} (${l.totalSubscribers} kişi)`).join('\n')}\n\n.env.local'daki BREVO_LIST_IDS değerini güncelleyin.` });
-      return;
-    }
-  } catch {
-    // Liste sorgusu başarısız olsa da devam et (eski Brevo hesaplarında olabilir)
-  }
-
   const { week, year } = getCurrentWeek();
   const plan = await getPlanByWeek(week, year);
   if (!plan) {
@@ -2379,51 +2386,57 @@ async function handleEmailDigestCommand(chatId: number): Promise<void> {
   }
 
   const slots = await getSlotsByPlan(plan.id);
-  if (slots.length === 0) {
-    await sendMessage({ chatId, text: 'Planda slot yok.' });
+  const topicsWithContent = slots.filter((s) => s.topic);
+
+  if (topicsWithContent.length === 0) {
+    await sendMessage({ chatId, text: 'Planda konusu olan slot yok.' });
     return;
   }
 
-  // Build preview
+  // Show plan summary + start button
   const pillarCounts: Record<string, number> = {};
-  for (const s of slots) {
+  for (const s of topicsWithContent) {
     pillarCounts[s.pillar] = (pillarCounts[s.pillar] ?? 0) + 1;
   }
+  const summary = Object.entries(pillarCounts)
+    .map(([p, c]) => `${p}: ${c} post`)
+    .join('\n');
 
-  const portfolioItems = slotsToPortfolioItems(slots);
-
-  let listInfo = '';
-  if (validListIds.length > 0) {
-    const relevant = validListIds.filter((id) => listIds.includes(id));
-    if (relevant.length > 0) {
-      listInfo = `${relevant.length} liste, ${listIds.length} hedef`;
+  let currentTheme: ThemeId = 'dark_steel';
+  try {
+    const prefs = await getEmailPreferences();
+    if (prefs.theme === 'dark_steel' || prefs.theme === 'light_steel' || prefs.theme === 'dark_gold') {
+      currentTheme = prefs.theme;
     }
-  } else {
-    listInfo = `${listIds.length} liste ID (doğrulama atlandı)`;
-  }
+  } catch { /* use default */ }
 
-  const pillarEmoji: Record<string, string> = {
-    vitrine: '🖼', prozess: '🎬', insight: '📊', lokal: '📍', reel: '🎥',
+  const state: WizardState = {
+    chatId,
+    step: 'theme',
+    campaignType: 'digest',
+    theme: currentTheme,
+    planId: plan.id,
   };
-
-  const preview = [
-    `📧 **KW${week} Email Bülteni — Önizleme**`,
-    '',
-    `📋 Hedef Liste: ${listInfo}`,
-    '',
-    'İçerik:',
-    ...Object.entries(pillarCounts).map(([k, v]) => `  ${pillarEmoji[k] ?? '📌'} ${v}× ${k}`),
-    '',
-    `🖼 Portfolyo: ${portfolioItems.length} proje`,
-    '',
-    '📧 *Bana test gönder* = info@fly-froth.com adresine önizleme',
-    '📋 *Listeye gönder* = tüm listeye kampanya başlat',
-  ].join('\n');
+  setWizardState(chatId, state);
 
   await sendMessage({
     chatId,
-    text: preview,
-    replyMarkup: emailDigestKeyboard(plan.id),
+    text: [
+      `📧 Email Bülteni — KW${plan.calendar_week}/${plan.year}`,
+      '',
+      summary,
+      '',
+      `Toplam: ${topicsWithContent.length} post`,
+      `Mevcut tema: ${THEME_META[currentTheme].label}`,
+    ].join('\n'),
+    replyMarkup: {
+      inline_keyboard: [[
+        { text: '🎨 Tema Seç', callback_data: 'ew:goto:theme' },
+        { text: '▶️ İleri', callback_data: 'ew:goto:portfolio' },
+      ], [
+        { text: '❌ İptal', callback_data: 'ew:cancel' },
+      ]],
+    },
   });
 }
 
@@ -2456,21 +2469,40 @@ async function handleEmailOutreachCommand(chatId: number, city: string): Promise
     return;
   }
 
+  let currentTheme: ThemeId = 'dark_steel';
+  try {
+    const prefs = await getEmailPreferences();
+    if (prefs.theme === 'dark_steel' || prefs.theme === 'light_steel' || prefs.theme === 'dark_gold') {
+      currentTheme = prefs.theme;
+    }
+  } catch { /* use default */ }
+
+  const state: WizardState = {
+    chatId,
+    step: 'theme',
+    campaignType: 'outreach',
+    theme: currentTheme,
+    city: match,
+    service: 'Logodesign, Webdesign, Druckdesign',
+  };
+  setWizardState(chatId, state);
+
   await sendMessage({
     chatId,
     text: [
-      `📧 ${match} için lokal outreach emaili hazırlanıyor…`,
+      `📧 ${match} için lokal outreach emaili`,
       '',
-      'Bu özellik şu anda test aşamasında.',
-      'Göndermek için alıcı email adreslerini yaz (virgülle):',
-      'Örnek: ahmet@firma1.com, mehmet@firma2.de',
-      '',
-      'Veya BREVO_LIST_IDS ile otomatik listeye gönderilecek.',
+      `Mevcut tema: ${THEME_META[currentTheme].label}`,
     ].join('\n'),
+    replyMarkup: {
+      inline_keyboard: [[
+        { text: '🎨 Tema Seç', callback_data: 'ew:goto:theme' },
+        { text: '▶️ İleri', callback_data: 'ew:goto:portfolio' },
+      ], [
+        { text: '❌ İptal', callback_data: 'ew:cancel' },
+      ]],
+    },
   });
-
-  // Note: full automation requires contact list with local businesses.
-  // For now, the user can manually follow up.
 }
 
 async function handleEmailReactivateCommand(
@@ -2484,17 +2516,42 @@ async function handleEmailReactivateCommand(
     return;
   }
 
-  await sendMessage({ chatId, text: `📧 ${name} için reaktivasyon maili gönderiliyor…` });
-
+  let currentTheme: ThemeId = 'dark_steel';
   try {
-    await sendReactivation(email, name, project);
-    await sendMessage({
-      chatId,
-      text: `✅ Reaktivasyon maili ${email} adresine gönderildi.\nKonu: ${name}, lass uns wieder zusammenarbeiten`,
-    });
-  } catch (err) {
-    await notifyError(chatId, err);
-  }
+    const prefs = await getEmailPreferences();
+    if (prefs.theme === 'dark_steel' || prefs.theme === 'light_steel' || prefs.theme === 'dark_gold') {
+      currentTheme = prefs.theme;
+    }
+  } catch { /* use default */ }
+
+  const state: WizardState = {
+    chatId,
+    step: 'theme',
+    campaignType: 'reactivation',
+    theme: currentTheme,
+    recipientEmail: email,
+    clientName: name,
+    lastProject: project,
+  };
+  setWizardState(chatId, state);
+
+  await sendMessage({
+    chatId,
+    text: [
+      `📧 ${name} için reaktivasyon emaili`,
+      `Son proje: ${project}`,
+      '',
+      `Mevcut tema: ${THEME_META[currentTheme].label}`,
+    ].join('\n'),
+    replyMarkup: {
+      inline_keyboard: [[
+        { text: '🎨 Tema Seç', callback_data: 'ew:goto:theme' },
+        { text: '▶️ İleri', callback_data: 'ew:goto:portfolio' },
+      ], [
+        { text: '❌ İptal', callback_data: 'ew:cancel' },
+      ]],
+    },
+  });
 }
 
 // ───── Email Callback Handlers ─────
@@ -2629,12 +2686,549 @@ async function handleSlotBack(chatId: number, slotId: string): Promise<void> {
   await sendMessage({ chatId, text, replyMarkup: planOverviewKeyboard(plan.id, plan.status === 'approved') });
 }
 
+// ═══════════════════════════════════════════════════════════
+// Email Wizard — Step Handlers
+// ═══════════════════════════════════════════════════════════
+
+async function handleEmailWizardCallback(
+  chatId: number,
+  messageId: number,
+  data: string,
+): Promise<void> {
+  const state = getWizardState(chatId);
+
+  if (data === 'ew:cancel') {
+    clearWizardState(chatId);
+    await editMessageText({
+      chatId, messageId,
+      text: '❌ Email kampanyası iptal edildi.',
+      replyMarkup: undefined,
+    });
+    return;
+  }
+
+  if (!state) {
+    await sendMessage({
+      chatId,
+      text: '⚠️ Oturum zaman aşımına uğradı. Lütfen /email-digest ile tekrar başlatın.',
+    });
+    return;
+  }
+
+  // Parse: ew:step:arg1:arg2:...
+  const parts = data.split(':');
+  const step = parts[1] ?? '';
+  const rest = parts.slice(2);
+
+  switch (step) {
+    case 'goto':
+      await handleWizardGoto(chatId, messageId, state, rest[0] ?? '');
+      break;
+    case 'theme':
+      await handleWizardTheme(chatId, messageId, state, rest[0] ?? '');
+      break;
+    case 'portfolio':
+      await handleWizardPortfolio(chatId, messageId, state, rest[0] ?? '', rest[1] ?? '');
+      break;
+    case 'content':
+      await handleWizardContent(chatId, messageId, state, rest[0] ?? '', rest[1] ?? '');
+      break;
+    case 'send':
+      await handleWizardSend(chatId, messageId, state, rest[0] ?? '');
+      break;
+    default:
+      await sendMessage({ chatId, text: `Bilinmeyen wizard adımı: ${step}` });
+  }
+}
+
+// ── Navigation ──
+
+async function handleWizardGoto(
+  chatId: number, messageId: number, state: WizardState, target: string,
+): Promise<void> {
+  if (target === 'theme') {
+    state.step = 'theme';
+    setWizardState(chatId, state);
+    await showThemePicker(chatId, messageId, state);
+  } else if (target === 'portfolio') {
+    state.step = 'portfolio';
+    setWizardState(chatId, state);
+    await showPortfolioPicker(chatId, messageId, state);
+  } else if (target === 'content') {
+    await editMessageText({ chatId, messageId, text: '🤖 İçerik oluşturuluyor...', replyMarkup: undefined });
+    try {
+      await generateAndShowContent(chatId, messageId, state);
+    } catch (err) {
+      await sendMessage({
+        chatId,
+        text: `⚠️ İçerik oluşturulamadı: ${err instanceof Error ? err.message : String(err)}`,
+      });
+    }
+  }
+}
+
+// ── Theme Selection ──
+
+async function showThemePicker(chatId: number, messageId: number, state: WizardState): Promise<void> {
+  const themeIds: ThemeId[] = ['dark_steel', 'light_steel', 'dark_gold'];
+  const keyboard = themeIds.map((id) => {
+    const meta = THEME_META[id];
+    const checked = state.theme === id ? '✅ ' : '☐ ';
+    return [{ text: `${checked}${meta.label}`, callback_data: `ew:theme:${id}` }];
+  });
+
+  keyboard.push([
+    { text: '◀️ Geri', callback_data: 'ew:goto:theme' },
+    { text: '▶️ İleri', callback_data: 'ew:goto:portfolio' },
+  ]);
+  keyboard.push([{ text: '❌ İptal', callback_data: 'ew:cancel' }]);
+
+  const currentMeta = THEME_META[state.theme];
+  await editMessageText({
+    chatId, messageId,
+    text: [
+      '🎨 Email teması seçin:',
+      '',
+      `Seçili: ${currentMeta.label}`,
+      `Açıklama: ${currentMeta.description}`,
+    ].join('\n'),
+    replyMarkup: { inline_keyboard: keyboard },
+  });
+}
+
+async function handleWizardTheme(
+  chatId: number, messageId: number, state: WizardState, themeId: string,
+): Promise<void> {
+  if (!THEME_META[themeId as ThemeId]) return;
+  state.theme = themeId as ThemeId;
+  setWizardState(chatId, state);
+  await updateEmailPreferences(themeId as ThemeId).catch(() => {});
+  await showThemePicker(chatId, messageId, state);
+}
+
+// ── Portfolio Selection (digest only) ──
+
+async function showPortfolioPicker(chatId: number, messageId: number, state: WizardState): Promise<void> {
+  if (state.campaignType !== 'digest' || !state.planId) {
+    await handleWizardGoto(chatId, messageId, state, 'content');
+    return;
+  }
+
+  if (!state.portfolioItems) {
+    const slots = await getSlotsByPlan(state.planId);
+    const portfolioSlots = slots.filter(
+      (s) => s.status === 'pending' && s.topic && (s.pillar === 'vitrine' || s.pillar === 'reel'),
+    );
+
+    const serviceMap: Record<string, string> = {
+      webdesign: 'Webdesign', website: 'Webdesign',
+      logodesign: 'Logodesign', logo: 'Logodesign',
+      flyerdesign: 'Flyerdesign', flyer: 'Flyerdesign',
+      druckdesign: 'Druckdesign', branding: 'Branding',
+    };
+
+    state.portfolioItems = portfolioSlots.slice(0, 6).map((s, i) => {
+      const topic = (s.topic ?? '').toLowerCase();
+      let serviceType = 'Design Service';
+      for (const [key, label] of Object.entries(serviceMap)) {
+        if (topic.includes(key)) { serviceType = label; break; }
+      }
+      if (s.pillar === 'reel') serviceType = 'Video';
+      return {
+        index: i,
+        topic: s.topic ?? 'Neues Projekt',
+        pillar: s.pillar,
+        headline: s.topic ?? 'Neues Projekt',
+        description: 'Ein Design-Projekt aus Karben, Rhein-Main.',
+        cta: s.pillar === 'reel' ? 'Reel ansehen' : 'Projekt ansehen',
+        serviceType,
+        selected: true,
+      };
+    });
+    setWizardState(chatId, state);
+  }
+
+  const keyboard = (state.portfolioItems ?? []).map((item) => {
+    const prefix = item.selected ? '✅' : '☐';
+    return [{ text: `${prefix} ${item.serviceType} — ${item.topic.slice(0, 25)}`, callback_data: `ew:portfolio:toggle:${item.index}` }];
+  });
+
+  keyboard.push([
+    { text: '◀️ Geri', callback_data: 'ew:goto:theme' },
+    { text: '▶️ İleri', callback_data: 'ew:goto:content' },
+  ]);
+  keyboard.push([{ text: '❌ İptal', callback_data: 'ew:cancel' }]);
+
+  const selectedCount = (state.portfolioItems ?? []).filter((p) => p.selected).length;
+  await editMessageText({
+    chatId, messageId,
+    text: [
+      '🖼 Bültende yer alacak projeler:',
+      '',
+      ...(state.portfolioItems ?? []).map((item) =>
+        `${item.selected ? '✅' : '☐'} ${item.serviceType} — ${item.topic}`,
+      ),
+      '',
+      `${selectedCount} proje seçildi.`,
+    ].join('\n'),
+    replyMarkup: { inline_keyboard: keyboard },
+  });
+}
+
+async function handleWizardPortfolio(
+  chatId: number, messageId: number, state: WizardState, sub: string, indexStr: string,
+): Promise<void> {
+  if (sub === 'toggle' && state.portfolioItems) {
+    const idx = parseInt(indexStr, 10);
+    const item = state.portfolioItems[idx];
+    if (item) {
+      item.selected = !item.selected;
+      setWizardState(chatId, state);
+    }
+    await showPortfolioPicker(chatId, messageId, state);
+  }
+}
+
+// ── Content Preview + Editing ──
+
+async function generateAndShowContent(chatId: number, messageId: number, state: WizardState): Promise<void> {
+  if (state.campaignType === 'digest' && state.portfolioItems) {
+    const selected = state.portfolioItems.filter((p) => p.selected);
+    const plan = state.planId ? await getPlan(state.planId) : null;
+    const result = await generateDigestContent(selected, state.theme, plan?.calendar_week);
+    state.subjectLine = result.subjectLine;
+    state.introText = result.introText;
+    state.closingText = result.closingText;
+    state.portfolioItems = result.portfolioItems;
+  } else if (state.campaignType === 'outreach' && state.city && state.service) {
+    const result = await generateOutreachContent(state.city, state.service, state.theme);
+    state.subjectLine = result.subjectLine;
+    state.introText = `${result.headline}\n\n${result.bodyText}`;
+    state.closingText = result.ctaLabel;
+  } else if (state.campaignType === 'reactivation' && state.clientName && state.lastProject) {
+    const result = await generateReactivationContent(state.clientName, state.lastProject, state.theme);
+    state.subjectLine = result.subjectLine;
+    state.introText = result.bodyText;
+    state.closingText = 'Neues Projekt starten';
+  }
+
+  state.step = 'content';
+  setWizardState(chatId, state);
+  await showContentPreview(chatId, messageId, state);
+}
+
+async function showContentPreview(chatId: number, messageId: number, state: WizardState): Promise<void> {
+  const portfolioSection = state.portfolioItems
+    ? state.portfolioItems.filter((p) => p.selected).map((p, i) =>
+        `${i + 1}. ${p.headline}`
+      ).join('\n')
+    : '';
+
+  const text = [
+    `📧 Email İçeriği — ${THEME_META[state.theme].label} teması`,
+    '',
+    '━━━━━━━━━━━━━━━━━━',
+    `📌 KONU:`,
+    `"${(state.subjectLine ?? '').slice(0, 80)}"`,
+    '',
+    '━━━━━━━━━━━━━━━━━━',
+    `📝 İÇERİK:`,
+    (state.introText ?? '').slice(0, 300),
+    '',
+    portfolioSection ? '━━━━━━━━━━━━━━━━━━' : '',
+    portfolioSection ? `🖼 PORTFOLYO:` : '',
+    portfolioSection,
+    '',
+    '━━━━━━━━━━━━━━━━━━',
+    `🔚 KAPANIŞ:`,
+    (state.closingText ?? '').slice(0, 150),
+  ].filter(Boolean).join('\n');
+
+  const keyboard = [
+    [
+      { text: '✏️ Konu', callback_data: 'ew:content:edit:subject' },
+      { text: '✏️ İçerik', callback_data: 'ew:content:edit:intro' },
+    ],
+    [
+      { text: '✏️ Kapanış', callback_data: 'ew:content:edit:closing' },
+    ],
+    [
+      { text: '📩 Test Gönder', callback_data: 'ew:send:test' },
+      { text: '📤 Listeye Gönder', callback_data: 'ew:send:list' },
+    ],
+    [
+      { text: '◀️ Geri', callback_data: 'ew:goto:portfolio' },
+      { text: '❌ İptal', callback_data: 'ew:cancel' },
+    ],
+  ];
+
+  await editMessageText({
+    chatId, messageId,
+    text: text.slice(0, 4096),
+    replyMarkup: { inline_keyboard: keyboard },
+  });
+}
+
+async function handleWizardContent(
+  chatId: number, messageId: number, state: WizardState, sub: string, field: string,
+): Promise<void> {
+  if (sub === 'edit') {
+    setWizardState(chatId, state);
+
+    const fieldLabels: Record<string, string> = {
+      subject: 'konu satırını',
+      intro: 'giriş metnini',
+      closing: 'kapanış metnini',
+    };
+
+    // Store edit field in a transient property
+    (state as any)._editingField = field;
+    setWizardState(chatId, state);
+
+    const currentValue = field === 'subject' ? state.subjectLine :
+      field === 'intro' ? state.introText : state.closingText;
+
+    await editMessageText({
+      chatId, messageId,
+      text: [
+        `✏️ ${fieldLabels[field] ?? field} düzenle:`,
+        '',
+        'Yeni metni doğrudan yazabilir veya bir düzeltme talimatı verebilirsin.',
+        'Örnek: "daha kısa olsun" veya "vurguyu logo tasarımına yap"',
+        '',
+        `Şu anki: ${(currentValue ?? '').slice(0, 300)}`,
+      ].join('\n').slice(0, 4096),
+      replyMarkup: { inline_keyboard: [[
+        { text: '↩️ Vazgeç', callback_data: 'ew:content:preview' },
+      ]]},
+    });
+  } else if (sub === 'preview') {
+    state.step = 'content';
+    setWizardState(chatId, state);
+    await showContentPreview(chatId, messageId, state);
+  }
+}
+
+// Handle text input for editing (called from handleCommand when wizard is in edit mode)
+async function handleWizardEditInput(chatId: number, text: string): Promise<void> {
+  const state = getWizardState(chatId);
+  if (!state || state.step !== 'content') return;
+
+  const field = (state as any)._editingField as string | undefined;
+  if (!field) return;
+
+  delete (state as any)._editingField;
+
+  const instruction = text.trim();
+
+  const isDirectReplacement =
+    instruction.length > 50 ||
+    !/\b(daha|biraz|kısa|uzun|vurgu|ekle|çıkar|değiştir|olsun|yap)\b/i.test(instruction);
+
+  if (isDirectReplacement) {
+    if (field === 'subject') state.subjectLine = instruction;
+    else if (field === 'intro') state.introText = instruction;
+    else if (field === 'closing') state.closingText = instruction;
+  } else {
+    const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+    const existing = field === 'subject' ? state.subjectLine :
+                     field === 'intro' ? state.introText :
+                     state.closingText;
+    try {
+      const revised = await client.messages.create({
+        model: 'claude-sonnet-4-6',
+        max_tokens: 512,
+        system: 'Revise the given text according to the instruction. Return ONLY the revised text, no quotes, no explanation.',
+        messages: [{
+          role: 'user',
+          content: `Original text:\n"${existing}"\n\nInstruction: ${instruction}\n\nRevised text:`,
+        }],
+      }).then((r) => {
+        const block = r.content[0];
+        return block && block.type === 'text' ? block.text.trim() : existing;
+      });
+
+      if (field === 'subject') state.subjectLine = revised!;
+      else if (field === 'intro') state.introText = revised!;
+      else if (field === 'closing') state.closingText = revised!;
+    } catch {
+      // AI failed, keep old text
+    }
+  }
+
+  setWizardState(chatId, state);
+  await sendMessage({ chatId, text: '✅ Metin güncellendi. Güncel önizleme:' });
+  await showContentPreviewNew(chatId, state);
+}
+
+async function showContentPreviewNew(chatId: number, state: WizardState): Promise<void> {
+  const portfolioSection = state.portfolioItems
+    ? state.portfolioItems.filter((p) => p.selected).map((p, i) =>
+        `${i + 1}. ${p.headline}`
+      ).join('\n')
+    : '';
+
+  const text = [
+    `📧 Email İçeriği — ${THEME_META[state.theme].label} teması`,
+    '',
+    `📌 KONU: "${(state.subjectLine ?? '').slice(0, 80)}"`,
+    `📝 İÇERİK: ${(state.introText ?? '').slice(0, 200)}`,
+    portfolioSection ? `🖼 PORTFOLYO:\n${portfolioSection}` : '',
+    `🔚 KAPANIŞ: ${(state.closingText ?? '').slice(0, 100)}`,
+  ].filter(Boolean).join('\n');
+
+  const keyboard = [
+    [
+      { text: '✏️ Konu', callback_data: 'ew:content:edit:subject' },
+      { text: '✏️ İçerik', callback_data: 'ew:content:edit:intro' },
+      { text: '✏️ Kapanış', callback_data: 'ew:content:edit:closing' },
+    ],
+    [
+      { text: '📩 Test Gönder', callback_data: 'ew:send:test' },
+      { text: '📤 Listeye Gönder', callback_data: 'ew:send:list' },
+    ],
+    [
+      { text: '◀️ Geri', callback_data: 'ew:goto:portfolio' },
+      { text: '❌ İptal', callback_data: 'ew:cancel' },
+    ],
+  ];
+
+  await sendMessage({
+    chatId,
+    text: text.slice(0, 4096),
+    replyMarkup: { inline_keyboard: keyboard },
+  });
+}
+
+// ── Send Handlers ──
+
+async function handleWizardSend(
+  chatId: number, messageId: number, state: WizardState, mode: string,
+): Promise<void> {
+  if (mode === 'test') {
+    await editMessageText({ chatId, messageId, text: '📤 Test email gönderiliyor...', replyMarkup: undefined });
+
+    try {
+      const html = buildEmailHtml(state);
+      await sendEmail({
+        to: [{ email: 'info@fly-froth.com', name: 'Fly & Froth' }],
+        subject: state.subjectLine ?? 'Fly & Froth Newsletter',
+        htmlContent: html,
+      });
+
+      await sendMessage({
+        chatId,
+        text: '✅ Test email gönderildi! info@fly-froth.com adresini kontrol et.',
+        replyMarkup: {
+          inline_keyboard: [[
+            { text: '📤 Listeye Gönder', callback_data: 'ew:send:list' },
+            { text: '↩️ Düzenle', callback_data: 'ew:content:preview' },
+          ]],
+        },
+      });
+    } catch (err) {
+      await sendMessage({
+        chatId,
+        text: `⚠️ Test gönderimi başarısız: ${err instanceof Error ? err.message : String(err)}`,
+      });
+    }
+  } else if (mode === 'list') {
+    const listIds = emailListIds();
+    if (listIds.length === 0) {
+      await sendMessage({
+        chatId,
+        text: '⚠️ BREVO_LIST_IDS env değişkeni ayarlanmamış. Önce Vercel ortam değişkenlerine ekleyin.',
+      });
+      return;
+    }
+
+    await editMessageText({
+      chatId, messageId,
+      text: [
+        `📤 "${state.subjectLine}" konulu email`,
+        `${listIds.length} listeye gönderilsin mi?`,
+        '',
+        'Bu işlem geri alınamaz.',
+      ].join('\n'),
+      replyMarkup: {
+        inline_keyboard: [[
+          { text: '✅ Onayla ve Gönder', callback_data: 'ew:send:confirm' },
+          { text: '❌ İptal', callback_data: 'ew:content:preview' },
+        ]],
+      },
+    });
+  } else if (mode === 'confirm') {
+    await editMessageText({ chatId, messageId, text: '📤 Kampanya oluşturuluyor ve gönderiliyor...', replyMarkup: undefined });
+
+    try {
+      const html = buildEmailHtml(state);
+      const listIds = emailListIds();
+
+      const campaign = await createCampaign({
+        name: `FW Newsletter — ${new Date().toISOString().slice(0, 10)}`,
+        subject: state.subjectLine ?? 'Fly & Froth Newsletter',
+        htmlContent: html,
+        listIds,
+      });
+
+      await sendCampaignNow(campaign.id);
+
+      clearWizardState(chatId);
+      await sendMessage({
+        chatId,
+        text: [
+          '✅ Email kampanyası gönderildi!',
+          `Campaign ID: ${campaign.id}`,
+          'Brevo panelinden performansı takip edebilirsin.',
+        ].join('\n'),
+      });
+    } catch (err) {
+      await sendMessage({
+        chatId,
+        text: `⚠️ Kampanya gönderimi başarısız: ${err instanceof Error ? err.message : String(err)}`,
+      });
+    }
+  }
+}
+
+function buildEmailHtml(state: WizardState): string {
+  if (state.campaignType === 'digest') {
+    const items = (state.portfolioItems ?? [])
+      .filter((p) => p.selected)
+      .map((p) => ({
+        headline: p.headline,
+        description: p.description,
+        cta: p.cta,
+        serviceType: p.serviceType,
+      }));
+    return renderPortfolioNewsletter(items as any, state.theme, state.introText, state.closingText);
+  }
+
+  return renderTheme(state.theme, {
+    headline: state.campaignType === 'outreach'
+      ? `Design-Service für ${state.city ?? 'Ihre Stadt'}`
+      : `Wieder von dir hören!`,
+    introHtml: state.introText ?? '',
+    sections: [],
+    closingHtml: state.closingText ?? '',
+    ctaLabel: state.campaignType === 'outreach' ? 'Jetzt anfragen' : 'Neues Projekt starten',
+    ctaUrl: 'https://fly-froth.com/kontakt',
+  });
+}
+
 async function handleCommand(
   chatId: number,
   messageId: number,
   text: string,
 ): Promise<void> {
   const trimmed = text.trim();
+
+  // Intercept: wizard content editing
+  const wizardState = getWizardState(chatId);
+  if (wizardState && wizardState.step === 'content' && (wizardState as any)._editingField) {
+    await handleWizardEditInput(chatId, trimmed);
+    return;
+  }
 
   if (trimmed === '/start') {
     await sendMessage({ chatId, text: START_TEXT });
@@ -2883,6 +3477,12 @@ async function handleCallback(
   await answerCallbackQuery({ callbackQueryId: query.id });
 
   if (!chatId) return;
+
+  // Email wizard callbacks use a different format: ew:step:sub:...
+  if (data.startsWith('ew:')) {
+    await handleEmailWizardCallback(chatId, messageId, data);
+    return;
+  }
 
   const [action, postId, ...rest] = data.split(':');
 

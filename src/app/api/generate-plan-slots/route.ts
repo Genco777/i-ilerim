@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { sendMessage, sendPhoto } from '@/lib/telegram/bot';
-import { getSlot, updateSlot, getSlotsByPlan, approvePlan, getPlan } from '@/lib/db/queries/plans';
+import { updateSlot, getSlotsByPlan, approvePlan, getPlan } from '@/lib/db/queries/plans';
 import { generatePost } from '@/lib/content/generate-post';
 import { calculateScheduledAt } from '@/lib/content/schedule-calc';
 import { previewKeyboard } from '@/lib/telegram/keyboard';
@@ -105,8 +105,13 @@ export async function POST(req: Request) {
     }
   }
 
-  const remaining = pending.length - batch.length;
-  const totalOk = ok;
+  // Recalculate remaining from current DB state (not stale `pending` array)
+  // because some slots may have been processed by a previous timed-out batch.
+  const freshSlots = await getSlotsByPlan(planId);
+  const stillPending = freshSlots.filter(
+    (s) => s.status === 'pending' && s.topic,
+  );
+  const remaining = stillPending.length;
 
   if (remaining <= 0) {
     await approvePlan(planId);
@@ -125,6 +130,28 @@ export async function POST(req: Request) {
       remaining > 0 ? '' : 'Planlanan saatte otomatik yayınlanacak.',
     ].filter(Boolean).join('\n'),
   });
+
+  // Self-iterate: if there are more pending slots, trigger the next batch
+  // via a separate function invocation. This keeps the chain alive even if
+  // the original caller (webhook) times out.
+  if (remaining > 0) {
+    const appUrl = process.env.APP_URL ?? 'https://admin.fly-froth.com';
+    const cronSecret = process.env.CRON_SECRET;
+    if (cronSecret) {
+      // Fire-and-forget: do NOT await, let this function return its response
+      // while the next batch starts in a fresh invocation.
+      fetch(`${appUrl}/api/generate-plan-slots`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${cronSecret}`,
+        },
+        body: JSON.stringify({ planId, chatId, limit: BATCH_SIZE }),
+      }).catch((err) =>
+        console.error('[generate-plan-slots] Self-chain fetch failed:', err),
+      );
+    }
+  }
 
   return NextResponse.json({
     ok: true,

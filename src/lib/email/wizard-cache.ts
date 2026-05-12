@@ -1,5 +1,14 @@
 import type { ThemeId } from './themes';
 
+export interface CampaignConcept {
+  title: string;
+  angle: string;
+  subjectLine: string;
+  introText: string;
+  closingText: string;
+  portfolioFocus: string[];
+}
+
 export interface PortfolioItemWizard {
   index: number;
   topic: string;
@@ -13,9 +22,12 @@ export interface PortfolioItemWizard {
 
 export interface WizardState {
   chatId: number;
-  step: 'theme' | 'portfolio' | 'content' | 'send';
+  step: 'concept' | 'theme' | 'portfolio' | 'content' | 'send';
   campaignType: 'digest' | 'outreach' | 'reactivation';
   theme: ThemeId;
+  // concept generation
+  concepts?: CampaignConcept[];
+  selectedConceptIndex?: number;
   // digest
   planId?: string;
   portfolioItems?: PortfolioItemWizard[];
