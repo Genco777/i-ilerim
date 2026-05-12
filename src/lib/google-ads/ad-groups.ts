@@ -16,7 +16,6 @@ export async function createSearchAdGroupWithKeywords(args: {
 }): Promise<{ adGroupResourceName: string }> {
   const customer = await getCustomer();
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const adGroupResponse = await customer.adGroups.create([
     {
       name: args.adGroupName,
@@ -24,16 +23,16 @@ export async function createSearchAdGroupWithKeywords(args: {
       type: enums.AdGroupType.SEARCH_STANDARD,
       status: enums.AdGroupStatus.PAUSED,
       cpc_bid_micros: args.defaultBidCents * 10_000, // cents → micros (1 EUR = 1_000_000 micros)
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    } as any,
+    } as unknown as Parameters<typeof customer.adGroups.create>[0][number],
   ]);
 
-  const adGroupResourceName = (adGroupResponse as any).results?.[0]?.resource_name as string;
+  const adGroupResourceName = (
+    adGroupResponse as unknown as { results?: { resource_name?: string }[] }
+  ).results?.[0]?.resource_name;
   if (!adGroupResourceName) throw new Error('adGroups.create returned no resource_name');
 
   if (args.keywords.length > 0) {
     await customer.adGroupCriteria.create(
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       args.keywords.map((kw) => ({
         ad_group: adGroupResourceName,
         status: enums.AdGroupCriterionStatus.ENABLED,
@@ -41,8 +40,7 @@ export async function createSearchAdGroupWithKeywords(args: {
           text: kw.keyword,
           match_type: MATCH_TYPE_MAP[kw.match_type],
         },
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      })) as any[],
+      })) as unknown as Parameters<typeof customer.adGroupCriteria.create>[0],
     );
   }
 
@@ -56,7 +54,6 @@ export async function createResponsiveSearchAd(args: {
   descriptions: string[];
 }): Promise<{ adResourceName: string }> {
   const customer = await getCustomer();
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const adResponse = await customer.adGroupAds.create([
     {
       ad_group: args.adGroupResourceName,
@@ -68,10 +65,11 @@ export async function createResponsiveSearchAd(args: {
           descriptions: args.descriptions.map((t) => ({ text: t })),
         },
       },
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    } as any,
+    } as unknown as Parameters<typeof customer.adGroupAds.create>[0][number],
   ]);
-  const adResourceName = (adResponse as any).results?.[0]?.resource_name as string;
+  const adResourceName = (
+    adResponse as unknown as { results?: { resource_name?: string }[] }
+  ).results?.[0]?.resource_name;
   if (!adResourceName) throw new Error('adGroupAds.create returned no resource_name');
   return { adResourceName };
 }

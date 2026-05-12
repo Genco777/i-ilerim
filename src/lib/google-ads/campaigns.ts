@@ -20,17 +20,17 @@ function parseGoogleId(resourceName: string): string {
 
 async function createBudgetResource(name: string, dailyCents: number): Promise<string> {
   const customer = await getCustomer();
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const response = await customer.campaignBudgets.create([
     {
       name,
       amount_micros: dailyCents * 10_000,
       delivery_method: enums.BudgetDeliveryMethod.STANDARD,
       explicitly_shared: false,
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    } as any,
+    } as unknown as Parameters<typeof customer.campaignBudgets.create>[0][number],
   ]);
-  const resourceName = (response as any).results?.[0]?.resource_name as string;
+  const resourceName = (
+    response as unknown as { results?: { resource_name?: string }[] }
+  ).results?.[0]?.resource_name;
   if (!resourceName) throw new Error('campaignBudgets.create returned no resource_name');
   return resourceName;
 }
@@ -73,7 +73,6 @@ export async function createSearchCampaign(
     );
 
     // 3. Create campaign (paused on creation, Mehmet enables explicitly)
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const campaignResponse = await customer.campaigns.create([
       {
         name: draft.name,
@@ -93,10 +92,11 @@ export async function createSearchCampaign(
           positive_geo_target_type: enums.PositiveGeoTargetType.PRESENCE_OR_INTEREST,
           negative_geo_target_type: enums.NegativeGeoTargetType.PRESENCE,
         },
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      } as any,
+      } as unknown as Parameters<typeof customer.campaigns.create>[0][number],
     ]);
-    const campaignResourceName = (campaignResponse as any).results?.[0]?.resource_name as string;
+    const campaignResourceName = (
+      campaignResponse as unknown as { results?: { resource_name?: string }[] }
+    ).results?.[0]?.resource_name;
     if (!campaignResourceName) throw new Error('campaigns.create returned no resource_name');
     const googleCampaignId = parseGoogleId(campaignResourceName);
 
@@ -105,8 +105,7 @@ export async function createSearchCampaign(
       {
         campaign: campaignResourceName,
         location: { geo_target_constant: `geoTargetConstants/${draft.location_id}` },
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      } as any,
+      } as unknown as Parameters<typeof customer.campaignCriteria.create>[0][number],
     ]);
 
     // 5. Ad group + keywords (default bid: half of daily budget per click as a safe upper bound)
@@ -155,8 +154,7 @@ async function setCampaignStatus(
     {
       resource_name: `customers/${process.env.GOOGLE_ADS_CUSTOMER_ID}/campaigns/${row.google_campaign_id}`,
       status: googleStatus,
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    } as any,
+    } as unknown as Parameters<typeof customer.campaigns.update>[0][number],
   ]);
 
   return updateCampaignRow(campaignId, { status: mirrorStatus });

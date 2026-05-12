@@ -177,7 +177,6 @@ import {
 } from '@/lib/telegram/ads-keyboard';
 import { generateAdCopy } from '@/lib/google-ads/ads-copy';
 import { generateKeywords } from '@/lib/google-ads/keywords';
-import { checkBudget } from '@/lib/google-ads/budget-guard';
 import {
   createSearchCampaign,
   pauseCampaign as pauseGoogleCampaign,
