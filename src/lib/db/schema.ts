@@ -71,12 +71,14 @@ export const invoiceStatus = pgEnum('invoice_status', [
   'sent',
   'cancelled',
   'deleted',
+  'converted',
 ]);
 
 export const invoiceType = pgEnum('invoice_type', [
   'rechnung',
   'teilrechnung',
   'schlussrechnung',
+  'angebot',
 ]);
 
 export const contentPillar = pgEnum('content_pillar', [
@@ -458,6 +460,8 @@ export const invoices = pgTable(
     items: jsonb('items').$type<InvoiceLineItem[]>().default([]).notNull(),
     total_cents: integer('total_cents').default(0).notNull(),
     footer_note: text('footer_note'),
+    valid_until: text('valid_until'),
+    converted_to_invoice_id: text('converted_to_invoice_id'),
     status: invoiceStatus('status').notNull().default('collecting'),
     current_step: text('current_step'),
     pending_item: jsonb('pending_item').$type<InvoicePendingItem | null>(),
