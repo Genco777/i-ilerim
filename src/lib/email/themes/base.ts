@@ -28,7 +28,7 @@ function socialIcon(href: string, svg: string, label: string, accent: string): s
     </v:roundrect>
   <![endif]-->
   <!--[if !mso]><!-->
-  <a href="${href}" target="_blank" style="display:inline-block;width:36px;height:36px;background:${accent};border-radius:50%;text-align:center;line-height:34px;text-decoration:none;margin:0 6px;vertical-align:middle;">${svg}</a>
+  <a href="${href}" target="_blank" style="display:inline-block;width:36px;height:36px;background-color:${accent};border-radius:50%;text-align:center;line-height:36px;text-decoration:none;margin:0 6px;vertical-align:middle;font-size:0;">${svg}</a>
   <!--<![endif]-->`;
 }
 
@@ -73,13 +73,17 @@ const LOGO_SVG_WHITE = `<svg xmlns="http://www.w3.org/2000/svg" width="220" heig
   <path fill="white" d="M544.291 64.19l6.172 0.21 0.036 32.307 -6.727 0c-0.696,-4.065 0.885,-9.875 -0.858,-13.405 -3.514,-0.393 -17.194,-0.606 -19.93,0.524l0.04 12.962 -7.206 0.026c-0.252,-5.076 -0.612,-28.726 0.336,-32.223l5.285 -0.077c-1.542,-1.487 -0.746,-0.95 -6.252,-0.95 0,8.765 -0.872,12.414 -0.212,20.953l-0.012 10.638c-0.455,3.516 0.173,2.799 8.352,2.799l0 -13.756c5.055,0 15.796,1.096 19.384,-0.625l0 14.381c1.767,0 4.731,0.19 6.341,0.039 3.063,-0.287 2.053,-0.432 1.839,-3.732l-0.036 -26.377c0.082,-1.726 2.461,-6.539 -6.552,-3.694z"/>
 </svg>`;
 
-const INSTAGRAM_SVG = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;margin-top:-1px;"><rect x="2" y="2" width="20" height="20" rx="5" ry="5"/><circle cx="12" cy="12" r="4"/><circle cx="17.5" cy="6.5" r="1.5"/></svg>`;
+const INSTAGRAM_SVG = `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;"><rect x="2" y="2" width="20" height="20" rx="5" ry="5"/><circle cx="12" cy="12" r="4"/><circle cx="17.5" cy="6.5" r="1.5"/></svg>`;
 
-const LINKEDIN_SVG = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;margin-top:-1px;"><path d="M16 8a6 6 0 0 1 6 6v7h-4v-7a2 2 0 0 0-4 0v7h-4v-7a6 6 0 0 1 6-6z"/><rect x="2" y="9" width="4" height="12"/><circle cx="4" cy="4" r="2"/></svg>`;
+const LINKEDIN_SVG = `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;"><path d="M16 8a6 6 0 0 1 6 6v7h-4v-7a2 2 0 0 0-4 0v7h-4v-7a6 6 0 0 1 6-6z"/><rect x="2" y="9" width="4" height="12"/><circle cx="4" cy="4" r="2"/></svg>`;
 
-const GLOBE_SVG = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;margin-top:-1px;"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>`;
+const GLOBE_SVG = `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>`;
 
-const MAP_SVG = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;margin-top:-1px;"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>`;
+const MAP_SVG = `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>`;
+
+const FACEBOOK_SVG = `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;"><path d="M18 2h-3a5 5 0 0 0-5 5v3H7v4h3v8h4v-8h3l1-4h-4V7a1 1 0 0 1 1-1h3z"/></svg>`;
+
+const WHATSAPP_SVG = `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;"><path d="M3 21l1.65-3.8a9 9 0 1 1 3.4 2.9L3 21"/><path d="M9 10a.5.5 0 0 0 1 0V9a.5.5 0 0 0-1 0v1zm0 0a5 5 0 0 0 5 5v1a6 6 0 0 1-6-6h1z"/></svg>`;
 
 export function baseLayout(opts: BaseOpts): string {
   const year = new Date().getFullYear();
@@ -153,8 +157,10 @@ export function baseLayout(opts: BaseOpts): string {
     <table cellpadding="0" cellspacing="0" align="center" style="margin:0 auto 16px;">
       <tr>
         <td>${socialIcon('https://fly-froth.com', GLOBE_SVG, 'Web', opts.accent)}</td>
+        <td>${socialIcon('https://www.facebook.com/fly.froth', FACEBOOK_SVG, 'FB', opts.accent)}</td>
         <td>${socialIcon('https://www.instagram.com/fly.froth', INSTAGRAM_SVG, 'IG', opts.accent)}</td>
         <td>${socialIcon('https://www.linkedin.com/company/fly-froth', LINKEDIN_SVG, 'IN', opts.accent)}</td>
+        <td>${socialIcon('https://wa.me/491631474127', WHATSAPP_SVG, 'WA', opts.accent)}</td>
         <td>${socialIcon('https://maps.google.com/?q=Fly+Froth+Karben', MAP_SVG, 'Map', opts.accent)}</td>
       </tr>
     </table>
@@ -162,7 +168,7 @@ export function baseLayout(opts: BaseOpts): string {
       Fly &amp; Froth &middot; R&ouml;derweg 19 &middot; 61184 Karben
     </p>
     <p style="color:${opts.mutedColor};font-family:${opts.fontFamily};font-size:11px;margin:0 0 10px;">
-      <a href="https://fly-froth.com" style="color:${opts.accent};text-decoration:none;">fly-froth.com</a> &middot; <a href="mailto:info@fly-froth.com" style="color:${opts.accent};text-decoration:none;">info@fly-froth.com</a> &middot; Tel: +49 163 1474127
+      <a href="https://fly-froth.com" style="color:${opts.accent};text-decoration:none;">fly-froth.com</a> &middot; <a href="mailto:info@fly-froth.com" style="color:${opts.accent};text-decoration:none;">info@fly-froth.com</a> &middot; <span style="white-space:nowrap;">Tel: +49 163 1474127</span>
     </p>
     <p style="color:${opts.mutedColor};font-family:${opts.fontFamily};font-size:10px;margin:0 0 6px;">
       &copy; ${year} Fly &amp; Froth. Alle Rechte vorbehalten.
