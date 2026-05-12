@@ -803,7 +803,9 @@ async function handleApprove(
   await editMessageReplyMarkup({ chatId, messageId, replyMarkup: undefined });
   await sendMessage({
     chatId,
-    text: isStory ? '📤 IG Story yayınlanıyor…' : '📤 Yayınlanıyor (FB Page + IG)…',
+    text: isStory
+      ? '📤 Story yayınlanıyor (IG Story + FB)…'
+      : '📤 Yayınlanıyor (FB Page + IG)…',
   });
 
   try {
@@ -811,23 +813,29 @@ async function handleApprove(
       ? await publishStory(postId)
       : await publishPost(postId);
 
-    await sendMessage({
-      chatId,
-      text: isStory
-        ? [
-            '✅ IG Story yayınlandı!',
-            `📷 IG media id: ${result.igPostId}`,
-            '(Story Instagram\'da 24 saat görünür)',
-          ].join('\n')
-        : [
-            '✅ Yayınlandı!',
-            '',
-            `📘 FB:  https://facebook.com/${result.fbPostId}`,
-            result.igShortcode
-              ? `📷 IG:  https://instagram.com/p/${result.igShortcode}`
-              : `📷 IG media id: ${result.igPostId}`,
-          ].join('\n'),
-    });
+    const lines: string[] = ['✅ Yayınlandı!', ''];
+
+    if (result.fbPostId) {
+      lines.push(`📘 FB:  https://facebook.com/${result.fbPostId}`);
+    } else if (result.fbError) {
+      lines.push(`📘 FB:  ❌ ${result.fbError.slice(0, 120)}`);
+    }
+
+    if (result.igPostId) {
+      if (result.igShortcode) {
+        lines.push(`📷 IG:  https://instagram.com/p/${result.igShortcode}`);
+      } else {
+        lines.push(`📷 IG media id: ${result.igPostId}`);
+      }
+    } else if (result.igError) {
+      lines.push(`📷 IG:  ❌ ${result.igError.slice(0, 120)}`);
+    }
+
+    if (isStory && result.igPostId) {
+      lines.push('(Story Instagram\'da 24 saat görünür)');
+    }
+
+    await sendMessage({ chatId, text: lines.join('\n') });
   } catch (err) {
     await notifyError(chatId, err);
   }

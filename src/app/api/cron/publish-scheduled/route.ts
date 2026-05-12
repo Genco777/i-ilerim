@@ -39,36 +39,44 @@ export async function GET(req: Request) {
     )
     .limit(20);
 
-  let publishedCount = 0;
-  let failedCount = 0;
+  let fullOk = 0;
+  let partialOk = 0;
+  let failed = 0;
 
   for (const post of duePosts) {
     try {
       const isStory = post.channel === 'story' || post.channel === 'reel';
-      if (isStory) {
-        await publishStory(post.id);
+      const result = isStory
+        ? await publishStory(post.id)
+        : await publishPost(post.id);
+
+      if (result.fbError || result.igError) {
+        partialOk++;
+        results.push({
+          id: post.id,
+          status: 'partial',
+          error: [result.fbError, result.igError].filter(Boolean).join(' | '),
+        });
       } else {
-        await publishPost(post.id);
+        fullOk++;
+        results.push({ id: post.id, status: 'published' });
       }
-      results.push({ id: post.id, status: 'published' });
-      publishedCount++;
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       results.push({ id: post.id, status: 'failed', error: msg });
-      failedCount++;
+      failed++;
     }
   }
 
   // Telegram bildirimi
-  if (publishedCount > 0 || failedCount > 0) {
+  if (fullOk > 0 || partialOk > 0 || failed > 0) {
     const lines = ['📤 Yayınlama raporu'];
-    if (publishedCount > 0) {
-      lines.push(`✅ ${publishedCount} post yayınlandı`);
-    }
-    if (failedCount > 0) {
-      lines.push(`❌ ${failedCount} başarısız`);
-      const failed = results.filter((r) => r.status === 'failed');
-      for (const f of failed.slice(0, 3)) {
+    if (fullOk > 0) lines.push(`✅ ${fullOk} tam yayınlandı (FB + IG)`);
+    if (partialOk > 0) lines.push(`⚠️ ${partialOk} kısmi (tek platform)`);
+    if (failed > 0) {
+      lines.push(`❌ ${failed} başarısız`);
+      const failedList = results.filter((r) => r.status === 'failed');
+      for (const f of failedList.slice(0, 3)) {
         lines.push(`  - ${f.id.slice(0, 8)}: ${(f.error ?? '').slice(0, 100)}`);
       }
     }
@@ -86,8 +94,9 @@ export async function GET(req: Request) {
   return NextResponse.json({
     ok: true,
     processed: results.length,
-    published: publishedCount,
-    failed: failedCount,
+    published: fullOk + partialOk,
+    fullOk,
+    partialOk,
     timestamp: now.toISOString(),
   });
 }

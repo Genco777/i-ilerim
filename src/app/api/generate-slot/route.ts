@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { sendMessage, sendPhoto } from '@/lib/telegram/bot';
 import { getSlot, updateSlot, getSlotsByPlan, approvePlan, getPlan } from '@/lib/db/queries/plans';
 import { generatePost } from '@/lib/content/generate-post';
+import { previewKeyboard } from '@/lib/telegram/keyboard';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -41,12 +42,13 @@ export async function POST(req: Request) {
     const post = await generatePost({
       topic: slot.topic,
       telegramChatId: String(chatId),
-      channel: slot.channel === 'reel' ? 'ig_story' : 'post',
+      channel: slot.channel === 'reel' || slot.channel === 'story' ? 'ig_story' : 'post',
       pillar: slot.pillar,
     });
 
     await updateSlot(slotId, { post_id: post.id, status: 'approved' });
 
+    const isSlotStory = slot.channel === 'story' || slot.channel === 'reel';
     await sendPhoto({
       chatId,
       photo: post.final_image_url,
@@ -54,8 +56,9 @@ export async function POST(req: Request) {
         slotLabel,
         post.text_de,
         '',
-        (post.hashtags ?? []).map((h: string) => `#${h}`).join(' '),
+        (post.hashtags ?? []).map((h: string) => `#${h.replace(/^#/, '')}`).join(' '),
       ].join('\n').slice(0, 1024),
+      replyMarkup: previewKeyboard(post.id, isSlotStory ? 'story' : 'post'),
     });
 
     await maybeSendPlanSummary(chatId, planId);

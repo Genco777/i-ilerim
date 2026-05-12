@@ -71,7 +71,7 @@ export async function POST(req: Request) {
 
       await updateSlot(slot.id, { post_id: post.id, status: 'approved' });
 
-      const isStory = slot.channel === 'story';
+      const isStory = slot.channel === 'story' || slot.channel === 'reel';
       await sendPhoto({
         chatId,
         photo: post.final_image_url,
