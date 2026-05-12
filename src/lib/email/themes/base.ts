@@ -13,6 +13,7 @@ export interface BaseOpts {
   ctaText: string;
   fontFamily: string;
   content: string;
+  logoVariant?: 'navy' | 'white';
   unsubscribeUrl?: string;
   privacyUrl?: string;
   imprintUrl?: string;
@@ -99,11 +100,11 @@ export function baseLayout(opts: BaseOpts): string {
   <!-- Header with Logo -->
   <tr><td style="padding:36px 40px 24px;text-align:center;">
     <!--[if mso]>
-    <div style="color:#0F1B2D;font-family:Outfit,Arial,sans-serif;font-size:28px;font-weight:800;letter-spacing:-0.5px;margin-bottom:6px;">FLY &amp; FROTH</div>
+    <div style="color:${opts.logoVariant === 'white' ? '#ffffff' : '#0F1B2D'};font-family:Outfit,Arial,sans-serif;font-size:28px;font-weight:800;letter-spacing:-0.5px;margin-bottom:6px;">FLY &amp; FROTH</div>
     <![endif]-->
     <!--[if !mso]><!-->
     <div style="margin-bottom:8px;">
-      ${LOGO_SVG}
+      ${opts.logoVariant === 'white' ? LOGO_SVG_WHITE : LOGO_SVG}
     </div>
     <!--<![endif]-->
     <p style="color:${opts.mutedColor};font-family:${opts.fontFamily};font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.22em;margin:6px 0 0;">Grafik- &amp; Webdesign Studio &middot; Karben, Rhein-Main</p>

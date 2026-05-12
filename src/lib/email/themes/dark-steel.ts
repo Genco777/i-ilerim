@@ -57,6 +57,6 @@ export function darkSteel(content: ThemeContent): string {
   return baseLayout({
     bgColor: BG, cardBg: CARD, accent: ACCENT, accentHover: ACCENT_HOVER,
     headingColor: HEADING, bodyColor: BODY, mutedColor: MUTED, borderColor: BORDER,
-    ctaBg: ACCENT, ctaText: '#FFFFFF', fontFamily: FONT, content: body,
+    ctaBg: ACCENT, ctaText: '#FFFFFF', fontFamily: FONT, logoVariant: 'white', content: body,
   });
 }

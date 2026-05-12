@@ -58,6 +58,6 @@ export function darkGold(content: ThemeContent): string {
     bgColor: BG, cardBg: CARD, accent: ACCENT, accentHover: ACCENT_HOVER,
     headingColor: HEADING, bodyColor: BODY, mutedColor: MUTED, borderColor: BORDER,
     ctaBg: `linear-gradient(135deg,${ACCENT},${ACCENT_HOVER})`, ctaText: BG,
-    fontFamily: FONT, content: body,
+    fontFamily: FONT, logoVariant: 'white', content: body,
   });
 }
