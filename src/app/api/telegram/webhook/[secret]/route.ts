@@ -107,8 +107,10 @@ import {
   generateDigestContent,
   generateOutreachContent,
   generateReactivationContent,
+  generateConcepts,
 } from '@/lib/email/wizard-generate';
 import { getEmailPreferences, updateEmailPreferences } from '@/lib/db/queries/email-preferences';
+import { getRecentCampaigns, saveCampaign } from '@/lib/db/queries/email-campaigns';
 import { THEME_META, type ThemeId, renderTheme } from '@/lib/email/themes';
 import { renderPortfolioNewsletter, renderWeeklyDigest } from '@/lib/email/templates';
 import { generateMailDraft } from '@/lib/mail/generate';
@@ -2378,30 +2380,6 @@ function emailListIds(): number[] {
 }
 
 async function handleEmailDigestCommand(chatId: number): Promise<void> {
-  const { week, year } = getCurrentWeek();
-  const plan = await getPlanByWeek(week, year);
-  if (!plan) {
-    await sendMessage({ chatId, text: `KW${week}/${year} için plan yok. Önce /plan yazıp haftalık plan oluşturun.` });
-    return;
-  }
-
-  const slots = await getSlotsByPlan(plan.id);
-  const topicsWithContent = slots.filter((s) => s.topic);
-
-  if (topicsWithContent.length === 0) {
-    await sendMessage({ chatId, text: 'Planda konusu olan slot yok.' });
-    return;
-  }
-
-  // Show plan summary + start button
-  const pillarCounts: Record<string, number> = {};
-  for (const s of topicsWithContent) {
-    pillarCounts[s.pillar] = (pillarCounts[s.pillar] ?? 0) + 1;
-  }
-  const summary = Object.entries(pillarCounts)
-    .map(([p, c]) => `${p}: ${c} post`)
-    .join('\n');
-
   let currentTheme: ThemeId = 'dark_steel';
   try {
     const prefs = await getEmailPreferences();
@@ -2410,34 +2388,51 @@ async function handleEmailDigestCommand(chatId: number): Promise<void> {
     }
   } catch { /* use default */ }
 
+  let pastSubjects: string[] = [];
+  try {
+    const past = await getRecentCampaigns(10);
+    pastSubjects = past.filter((c) => c.campaignType === 'digest').map((c) => c.subjectLine);
+  } catch { /* ok if table doesn't exist yet */ }
+
   const state: WizardState = {
     chatId,
-    step: 'theme',
+    step: 'concept',
     campaignType: 'digest',
     theme: currentTheme,
-    planId: plan.id,
   };
   setWizardState(chatId, state);
 
-  await sendMessage({
-    chatId,
-    text: [
-      `📧 Email Bülteni — KW${plan.calendar_week}/${plan.year}`,
-      '',
-      summary,
-      '',
-      `Toplam: ${topicsWithContent.length} post`,
-      `Mevcut tema: ${THEME_META[currentTheme].label}`,
-    ].join('\n'),
-    replyMarkup: {
-      inline_keyboard: [[
-        { text: '🎨 Tema Seç', callback_data: 'ew:goto:theme' },
-        { text: '▶️ İleri', callback_data: 'ew:goto:portfolio' },
-      ], [
-        { text: '❌ İptal', callback_data: 'ew:cancel' },
-      ]],
-    },
-  });
+  await sendMessage({ chatId, text: '🤖 Kampanya konseptleri oluşturuluyor... (10-15 saniye)' });
+
+  try {
+    const concepts = await generateConcepts('digest', pastSubjects);
+    state.concepts = concepts;
+    setWizardState(chatId, state);
+
+    const keyboard = concepts.map((c, i) => [
+      { text: `${i + 1}. ${c.title}`, callback_data: `ew:concept:pick:${i}` },
+    ]);
+    keyboard.push([{ text: '🔄 Yeniden Üret', callback_data: 'ew:concept:regen' }]);
+    keyboard.push([{ text: '❌ İptal', callback_data: 'ew:cancel' }]);
+
+    await sendMessage({
+      chatId,
+      text: [
+        '📧 Email Kampanya Konseptleri',
+        '',
+        ...concepts.map((c, i) => `${i + 1}. **${c.title}**\n   ${c.angle}`),
+        '',
+        'Bir konsept seç:',
+      ].join('\n'),
+      replyMarkup: { inline_keyboard: keyboard },
+    });
+  } catch (err) {
+    clearWizardState(chatId);
+    await sendMessage({
+      chatId,
+      text: `⚠️ Konsept üretilemedi: ${err instanceof Error ? err.message : String(err)}`,
+    });
+  }
 }
 
 async function handleEmailListsCommand(chatId: number): Promise<void> {
@@ -2524,9 +2519,15 @@ async function handleEmailReactivateCommand(
     }
   } catch { /* use default */ }
 
+  let pastSubjects: string[] = [];
+  try {
+    const past = await getRecentCampaigns(10);
+    pastSubjects = past.filter((c) => c.campaignType === 'reactivation').map((c) => c.subjectLine);
+  } catch { /* ok */ }
+
   const state: WizardState = {
     chatId,
-    step: 'theme',
+    step: 'concept',
     campaignType: 'reactivation',
     theme: currentTheme,
     recipientEmail: email,
@@ -2535,23 +2536,40 @@ async function handleEmailReactivateCommand(
   };
   setWizardState(chatId, state);
 
-  await sendMessage({
-    chatId,
-    text: [
-      `📧 ${name} için reaktivasyon emaili`,
-      `Son proje: ${project}`,
-      '',
-      `Mevcut tema: ${THEME_META[currentTheme].label}`,
-    ].join('\n'),
-    replyMarkup: {
-      inline_keyboard: [[
-        { text: '🎨 Tema Seç', callback_data: 'ew:goto:theme' },
-        { text: '▶️ İleri', callback_data: 'ew:goto:portfolio' },
-      ], [
-        { text: '❌ İptal', callback_data: 'ew:cancel' },
-      ]],
-    },
-  });
+  await sendMessage({ chatId, text: '🤖 Reaktivasyon konseptleri oluşturuluyor...' });
+
+  try {
+    const concepts = await generateConcepts('reactivation', pastSubjects, {
+      clientName: name,
+      lastProject: project,
+    });
+    state.concepts = concepts;
+    setWizardState(chatId, state);
+
+    const keyboard = concepts.map((c, i) => [
+      { text: `${i + 1}. ${c.title}`, callback_data: `ew:concept:pick:${i}` },
+    ]);
+    keyboard.push([{ text: '🔄 Yeniden Üret', callback_data: 'ew:concept:regen' }]);
+    keyboard.push([{ text: '❌ İptal', callback_data: 'ew:cancel' }]);
+
+    await sendMessage({
+      chatId,
+      text: [
+        `📧 ${name} için Reaktivasyon Konseptleri`,
+        '',
+        ...concepts.map((c, i) => `${i + 1}. **${c.title}**\n   ${c.angle}`),
+        '',
+        'Bir konsept seç:',
+      ].join('\n'),
+      replyMarkup: { inline_keyboard: keyboard },
+    });
+  } catch (err) {
+    clearWizardState(chatId);
+    await sendMessage({
+      chatId,
+      text: `⚠️ Konsept üretilemedi: ${err instanceof Error ? err.message : String(err)}`,
+    });
+  }
 }
 
 // ───── Email Callback Handlers ─────
@@ -2721,6 +2739,9 @@ async function handleEmailWizardCallback(
   const rest = parts.slice(2);
 
   switch (step) {
+    case 'concept':
+      await handleWizardConcept(chatId, messageId, state, rest[0] ?? '', rest[1] ?? '');
+      break;
     case 'goto':
       await handleWizardGoto(chatId, messageId, state, rest[0] ?? '');
       break;
@@ -2741,6 +2762,70 @@ async function handleEmailWizardCallback(
   }
 }
 
+// ── Concept Selection ──
+
+async function handleWizardConcept(
+  chatId: number, messageId: number, state: WizardState, sub: string, arg: string,
+): Promise<void> {
+  if (sub === 'pick' && state.concepts) {
+    const idx = parseInt(arg, 10);
+    const concept = state.concepts[idx];
+    if (!concept) return;
+
+    state.selectedConceptIndex = idx;
+    state.subjectLine = concept.subjectLine;
+    state.introText = concept.introText;
+    state.closingText = concept.closingText;
+
+    state.step = 'theme';
+    setWizardState(chatId, state);
+    await showThemePicker(chatId, messageId, state);
+
+  } else if (sub === 'regen') {
+    await editMessageText({ chatId, messageId, text: '🤖 Yeni konseptler üretiliyor...', replyMarkup: undefined });
+
+    let pastSubjects: string[] = [];
+    try {
+      const past = await getRecentCampaigns(10);
+      pastSubjects = past.filter((c) => c.campaignType === state.campaignType).map((c) => c.subjectLine);
+    } catch { /* ok */ }
+
+    try {
+      const concepts = await generateConcepts(
+        state.campaignType,
+        pastSubjects,
+        state.clientName ? { clientName: state.clientName, lastProject: state.lastProject } : undefined,
+      );
+      state.concepts = concepts;
+      state.selectedConceptIndex = undefined;
+      setWizardState(chatId, state);
+
+      const keyboard = concepts.map((c, i) => [
+        { text: `${i + 1}. ${c.title}`, callback_data: `ew:concept:pick:${i}` },
+      ]);
+      keyboard.push([{ text: '🔄 Yeniden Üret', callback_data: 'ew:concept:regen' }]);
+      keyboard.push([{ text: '❌ İptal', callback_data: 'ew:cancel' }]);
+
+      await editMessageText({
+        chatId, messageId,
+        text: [
+          '📧 Yeni Kampanya Konseptleri',
+          '',
+          ...concepts.map((c, i) => `${i + 1}. **${c.title}**\n   ${c.angle}`),
+          '',
+          'Bir konsept seç:',
+        ].join('\n'),
+        replyMarkup: { inline_keyboard: keyboard },
+      });
+    } catch (err) {
+      await sendMessage({
+        chatId,
+        text: `⚠️ Konsept üretilemedi: ${err instanceof Error ? err.message : String(err)}`,
+      });
+    }
+  }
+}
+
 // ── Navigation ──
 
 async function handleWizardGoto(
@@ -2755,6 +2840,13 @@ async function handleWizardGoto(
     setWizardState(chatId, state);
     await showPortfolioPicker(chatId, messageId, state);
   } else if (target === 'content') {
+    // If concept data is available, go straight to preview
+    if (state.selectedConceptIndex !== undefined && state.concepts) {
+      state.step = 'content';
+      setWizardState(chatId, state);
+      await showContentPreview(chatId, messageId, state);
+      return;
+    }
     await editMessageText({ chatId, messageId, text: '🤖 İçerik oluşturuluyor...', replyMarkup: undefined });
     try {
       await generateAndShowContent(chatId, messageId, state);
@@ -3172,6 +3264,27 @@ async function handleWizardSend(
       });
 
       await sendCampaignNow(campaign.id);
+
+      // Save to campaign history for dedup
+      try {
+        await saveCampaign({
+          subjectLine: state.subjectLine ?? '',
+          conceptTitle: state.concepts?.[state.selectedConceptIndex ?? 0]?.title ?? 'Manuel',
+          campaignType: state.campaignType,
+          theme: state.theme,
+          contentJson: {
+            introText: state.introText,
+            closingText: state.closingText,
+            portfolioItems: state.portfolioItems?.map((p) => ({
+              headline: p.headline,
+              description: p.description,
+              serviceType: p.serviceType,
+            })),
+          },
+          brevoCampaignId: campaign.id,
+          recipientEmail: state.recipientEmail,
+        });
+      } catch { /* non-critical */ }
 
       clearWizardState(chatId);
       await sendMessage({

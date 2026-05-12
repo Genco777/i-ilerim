@@ -212,7 +212,7 @@ Hedef kitle: Küçük/orta işletmeler, gastronomi, sağlık, el sanatları, Rhe
 Website: fly-froth.com | Instagram: @fly.froth`;
 
 export async function generateConcepts(
-  campaignType: 'digest' | 'reactivation',
+  campaignType: string,
   pastSubjects: string[],
   context?: { clientName?: string; lastProject?: string },
 ): Promise<CampaignConcept[]> {
