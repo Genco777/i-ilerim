@@ -13,7 +13,8 @@
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
     "db:studio": "drizzle-kit studio",
-    "db:push": "drizzle-kit push"
+    "db:push": "drizzle-kit push",
+    "check:google-ads": "tsx scripts/check-google-ads.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.95.0",
@@ -25,6 +26,7 @@
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "drizzle-orm": "^0.45.2",
+    "google-ads-api": "^17.1.0",
     "imapflow": "^1.3.3",
     "lucide-react": "^1.14.0",
     "mailparser": "^3.9.8",
