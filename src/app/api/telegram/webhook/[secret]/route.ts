@@ -2351,8 +2351,9 @@ async function handleEmailDigestCommand(chatId: number): Promise<void> {
   try {
     const account = await getAccount();
     if (!account?.email) throw new Error('Invalid account');
-  } catch {
-    await sendMessage({ chatId, text: '⚠️ Brevo API bağlantısı başarısız.\n\nBREVO_API_KEY env değişkenini kontrol edin. Brevo > SMTP & API > API Keys menüsünden alabilirsiniz.' });
+  } catch (err) {
+    const detail = err instanceof Error ? err.message : String(err);
+    await sendMessage({ chatId, text: `⚠️ Brevo API bağlantısı başarısız.\n\nHata: ${detail.slice(0, 300)}\n\nBREVO_API_KEY env değişkenini Vercel dashboard > Settings > Environment Variables altına ekleyin, sonra redeploy yapın.` });
     return;
   }
 
