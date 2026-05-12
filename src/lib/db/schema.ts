@@ -183,6 +183,13 @@ export const emailCampaigns = pgTable('email_campaigns', {
   created_at: timestamp('created_at', { withTimezone: true }).defaultNow(),
 });
 
+// ── Wizard State (DB-backed, survives cold starts) ──
+export const wizardStates = pgTable('wizard_states', {
+  chatId: bigint('chat_id', { mode: 'number' }).primaryKey(),
+  state: jsonb('state').notNull(),
+  expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+});
+
 // ───── Secrets (encrypted with pgcrypto) ─────
 export const secrets = pgTable('secrets', {
   key: text('key').primaryKey(),

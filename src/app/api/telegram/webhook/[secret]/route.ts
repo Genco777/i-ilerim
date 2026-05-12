@@ -2400,14 +2400,14 @@ async function handleEmailDigestCommand(chatId: number): Promise<void> {
     campaignType: 'digest',
     theme: currentTheme,
   };
-  setWizardState(chatId, state);
+  await setWizardState(chatId, state);
 
   await sendMessage({ chatId, text: '🤖 Kampanya konseptleri oluşturuluyor... (10-15 saniye)' });
 
   try {
     const concepts = await generateConcepts('digest', pastSubjects);
     state.concepts = concepts;
-    setWizardState(chatId, state);
+    await setWizardState(chatId, state);
 
     const keyboard = concepts.map((c, i) => [
       { text: `${i + 1}. ${c.title}`, callback_data: `ew:concept:pick:${i}` },
@@ -2427,7 +2427,7 @@ async function handleEmailDigestCommand(chatId: number): Promise<void> {
       replyMarkup: { inline_keyboard: keyboard },
     });
   } catch (err) {
-    clearWizardState(chatId);
+    await clearWizardState(chatId);
     await sendMessage({
       chatId,
       text: `⚠️ Konsept üretilemedi: ${err instanceof Error ? err.message : String(err)}`,
@@ -2480,7 +2480,7 @@ async function handleEmailOutreachCommand(chatId: number, city: string): Promise
     city: match,
     service: 'Logodesign, Webdesign, Druckdesign',
   };
-  setWizardState(chatId, state);
+  await setWizardState(chatId, state);
 
   await sendMessage({
     chatId,
@@ -2534,7 +2534,7 @@ async function handleEmailReactivateCommand(
     clientName: name,
     lastProject: project,
   };
-  setWizardState(chatId, state);
+  await setWizardState(chatId, state);
 
   await sendMessage({ chatId, text: '🤖 Reaktivasyon konseptleri oluşturuluyor...' });
 
@@ -2544,7 +2544,7 @@ async function handleEmailReactivateCommand(
       lastProject: project,
     });
     state.concepts = concepts;
-    setWizardState(chatId, state);
+    await setWizardState(chatId, state);
 
     const keyboard = concepts.map((c, i) => [
       { text: `${i + 1}. ${c.title}`, callback_data: `ew:concept:pick:${i}` },
@@ -2564,7 +2564,7 @@ async function handleEmailReactivateCommand(
       replyMarkup: { inline_keyboard: keyboard },
     });
   } catch (err) {
-    clearWizardState(chatId);
+    await clearWizardState(chatId);
     await sendMessage({
       chatId,
       text: `⚠️ Konsept üretilemedi: ${err instanceof Error ? err.message : String(err)}`,
@@ -2713,10 +2713,10 @@ async function handleEmailWizardCallback(
   messageId: number,
   data: string,
 ): Promise<void> {
-  const state = getWizardState(chatId);
+  const state = await getWizardState(chatId);
 
   if (data === 'ew:cancel') {
-    clearWizardState(chatId);
+    await clearWizardState(chatId);
     await editMessageText({
       chatId, messageId,
       text: '❌ Email kampanyası iptal edildi.',
@@ -2778,7 +2778,7 @@ async function handleWizardConcept(
     state.closingText = concept.closingText;
 
     state.step = 'theme';
-    setWizardState(chatId, state);
+    await setWizardState(chatId, state);
     await showThemePicker(chatId, messageId, state);
 
   } else if (sub === 'regen') {
@@ -2798,7 +2798,7 @@ async function handleWizardConcept(
       );
       state.concepts = concepts;
       state.selectedConceptIndex = undefined;
-      setWizardState(chatId, state);
+      await setWizardState(chatId, state);
 
       const keyboard = concepts.map((c, i) => [
         { text: `${i + 1}. ${c.title}`, callback_data: `ew:concept:pick:${i}` },
@@ -2833,17 +2833,17 @@ async function handleWizardGoto(
 ): Promise<void> {
   if (target === 'theme') {
     state.step = 'theme';
-    setWizardState(chatId, state);
+    await setWizardState(chatId, state);
     await showThemePicker(chatId, messageId, state);
   } else if (target === 'portfolio') {
     state.step = 'portfolio';
-    setWizardState(chatId, state);
+    await setWizardState(chatId, state);
     await showPortfolioPicker(chatId, messageId, state);
   } else if (target === 'content') {
     // If concept data is available, go straight to preview
     if (state.selectedConceptIndex !== undefined && state.concepts) {
       state.step = 'content';
-      setWizardState(chatId, state);
+      await setWizardState(chatId, state);
       await showContentPreview(chatId, messageId, state);
       return;
     }
@@ -2893,7 +2893,7 @@ async function handleWizardTheme(
 ): Promise<void> {
   if (!THEME_META[themeId as ThemeId]) return;
   state.theme = themeId as ThemeId;
-  setWizardState(chatId, state);
+  await setWizardState(chatId, state);
   await updateEmailPreferences(themeId as ThemeId).catch(() => {});
   await showThemePicker(chatId, messageId, state);
 }
@@ -2937,7 +2937,7 @@ async function showPortfolioPicker(chatId: number, messageId: number, state: Wiz
         selected: true,
       };
     });
-    setWizardState(chatId, state);
+    await setWizardState(chatId, state);
   }
 
   const keyboard = (state.portfolioItems ?? []).map((item) => {
@@ -2975,7 +2975,7 @@ async function handleWizardPortfolio(
     const item = state.portfolioItems[idx];
     if (item) {
       item.selected = !item.selected;
-      setWizardState(chatId, state);
+      await setWizardState(chatId, state);
     }
     await showPortfolioPicker(chatId, messageId, state);
   }
@@ -3005,7 +3005,7 @@ async function generateAndShowContent(chatId: number, messageId: number, state: 
   }
 
   state.step = 'content';
-  setWizardState(chatId, state);
+  await setWizardState(chatId, state);
   await showContentPreview(chatId, messageId, state);
 }
 
@@ -3065,7 +3065,7 @@ async function handleWizardContent(
   chatId: number, messageId: number, state: WizardState, sub: string, field: string,
 ): Promise<void> {
   if (sub === 'edit') {
-    setWizardState(chatId, state);
+    await setWizardState(chatId, state);
 
     const fieldLabels: Record<string, string> = {
       subject: 'konu satırını',
@@ -3075,7 +3075,7 @@ async function handleWizardContent(
 
     // Store edit field in a transient property
     (state as any)._editingField = field;
-    setWizardState(chatId, state);
+    await setWizardState(chatId, state);
 
     const currentValue = field === 'subject' ? state.subjectLine :
       field === 'intro' ? state.introText : state.closingText;
@@ -3096,14 +3096,14 @@ async function handleWizardContent(
     });
   } else if (sub === 'preview') {
     state.step = 'content';
-    setWizardState(chatId, state);
+    await setWizardState(chatId, state);
     await showContentPreview(chatId, messageId, state);
   }
 }
 
 // Handle text input for editing (called from handleCommand when wizard is in edit mode)
 async function handleWizardEditInput(chatId: number, text: string): Promise<void> {
-  const state = getWizardState(chatId);
+  const state = await getWizardState(chatId);
   if (!state || state.step !== 'content') return;
 
   const field = (state as any)._editingField as string | undefined;
@@ -3148,7 +3148,7 @@ async function handleWizardEditInput(chatId: number, text: string): Promise<void
     }
   }
 
-  setWizardState(chatId, state);
+  await setWizardState(chatId, state);
   await sendMessage({ chatId, text: '✅ Metin güncellendi. Güncel önizleme:' });
   await showContentPreviewNew(chatId, state);
 }
@@ -3286,7 +3286,7 @@ async function handleWizardSend(
         });
       } catch { /* non-critical */ }
 
-      clearWizardState(chatId);
+      await clearWizardState(chatId);
       await sendMessage({
         chatId,
         text: [
@@ -3337,7 +3337,7 @@ async function handleCommand(
   const trimmed = text.trim();
 
   // Intercept: wizard content editing
-  const wizardState = getWizardState(chatId);
+  const wizardState = await getWizardState(chatId);
   if (wizardState && wizardState.step === 'content' && (wizardState as any)._editingField) {
     await handleWizardEditInput(chatId, trimmed);
     return;
