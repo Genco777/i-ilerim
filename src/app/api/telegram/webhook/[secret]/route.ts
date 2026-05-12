@@ -2386,37 +2386,6 @@ async function handleAngebotText(
       street: '',
       zipCity: '',
     });
-    await updateInvoiceDraft(draft.id, { current_step: 'recipient_address' });
-    await sendMessage({
-      chatId,
-      text: 'Adres? Format: Sokak No, PLZ Şehir\nÖrnek: Hauptstraße 5, 60311 Frankfurt',
-    });
-    return true;
-  }
-
-  // --- recipient_address ---
-  if (step === 'recipient_address') {
-    const parsed = parseAddressLine(text);
-    if (!parsed) {
-      await sendMessage({
-        chatId,
-        text: '⚠️ Adres formatı yanlış. Bir virgül ile sokak ve PLZ Şehir\'i ayır:\nHauptstraße 5, 60311 Frankfurt',
-      });
-      return true;
-    }
-    if (!draft.recipient) {
-      await sendMessage({
-        chatId,
-        text: '🔴 İç hata: alıcı kaydı yok. /angebot ile yeniden başla.',
-      });
-      return true;
-    }
-    await setInvoiceRecipient(draft.id, {
-      company: draft.recipient.company,
-      name: draft.recipient.name,
-      street: parsed.street,
-      zipCity: parsed.zipCity,
-    });
     const today = todayDDMMYYYY();
     const vu = validUntilFromToday(2);
     await updateInvoiceDraft(draft.id, {
@@ -2557,6 +2526,39 @@ async function handleAngebotText(
       current_step: 'confirm',
     });
     await buildAndPreviewAngebot(chatId, finalDraft);
+    return true;
+  }
+
+  // --- convert_address (Angebot → Rechnung dönüşümünde adres sorulur) ---
+  if (step === 'convert_address') {
+    const parsed = parseAddressLine(text);
+    if (!parsed) {
+      await sendMessage({
+        chatId,
+        text: '⚠️ Adres formatı yanlış. Bir virgül ile sokak ve PLZ Şehir\'i ayır:\nHauptstraße 5, 60311 Frankfurt',
+      });
+      return true;
+    }
+    if (!draft.recipient) {
+      await sendMessage({
+        chatId,
+        text: '🔴 İç hata: alıcı kaydı yok.',
+      });
+      return true;
+    }
+    await setInvoiceRecipient(draft.id, {
+      company: draft.recipient.company,
+      name: draft.recipient.name,
+      street: parsed.street,
+      zipCity: parsed.zipCity,
+    });
+    // Now proceed with the actual conversion
+    const newNumber = await nextInvoiceNumber();
+    const invoice = await convertAngebotToInvoice(draft.id, newNumber);
+    await sendMessage({
+      chatId,
+      text: `✅ Angebot #${draft.number} → Rechnung #${invoice.number} dönüştürüldü.\n\n/fatura ile devam edebilirsin.`,
+    });
     return true;
   }
 
@@ -2887,12 +2889,29 @@ async function handleAngebotSendMail(chatId: number, invoiceId: string): Promise
 }
 
 async function handleAngebotConvert(chatId: number, draftId: string): Promise<void> {
+  const angebot = await getInvoice(draftId);
+  if (!angebot) {
+    await sendMessage({ chatId, text: '❓ Angebot bulunamadı.' });
+    return;
+  }
+
+  // If the Angebot has no address, ask for it before converting
+  const hasAddress =
+    angebot.recipient?.street?.trim() || angebot.recipient?.zipCity?.trim();
+  if (!hasAddress) {
+    await updateInvoiceDraft(draftId, { current_step: 'convert_address' });
+    await sendMessage({
+      chatId,
+      text: 'Fatura için adres gerekli.\n\nAdres? Format: Sokak No, PLZ Şehir\nÖrnek: Hauptstraße 5, 60311 Frankfurt',
+    });
+    return;
+  }
+
   const newNumber = await nextInvoiceNumber();
   const invoice = await convertAngebotToInvoice(draftId, newNumber);
-  const angebot = await getInvoice(draftId);
   await sendMessage({
     chatId,
-    text: `✅ Angebot #${angebot?.number ?? draftId} → Rechnung #${invoice.number} dönüştürüldü.\n\n/fatura ile devam edebilirsin.`,
+    text: `✅ Angebot #${angebot.number ?? draftId} → Rechnung #${invoice.number} dönüştürüldü.\n\n/fatura ile devam edebilirsin.`,
   });
 }
 
