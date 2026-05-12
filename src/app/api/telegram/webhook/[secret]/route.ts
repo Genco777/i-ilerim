@@ -1346,6 +1346,124 @@ async function handleAdsStatusChange(
   }
 }
 
+async function handleAdsTextInput(
+  chatId: number,
+  draft: AdsDraft,
+  text: string,
+): Promise<void> {
+  if (draft.current_step === 'target') {
+    const url = text.trim();
+    if (!/^https?:\/\//.test(url)) {
+      await sendMessage({
+        chatId,
+        text: '🔗 Geçerli bir URL gönder (https:// ile başlamalı).',
+        replyMarkup: adsCancelKeyboard(draft.id),
+      });
+      return;
+    }
+    await updateAdsDraft(draft.id, {
+      draft_payload: { ...draft.draft_payload, target_url: url },
+      current_step: 'budget',
+    });
+    await sendMessage({
+      chatId,
+      text:
+        '💶 Adım 3/4: Günlük bütçeyi yaz (EUR, örn. `15` veya `15.50`).\nKısa süreli kampanya istiyorsan bütçe satırında bitiş tarihi de yazabilirsin: `15 / 2026-06-15`',
+      replyMarkup: adsCancelKeyboard(draft.id),
+    });
+    return;
+  }
+
+  if (draft.current_step === 'budget') {
+    const match = text.trim().match(/^(\d+(?:[.,]\d{1,2})?)(?:\s*\/\s*(\d{4}-\d{2}-\d{2}))?$/);
+    if (!match) {
+      await sendMessage({
+        chatId,
+        text: '❌ Format: `15` veya `15.50` veya `15 / 2026-06-15`',
+        replyMarkup: adsCancelKeyboard(draft.id),
+      });
+      return;
+    }
+    const dailyEur = parseFloat(match[1]!.replace(',', '.'));
+    const endDate = match[2] ?? null;
+    const dailyCents = Math.round(dailyEur * 100);
+
+    const prefs = await getAdsPreferences();
+    if (dailyCents > prefs.daily_limit_cents) {
+      await sendMessage({
+        chatId,
+        text: `❌ Günlük limit €${(prefs.daily_limit_cents / 100).toFixed(2)} aşıldı. /ads limits ile değiştir.`,
+        replyMarkup: adsCancelKeyboard(draft.id),
+      });
+      return;
+    }
+
+    const today = new Date().toISOString().slice(0, 10);
+    await updateAdsDraft(draft.id, {
+      draft_payload: {
+        ...draft.draft_payload,
+        daily_budget_cents: dailyCents,
+        start_date: today,
+        end_date: endDate ?? undefined,
+        campaign_name:
+          draft.draft_payload.campaign_name ??
+          `${draft.draft_payload.type ?? 'ads'} - ${today}`,
+      },
+      current_step: 'copy_review',
+    });
+
+    await sendMessage({ chatId, text: '🤖 Adım 4/4: AI metin + anahtar kelime üretiliyor…' });
+    await runAdsGeneration(chatId, draft.id);
+    return;
+  }
+}
+
+async function runAdsGeneration(chatId: number, draftId: string): Promise<void> {
+  const draft = await getAdsDraft(draftId);
+  if (!draft) return;
+  const p = draft.draft_payload;
+  if (!p.type || !p.target_url) {
+    await sendMessage({ chatId, text: '❌ Taslakta tip veya URL eksik.' });
+    return;
+  }
+  try {
+    const prefs = await getAdsPreferences();
+    const [copy, keywords] = await Promise.all([
+      generateAdCopy({
+        campaignType: p.type,
+        targetUrl: p.target_url,
+        conversionGoal: p.conversion_action ?? null,
+      }),
+      generateKeywords({
+        targetUrl: p.target_url,
+        campaignContext: p.conversion_action ?? 'general',
+        languageCode: prefs.default_language_code,
+        locationId: prefs.default_location_id,
+      }),
+    ]);
+
+    const updated = await updateAdsDraft(draftId, {
+      generated_copy: copy,
+      generated_keywords: keywords,
+      status: 'awaiting_approval',
+      current_step: 'approval',
+    });
+
+    const sent = await sendMessage({
+      chatId,
+      text: formatAdsPreview(updated),
+      replyMarkup: adsPreviewKeyboard(draftId),
+    });
+    await updateAdsDraft(draftId, { telegram_preview_msg_id: sent.message_id });
+  } catch (err) {
+    await updateAdsDraft(draftId, {
+      status: 'failed',
+      error: err instanceof Error ? err.message : String(err),
+    });
+    await notifyError(chatId, err);
+  }
+}
+
 async function refreshMailPreview(
   chatId: number,
   draft: MailDraft,
@@ -3559,6 +3677,11 @@ async function handleCommand(
     return;
   }
 
+  if (trimmed.startsWith('/ads')) {
+    await handleAdsCommand(chatId, trimmed);
+    return;
+  }
+
   if (trimmed.startsWith('/fatura')) {
     await handleFaturaCommand(chatId);
     return;
@@ -3661,6 +3784,15 @@ async function handleCommand(
   if (activeInvoice && activeInvoice.status === 'collecting') {
     const handled = await handleInvoiceText(chatId, activeInvoice, trimmed);
     if (handled) return;
+  }
+
+  // Active ads draft: drive the URL / budget collection steps.
+  {
+    const activeAdsDraft = await getActiveAdsDraft(chatId);
+    if (activeAdsDraft && activeAdsDraft.status === 'collecting') {
+      await handleAdsTextInput(chatId, activeAdsDraft, trimmed);
+      return;
+    }
   }
 
   // Active mail draft awaiting regen — including the special pending-invoice
