@@ -31,39 +31,77 @@ async function call<T>(
   return json;
 }
 
-async function fetchShortcode(mediaId: string): Promise<string | undefined> {
+async function igGet<T>(path: string): Promise<T> {
   const token = await getPageToken();
-  const res = await fetch(
-    `https://graph.facebook.com/${VERSION}/${mediaId}?fields=shortcode&access_token=${encodeURIComponent(token)}`,
-  );
-  const json = (await res.json()) as { shortcode?: string };
-  return json.shortcode;
+  const sep = path.includes('?') ? '&' : '?';
+  const url = `https://graph.facebook.com/${VERSION}/${path}${sep}access_token=${encodeURIComponent(token)}`;
+  const res = await fetch(url);
+  const json = (await res.json()) as T & { error?: unknown };
+  if (!res.ok || json.error) {
+    throw new Error(`IG GET ${path} failed: ${JSON.stringify(json)}`);
+  }
+  return json;
 }
 
+async function fetchShortcode(mediaId: string): Promise<string | undefined> {
+  try {
+    const json = await igGet<{ shortcode?: string }>(
+      `${mediaId}?fields=shortcode`,
+    );
+    return json.shortcode;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Wait for IG media container to be ready (FINISHED status).
+ * IG async-processes images; publishing before FINISHED returns error 9007.
+ */
+async function waitForContainer(
+  containerId: string,
+  maxWaitMs = 30000,
+): Promise<void> {
+  const start = Date.now();
+  while (Date.now() - start < maxWaitMs) {
+    const status = await igGet<{ status_code?: string }>(
+      `${containerId}?fields=status_code`,
+    );
+    if (status.status_code === 'FINISHED') return;
+    if (status.status_code === 'ERROR') {
+      throw new Error('IG media container errored during processing');
+    }
+    await new Promise((r) => setTimeout(r, 1200));
+  }
+}
+
+/**
+ * Publish a feed post to Instagram.
+ * Supported aspect ratios: 1:1, 4:5, 1.91:1.
+ */
 export async function publishToIG(
   imageUrl: string,
   caption: string,
 ): Promise<IGPublishResult> {
-  // Step 1: create media container
   const container = await call<{ id: string }>(`${igAccountId()}/media`, {
     image_url: imageUrl,
     caption,
   });
 
-  // Step 2: publish
+  await waitForContainer(container.id);
+
   const published = await call<{ id: string }>(
     `${igAccountId()}/media_publish`,
-    {
-      creation_id: container.id,
-    },
+    { creation_id: container.id },
   );
 
   const shortcode = await fetchShortcode(published.id);
   return { id: published.id, shortcode };
 }
 
-// Instagram Story publish (image, 9:16 vertical).
-// Note: caption is not displayed on IG Stories — passed as alt-text/metadata only.
+/**
+ * Publish an Instagram Story (9:16 vertical image).
+ */
 export async function publishToIGStory(
   imageUrl: string,
 ): Promise<IGPublishResult> {
@@ -71,6 +109,8 @@ export async function publishToIGStory(
     image_url: imageUrl,
     media_type: 'STORIES',
   });
+
+  await waitForContainer(container.id);
 
   const published = await call<{ id: string }>(
     `${igAccountId()}/media_publish`,

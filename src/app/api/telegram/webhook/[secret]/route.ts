@@ -95,7 +95,7 @@ import { weeklyDigest, portfolioNewsletter } from '@/lib/email/templates';
 import type { DigestItem, PortfolioItem } from '@/lib/email/templates';
 import { generateEmailContent } from '@/lib/email/generate-content';
 import type { EmailContent } from '@/lib/email/generate-content';
-import { getLists, createContact, sendEmail } from '@/lib/email/brevo';
+import { getLists, createContact, sendEmail, getAccount } from '@/lib/email/brevo';
 import { generateMailDraft } from '@/lib/mail/generate';
 import { sendMail } from '@/lib/mail/smtp';
 import {
@@ -2343,14 +2343,37 @@ function emailListIds(): number[] {
 async function handleEmailDigestCommand(chatId: number): Promise<void> {
   const listIds = emailListIds();
   if (listIds.length === 0) {
-    await sendMessage({ chatId, text: '⚠️ BREVO_LIST_IDS env eksik. .env.local\'a ekleyin.' });
+    await sendMessage({ chatId, text: '⚠️ BREVO_LIST_IDS env eksik. Vercel Environment Variables\'a ekleyin.\n\nBrevo\'da bir liste oluşturun, liste ID\'sini BREVO_LIST_IDS olarak tanımlayın (virgülle birden fazla).' });
     return;
+  }
+
+  // Brevo bağlantı kontrolü
+  try {
+    const account = await getAccount();
+    if (!account?.email) throw new Error('Invalid account');
+  } catch {
+    await sendMessage({ chatId, text: '⚠️ Brevo API bağlantısı başarısız.\n\nBREVO_API_KEY env değişkenini kontrol edin. Brevo > SMTP & API > API Keys menüsünden alabilirsiniz.' });
+    return;
+  }
+
+  // Liste doğrulama
+  let validListIds: number[] = [];
+  try {
+    const lists = await getLists();
+    validListIds = lists.map((l) => l.id);
+    const missing = listIds.filter((id) => !validListIds.includes(id));
+    if (missing.length > 0) {
+      await sendMessage({ chatId, text: `⚠️ BREVO_LIST_IDS'teki ${missing.join(', ')} ID'li liste(ler) Brevo'da bulunamadı.\n\nMevcut listeler:\n${lists.map((l) => `  • #${l.id}: ${l.name} (${l.totalSubscribers} kişi)`).join('\n')}\n\n.env.local'daki BREVO_LIST_IDS değerini güncelleyin.` });
+      return;
+    }
+  } catch {
+    // Liste sorgusu başarısız olsa da devam et (eski Brevo hesaplarında olabilir)
   }
 
   const { week, year } = getCurrentWeek();
   const plan = await getPlanByWeek(week, year);
   if (!plan) {
-    await sendMessage({ chatId, text: `KW${week}/${year} için plan yok. Önce /haftalik-plan yaz.` });
+    await sendMessage({ chatId, text: `KW${week}/${year} için plan yok. Önce /plan yazıp haftalık plan oluşturun.` });
     return;
   }
 
@@ -2367,16 +2390,16 @@ async function handleEmailDigestCommand(chatId: number): Promise<void> {
   }
 
   const portfolioItems = slotsToPortfolioItems(slots);
-  const subject = `Neue Design-Projekte | KW${week} — Fly & Froth Studio Update`;
 
   let listInfo = '';
-  try {
-    const lists = await getLists();
-    const relevant = lists.filter((l) => listIds.includes(l.id));
+  if (validListIds.length > 0) {
+    const relevant = validListIds.filter((id) => listIds.includes(id));
     if (relevant.length > 0) {
-      listInfo = relevant.map((l) => `#${l.id} (${l.totalSubscribers} kişi)`).join(', ');
+      listInfo = `${relevant.length} liste, ${listIds.length} hedef`;
     }
-  } catch { listInfo = listIds.join(', '); }
+  } else {
+    listInfo = `${listIds.length} liste ID (doğrulama atlandı)`;
+  }
 
   const pillarEmoji: Record<string, string> = {
     vitrine: '🖼', prozess: '🎬', insight: '📊', lokal: '📍', reel: '🎥',
@@ -2385,9 +2408,7 @@ async function handleEmailDigestCommand(chatId: number): Promise<void> {
   const preview = [
     `📧 **KW${week} Email Bülteni — Önizleme**`,
     '',
-    `📌 Konu: ${subject}`,
-    '',
-    `📋 Hedef Liste: ${listInfo || '—'}`,
+    `📋 Hedef Liste: ${listInfo}`,
     '',
     'İçerik:',
     ...Object.entries(pillarCounts).map(([k, v]) => `  ${pillarEmoji[k] ?? '📌'} ${v}× ${k}`),

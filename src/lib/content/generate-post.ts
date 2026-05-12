@@ -1,6 +1,6 @@
 import { generateText } from '@/lib/ai/text';
 import { generateImage, generateImageRouted, buildImagePrompt } from '@/lib/ai/image';
-import { composeLogo, applyGoldTint, cropToStoryAspect } from '@/lib/image/compose-logo';
+import { composeLogo, applyGoldTint, cropToStoryAspect, cropToSquare } from '@/lib/image/compose-logo';
 import { uploadImage } from '@/lib/blob';
 import { getBrandKit } from '@/lib/db/queries/brand-kit';
 import { createPost, getPost, updatePost } from '@/lib/db/queries/posts';
@@ -162,8 +162,12 @@ export async function generatePost(opts: GeneratePostOpts): Promise<Post> {
     }
   }
 
-  // 3. Story images must be 9:16 vertical — crop from center before gold tint
-  const sizedBuffer = isStory ? await cropToStoryAspect(rawBuffer) : rawBuffer;
+  // 3. Normalize aspect ratio for Instagram compatibility
+  //    Feed: 1:1 square (IG supports 1:1, 4:5, 1.91:1)
+  //    Story: 9:16 vertical
+  const sizedBuffer = isStory
+    ? await cropToStoryAspect(rawBuffer)
+    : await cropToSquare(rawBuffer);
 
   // 4. Gold tint overlay — subtle warm gold wash on ALL images
   const goldBuffer = await applyGoldTint(sizedBuffer, opts.pillar);
@@ -250,7 +254,9 @@ export async function regenerateImage(postId: string): Promise<Post> {
   }
 
   const isStoryRegen = post.channel === 'story' || post.channel === 'reel';
-  const sizedBuffer = isStoryRegen ? await cropToStoryAspect(buffer) : buffer;
+  const sizedBuffer = isStoryRegen
+    ? await cropToStoryAspect(buffer)
+    : await cropToSquare(buffer);
 
   const goldBuffer = await applyGoldTint(sizedBuffer, post.content_pillar);
   const rawBlob = await uploadImage(goldBuffer, `raw-${Date.now()}.png`);

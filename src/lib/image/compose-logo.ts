@@ -39,6 +39,26 @@ export async function cropToStoryAspect(imageBuffer: Buffer): Promise<Buffer> {
     .toBuffer();
 }
 
+/**
+ * Crop image to 1:1 square (center crop) for Instagram feed compatibility.
+ * IG feed supports: 1:1, 4:5, 1.91:1. Square is the safest default.
+ */
+export async function cropToSquare(imageBuffer: Buffer): Promise<Buffer> {
+  const meta = await sharp(imageBuffer).metadata();
+  const w = meta.width ?? 1080;
+  const h = meta.height ?? 1080;
+
+  const size = Math.min(w, h);
+  const left = Math.max(0, Math.round((w - size) / 2));
+  const top = Math.max(0, Math.round((h - size) / 2));
+
+  return sharp(imageBuffer)
+    .extract({ left, top, width: size, height: size })
+    .resize(1080, 1080, { fit: 'fill' })
+    .png()
+    .toBuffer();
+}
+
 const PILLAR_GOLD_HEX: Record<string, string> = {
   vitrine: '#d4a43a',
   prozess: '#d4a43a',
