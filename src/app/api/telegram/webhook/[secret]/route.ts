@@ -2900,7 +2900,7 @@ async function handleAngebotConvert(chatId: number, draftId: string): Promise<vo
   const hasAddress =
     angebot.recipient?.street?.trim() || angebot.recipient?.zipCity?.trim();
   if (!hasAddress) {
-    await updateInvoiceDraft(draftId, { current_step: 'convert_address' });
+    await updateInvoiceDraft(draftId, { status: 'collecting', current_step: 'convert_address' });
     await sendMessage({
       chatId,
       text: 'Fatura için adres gerekli.\n\nAdres? Format: Sokak No, PLZ Şehir\nÖrnek: Hauptstraße 5, 60311 Frankfurt',
