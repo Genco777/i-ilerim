@@ -5,22 +5,24 @@ import {
   type InvoicePendingItem,
   type InvoiceRecipient,
 } from '@/lib/db/schema';
-import { and, eq, inArray, desc, sql } from 'drizzle-orm';
+import { todayDDMMYYYY, type InvoiceType } from '@/lib/invoice/types';
+import { and, eq, inArray, notInArray, desc, sql } from 'drizzle-orm';
 import type { Invoice, NewInvoice } from '@/types';
 
 const ACTIVE_STATUSES = ['collecting', 'preview'] as const;
 
 export async function createDraft(args: {
   chatId: number;
+  type?: InvoiceType;
 }): Promise<Invoice> {
   const [created] = await db
     .insert(invoices)
     .values({
       number: `pending-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-      type: 'rechnung',
+      type: args.type ?? 'rechnung',
       date: '',
       status: 'collecting',
-      current_step: 'type',
+      current_step: args.type === 'angebot' ? 'recipient_name' : 'type',
       telegram_chat_id: args.chatId,
     } as NewInvoice)
     .returning();
@@ -101,7 +103,29 @@ export async function getInvoiceByNumber(
   const rows = await db
     .select()
     .from(invoices)
-    .where(eq(invoices.number, number))
+    .where(
+      and(
+        eq(invoices.number, number),
+        notInArray(invoices.status, ['cancelled', 'deleted']),
+      ),
+    )
+    .limit(1);
+  return rows[0] ?? null;
+}
+
+export async function getAngebotByNumber(
+  number: string,
+): Promise<Invoice | null> {
+  const rows = await db
+    .select()
+    .from(invoices)
+    .where(
+      and(
+        eq(invoices.number, number),
+        eq(invoices.type, 'angebot'),
+        notInArray(invoices.status, ['cancelled', 'deleted']),
+      ),
+    )
     .limit(1);
   return rows[0] ?? null;
 }
@@ -135,4 +159,47 @@ export async function appendItem(
     .returning();
   if (!updated) throw new Error(`Invoice ${id} not found`);
   return updated;
+}
+
+export async function deleteAllInvoices(): Promise<number> {
+  const rows = await db
+    .update(invoices)
+    .set({ status: 'deleted' })
+    .returning({ id: invoices.id });
+  return rows.length;
+}
+
+export async function convertAngebotToInvoice(
+  angebotId: string,
+  newNumber: string,
+): Promise<Invoice> {
+  const angebot = await getInvoice(angebotId);
+  if (!angebot || angebot.type !== 'angebot') {
+    throw new Error('Angebot not found');
+  }
+
+  const [invoice] = await db
+    .insert(invoices)
+    .values({
+      number: newNumber,
+      type: 'rechnung',
+      date: todayDDMMYYYY(),
+      recipient: angebot.recipient,
+      items: angebot.items,
+      total_cents: angebot.total_cents,
+      footer_note: angebot.footer_note,
+      status: 'collecting',
+      current_step: null,
+      telegram_chat_id: angebot.telegram_chat_id,
+    } as NewInvoice)
+    .returning();
+
+  if (!invoice) throw new Error('Failed to create invoice from angebot');
+
+  await db
+    .update(invoices)
+    .set({ status: 'converted', converted_to_invoice_id: invoice.id })
+    .where(eq(invoices.id, angebotId));
+
+  return invoice;
 }
