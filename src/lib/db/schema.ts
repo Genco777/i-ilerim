@@ -163,6 +163,13 @@ export const brandKit = pgTable('brand_kit', {
     .defaultNow(),
 });
 
+// ── Email Preferences (singleton, like brandKit) ──
+export const emailPreferences = pgTable('email_preferences', {
+  id: integer('id').primaryKey().default(1),
+  theme: text('theme').notNull().default('dark_steel'),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow(),
+});
+
 // ───── Secrets (encrypted with pgcrypto) ─────
 export const secrets = pgTable('secrets', {
   key: text('key').primaryKey(),
