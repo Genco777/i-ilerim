@@ -4005,6 +4005,107 @@ async function handleCallback(
       await handleSlotBack(chatId, postId);
     } else if (action === 'plan_cancel' && postId) {
       await handlePlanCancel(chatId, messageId, postId);
+    } else if (action === 'ads_type' && postId) {
+      const typeStr = rest[0];
+      const draft = await getAdsDraft(postId);
+      if (!draft || draft.status !== 'collecting') {
+        await answerCallbackQuery({ callbackQueryId: query.id, text: 'Taslak aktif değil.' });
+        return;
+      }
+      await updateAdsDraft(postId, {
+        draft_payload: { ...draft.draft_payload, type: typeStr as AdsCampaignType },
+        current_step: 'target',
+      });
+      await answerCallbackQuery({ callbackQueryId: query.id });
+      await sendMessage({
+        chatId,
+        text: '🔗 Adım 2/4: Hedef URL gönder (örn. https://fly-froth.com/visitenkarten).',
+        replyMarkup: adsCancelKeyboard(postId),
+      });
+      await sendMessage({
+        chatId,
+        text: '🎯 Dönüşüm hedefini de seç:',
+        replyMarkup: conversionGoalKeyboard(postId),
+      });
+    } else if (action === 'ads_goal' && postId) {
+      const goal = rest[0];
+      const draft = await getAdsDraft(postId);
+      if (!draft) {
+        await answerCallbackQuery({ callbackQueryId: query.id, text: 'Taslak yok.' });
+        return;
+      }
+      await updateAdsDraft(postId, {
+        draft_payload: {
+          ...draft.draft_payload,
+          conversion_action: goal === 'none' ? undefined : goal!,
+        },
+      });
+      await answerCallbackQuery({ callbackQueryId: query.id, text: `Hedef: ${goal}` });
+    } else if (action === 'ads_cancel' && postId) {
+      await updateAdsDraft(postId, { status: 'cancelled' });
+      await answerCallbackQuery({ callbackQueryId: query.id, text: 'İptal edildi.' });
+      await sendMessage({ chatId, text: '🛑 Kampanya sihirbazı iptal edildi.' });
+    } else if (action === 'ads_regen' && postId) {
+      await answerCallbackQuery({ callbackQueryId: query.id });
+      await sendMessage({ chatId, text: '🔄 Yeniden üretiyorum…' });
+      await runAdsGeneration(chatId, postId);
+    } else if (action === 'ads_approve' && postId) {
+      const draft = await getAdsDraft(postId);
+      if (!draft || draft.status !== 'awaiting_approval') {
+        await answerCallbackQuery({ callbackQueryId: query.id, text: 'Onay için uygun durumda değil.' });
+        return;
+      }
+      await answerCallbackQuery({ callbackQueryId: query.id, text: 'Oluşturuluyor…' });
+      const p = draft.draft_payload;
+      if (
+        !p.type ||
+        !p.target_url ||
+        !p.daily_budget_cents ||
+        !p.start_date ||
+        !draft.generated_copy ||
+        !draft.generated_keywords
+      ) {
+        await sendMessage({ chatId, text: '❌ Taslak eksik. /ads new ile yeniden başla.' });
+        return;
+      }
+      if (p.type !== 'search') {
+        await sendMessage({ chatId, text: `❌ Phase 1 yalnız Search destekliyor. Tip: ${p.type}` });
+        return;
+      }
+      const prefs = await getAdsPreferences();
+      try {
+        const result = await createSearchCampaign(
+          {
+            type: 'search',
+            name: p.campaign_name ?? `${p.type} - ${p.start_date}`,
+            target_url: p.target_url,
+            conversion_action: p.conversion_action ?? null,
+            daily_budget_cents: p.daily_budget_cents,
+            start_date: p.start_date,
+            end_date: p.end_date ?? null,
+            language_code: prefs.default_language_code,
+            location_id: prefs.default_location_id,
+            headlines: draft.generated_copy.headlines,
+            descriptions: draft.generated_copy.descriptions,
+            keywords: draft.generated_keywords.map((k) => ({
+              keyword: k.keyword,
+              match_type: k.match_type,
+            })),
+          },
+          chatId,
+        );
+        await updateAdsDraft(postId, { status: 'confirmed', sent_at: new Date() });
+        await sendMessage({
+          chatId,
+          text: `✅ Kampanya oluşturuldu (paused).\nGoogle ID: ${result.google_campaign_id}\n/ads resume <id> ile başlat.`,
+        });
+      } catch (err) {
+        await updateAdsDraft(postId, {
+          status: 'failed',
+          error: err instanceof Error ? err.message : String(err),
+        });
+        await notifyError(chatId, err);
+      }
     } else {
       await sendMessage({ chatId, text: `❓ Bilinmeyen aksiyon: ${data}` });
     }
