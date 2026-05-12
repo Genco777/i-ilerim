@@ -1,4 +1,4 @@
-export type InvoiceType = 'rechnung' | 'teilrechnung' | 'schlussrechnung';
+export type InvoiceType = 'rechnung' | 'teilrechnung' | 'schlussrechnung' | 'angebot';
 
 export interface InvoiceItem {
   description: string;
@@ -21,12 +21,14 @@ export interface InvoiceData {
   items: InvoiceItem[];
   totalCents: number;
   footerNote: string | null;
+  validUntil?: string;
 }
 
 export const INVOICE_TYPE_LABEL: Record<InvoiceType, string> = {
   rechnung: 'RECHNUNG',
   teilrechnung: 'TEILRECHNUNG',
   schlussrechnung: 'SCHLUSSRECHNUNG',
+  angebot: 'ANGEBOT',
 };
 
 export function formatCents(cents: number): string {
