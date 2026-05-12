@@ -25,6 +25,9 @@ import {
   invoiceNumberKeyboard,
   invoicePreviewKeyboard,
   schlussrechnungAnzahlungKeyboard,
+  angebotFooterKeyboard,
+  angebotNumberKeyboard,
+  angebotPreviewKeyboard,
 } from '@/lib/telegram/invoice-keyboard';
 import {
   cancelActiveDrafts as cancelActiveInvoiceDrafts,
@@ -40,6 +43,9 @@ import {
   markCancelled as markInvoiceCancelled,
   markDeleted as markInvoiceDeleted,
   getInvoiceByNumber,
+  getAngebotByNumber,
+  convertAngebotToInvoice,
+  deleteAllInvoices,
 } from '@/lib/db/queries/invoices';
 import { renderInvoicePdf } from '@/lib/invoice/pdf';
 import { generateInvoiceCoverLetter } from '@/lib/invoice/cover-letter';
@@ -53,6 +59,8 @@ import {
 import {
   nextInvoiceNumber,
   parseInvoiceNumber,
+  nextAngebotNumber,
+  parseAngebotNumber,
 } from '@/lib/invoice/numbering';
 import type { Invoice } from '@/types';
 import { getBrandKit } from '@/lib/db/queries/brand-kit';
@@ -94,6 +102,8 @@ import {
 } from '@/lib/email/campaigns';
 import { weeklyDigest, portfolioNewsletter } from '@/lib/email/templates';
 import type { DigestItem, PortfolioItem } from '@/lib/email/templates';
+import { wrapInvoiceHtml } from '@/lib/email/invoice-email';
+import { wrapAngebotHtml } from '@/lib/email/angebot-email';
 import { generateEmailContent } from '@/lib/email/generate-content';
 import type { EmailContent } from '@/lib/email/generate-content';
 import { getLists, createContact, sendEmail, getAccount, createCampaign, sendCampaignNow } from '@/lib/email/brevo';
@@ -259,6 +269,8 @@ const HELP_TEXT = [
   '  /raw <metin>            — manuel paylaşım (foto ekle, AI dokunmaz)',
   '  /mail <email> <talimat> — AI yardımıyla mail taslağı + Zoho gönder',
   '  /fatura                 — adım adım PDF fatura oluştur (DE), müşteriye mail at',
+  '  /angebot                — adım adım PDF Angebot oluştur, faturaya çevir',
+'  /faturasil              — tüm faturaları soft delete yap',
   '  /edit_reply <id> <text> — gelen mesaja taslak cevabı düzenle',
   '  /preview_reply <id>     — taslağı butonlu önizle',
   '  /poll                   — mail kutusunu hemen kontrol et (anlık tetikleme)',
@@ -1524,10 +1536,18 @@ async function handleMailSend(
   await sendMessage({ chatId, text: '📤 Mail gönderiliyor…' });
 
   try {
+    const hasPdf = draft.attachments.some((a) => a.filename.endsWith('.pdf'));
+    const isAngebot = draft.attachments.some((a) => a.filename.startsWith('Angebot_'));
+    const html = hasPdf
+      ? isAngebot
+        ? wrapAngebotHtml({ subject: draft.subject, bodyText: draft.body })
+        : wrapInvoiceHtml({ subject: draft.subject, bodyText: draft.body })
+      : undefined;
     const result = await sendMail({
       to: draft.to_email,
       subject: draft.subject,
       body: draft.body,
+      ...(html ? { html } : {}),
       attachments: draft.attachments,
       ...(draft.in_reply_to_message_id
         ? { inReplyTo: draft.in_reply_to_message_id }
@@ -1780,6 +1800,19 @@ const FOOTER_PRESETS: Record<string, string> = {
   p2: 'Anzahlung 50% für Design, Restbetrag nach Fertigstellung fällig.',
 };
 
+const ANGEBOT_FOOTER_PRESETS: Record<string, string> = {
+  ap1: 'Angebot freibleibend. Preise zzgl. MwSt.',
+};
+
+function validUntilFromToday(plusDays: number): string {
+  const d = new Date();
+  d.setDate(d.getDate() + plusDays);
+  const dd = String(d.getDate()).padStart(2, '0');
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const yyyy = d.getFullYear();
+  return `${dd}.${mm}.${yyyy}`;
+}
+
 function invoiceToData(inv: Invoice): InvoiceData {
   if (!inv.recipient) {
     throw new Error('Invoice has no recipient — cannot render');
@@ -1788,6 +1821,7 @@ function invoiceToData(inv: Invoice): InvoiceData {
     number: inv.number,
     type: inv.type,
     date: inv.date,
+    validUntil: inv.valid_until ?? undefined,
     recipient: {
       company: inv.recipient.company,
       name: inv.recipient.name,
@@ -1839,6 +1873,15 @@ async function handleFaturaCommand(chatId: number): Promise<void> {
     chatId,
     text: '🧾 Yeni fatura — tipini seç:',
     replyMarkup: invoiceTypeKeyboard(),
+  });
+}
+
+async function handleAngebotCommand(chatId: number): Promise<void> {
+  await cancelActiveInvoiceDrafts(chatId);
+  const draft = await createInvoiceDraft({ chatId, type: 'angebot' });
+  await sendMessage({
+    chatId,
+    text: '📋 Yeni Angebot\n\nMüşteri (sadece kişi adı, şirket varsa "Şirket / Kişi Adı" formatında):',
   });
 }
 
@@ -2016,6 +2059,88 @@ async function buildAndPreviewInvoice(
       chatId,
       text: 'Şimdi ne yapayım?',
       replyMarkup: invoicePreviewKeyboard(draft.id),
+    });
+    await markInvoicePreview(draft.id);
+    await updateInvoiceDraft(draft.id, {
+      telegram_preview_msg_id: sent.message_id,
+    });
+  } catch (err) {
+    await notifyError(chatId, err);
+  }
+}
+
+async function moveToAngebotFooterStep(
+  chatId: number,
+  draftId: string,
+): Promise<void> {
+  await updateInvoiceDraft(draftId, { current_step: 'footer' });
+  await sendMessage({
+    chatId,
+    text: 'Alt not — bir tane seç ya da yaz:',
+    replyMarkup: angebotFooterKeyboard(draftId),
+  });
+}
+
+async function moveToAngebotNumberStep(
+  chatId: number,
+  draftId: string,
+): Promise<void> {
+  const auto = await nextAngebotNumber();
+  await updateInvoiceDraft(draftId, { current_step: 'number' });
+  await sendMessage({
+    chatId,
+    text: `Angebot no önerisi: ${auto}`,
+    replyMarkup: angebotNumberKeyboard(draftId, auto),
+  });
+}
+
+function summarizeAngebot(inv: Invoice): string {
+  const recipient = inv.recipient
+    ? [inv.recipient.company, inv.recipient.name, inv.recipient.street, inv.recipient.zipCity]
+        .filter((s): s is string => Boolean(s))
+        .join(', ')
+    : '(yok)';
+  const lines = inv.items
+    .map(
+      (it) =>
+        `  • ${it.description} — ${it.quantity}× ${formatCents(it.unitPriceCents)}€ = ${formatCents(it.unitPriceCents * it.quantity)}€`,
+    )
+    .join('\n');
+  return [
+    `📋 ANGEBOT #${inv.number}`,
+    `📅 ${inv.date}`,
+    inv.valid_until ? `⏳ Gültig bis: ${inv.valid_until}` : '',
+    `👤 ${recipient}`,
+    '',
+    'Kalemler:',
+    lines || '  (yok)',
+    '',
+    `💶 Toplam: ${formatCents(inv.total_cents)}€`,
+    inv.footer_note ? `\n📝 ${inv.footer_note}` : '',
+  ]
+    .filter((s) => s.length > 0)
+    .join('\n');
+}
+
+async function buildAndPreviewAngebot(
+  chatId: number,
+  draft: Invoice,
+): Promise<void> {
+  await sendMessage({ chatId, text: '📄 PDF oluşturuluyor…' });
+  try {
+    const data = invoiceToData(draft);
+    const pdf = await renderInvoicePdf(data);
+    const sent = await sendDocument({
+      chatId,
+      document: pdf,
+      filename: `Angebot_${draft.number}.pdf`,
+      mime: 'application/pdf',
+      caption: summarizeAngebot(draft).slice(0, 1024),
+    });
+    await sendMessage({
+      chatId,
+      text: 'Şimdi ne yapayım?',
+      replyMarkup: angebotPreviewKeyboard(draft.id),
     });
     await markInvoicePreview(draft.id);
     await updateInvoiceDraft(draft.id, {
@@ -2241,6 +2366,203 @@ async function handleInvoiceText(
   return false;
 }
 
+async function handleAngebotText(
+  chatId: number,
+  draft: Invoice,
+  text: string,
+): Promise<boolean> {
+  const step = draft.current_step;
+
+  // --- recipient_name ---
+  if (step === 'recipient_name') {
+    const parsed = parseRecipientNameLine(text);
+    if (!parsed.name) {
+      await sendMessage({ chatId, text: 'Geçerli bir isim yaz.' });
+      return true;
+    }
+    await setInvoiceRecipient(draft.id, {
+      company: parsed.company,
+      name: parsed.name,
+      street: '',
+      zipCity: '',
+    });
+    await updateInvoiceDraft(draft.id, { current_step: 'recipient_address' });
+    await sendMessage({
+      chatId,
+      text: 'Adres? Format: Sokak No, PLZ Şehir\nÖrnek: Hauptstraße 5, 60311 Frankfurt',
+    });
+    return true;
+  }
+
+  // --- recipient_address ---
+  if (step === 'recipient_address') {
+    const parsed = parseAddressLine(text);
+    if (!parsed) {
+      await sendMessage({
+        chatId,
+        text: '⚠️ Adres formatı yanlış. Bir virgül ile sokak ve PLZ Şehir\'i ayır:\nHauptstraße 5, 60311 Frankfurt',
+      });
+      return true;
+    }
+    if (!draft.recipient) {
+      await sendMessage({
+        chatId,
+        text: '🔴 İç hata: alıcı kaydı yok. /angebot ile yeniden başla.',
+      });
+      return true;
+    }
+    await setInvoiceRecipient(draft.id, {
+      company: draft.recipient.company,
+      name: draft.recipient.name,
+      street: parsed.street,
+      zipCity: parsed.zipCity,
+    });
+    const today = todayDDMMYYYY();
+    const vu = validUntilFromToday(2);
+    await updateInvoiceDraft(draft.id, {
+      current_step: 'valid_until',
+      date: today,
+    });
+    await sendMessage({
+      chatId,
+      text: `Tarih: ${today}\n\nGültig bis (son geçerlilik)?\nVarsayılan: ${vu}\n\n"✓" ya da DD.MM.YYYY yaz:`,
+    });
+    return true;
+  }
+
+  // --- valid_until ---
+  if (step === 'valid_until') {
+    let vu: string;
+    if (text.trim() === '✓' || text.trim().toLowerCase() === 'ok') {
+      vu = validUntilFromToday(2);
+    } else {
+      const parsed = parseGermanDate(text);
+      if (!parsed) {
+        await sendMessage({
+          chatId,
+          text: '⚠️ Tarih formatı yanlış. DD.MM.YYYY ya da "✓" yaz.',
+        });
+        return true;
+      }
+      vu = parsed;
+    }
+    await updateInvoiceDraft(draft.id, {
+      current_step: 'item_description',
+      valid_until: vu,
+    });
+    await sendMessage({ chatId, text: 'Hizmet/ürün açıklaması?' });
+    return true;
+  }
+
+  // --- item_description ---
+  if (step === 'item_description') {
+    const desc = text.trim();
+    if (!desc) {
+      await sendMessage({ chatId, text: 'Boş açıklama olmaz.' });
+      return true;
+    }
+    await setInvoicePendingItem(draft.id, { description: desc });
+    await updateInvoiceDraft(draft.id, { current_step: 'item_price' });
+    await sendMessage({
+      chatId,
+      text: 'Tutar (€)? Sadece sayı yaz (virgül veya nokta olabilir):\nÖrnek: 300 ya da 199,90',
+    });
+    return true;
+  }
+
+  // --- item_price ---
+  if (step === 'item_price') {
+    const cents = parsePriceCents(text);
+    if (cents === null) {
+      await sendMessage({
+        chatId,
+        text: '⚠️ Geçerli bir tutar yaz. Örnek: 300 veya 199,90',
+      });
+      return true;
+    }
+    const merged = {
+      ...(draft.pending_item ?? {}),
+      unitPriceCents: cents,
+    };
+    await setInvoicePendingItem(draft.id, merged);
+    await updateInvoiceDraft(draft.id, { current_step: 'item_quantity' });
+    await sendMessage({
+      chatId,
+      text: 'Adet (varsayılan 1)? Sayı yaz veya "atla":',
+    });
+    return true;
+  }
+
+  // --- item_quantity ---
+  if (step === 'item_quantity') {
+    const qty = parseQuantity(text);
+    if (qty === null) {
+      await sendMessage({
+        chatId,
+        text: '⚠️ 1 ya da daha büyük bir sayı yaz. "atla" yazabilirsin.',
+      });
+      return true;
+    }
+    const pending = draft.pending_item;
+    if (!pending?.description || typeof pending.unitPriceCents !== 'number') {
+      await sendMessage({
+        chatId,
+        text: '🔴 İç hata: kalem bilgileri eksik. /angebot ile yeniden başla.',
+      });
+      return true;
+    }
+    await appendInvoiceItem(draft.id, {
+      description: pending.description,
+      unitPriceCents: pending.unitPriceCents,
+      quantity: qty,
+    });
+    await updateInvoiceDraft(draft.id, { current_step: 'item_more' });
+    await sendMessage({
+      chatId,
+      text: '✅ Kalem eklendi. Başka kalem var mı?',
+      replyMarkup: invoiceItemMoreKeyboard(draft.id),
+    });
+    return true;
+  }
+
+  // --- footer_manual ---
+  if (step === 'footer_manual') {
+    const note = text.trim();
+    await updateInvoiceDraft(draft.id, { footer_note: note || null });
+    await moveToAngebotNumberStep(chatId, draft.id);
+    return true;
+  }
+
+  // --- number_manual ---
+  if (step === 'number_manual') {
+    const trimmed = text.trim();
+    const parsed = parseAngebotNumber(trimmed);
+    if (!parsed) {
+      await sendMessage({
+        chatId,
+        text: '⚠️ Format: YYYY-AN-NNN (4 hane yıl, AN, 3 hane sayı)\nÖrnek: 2026-AN-051',
+      });
+      return true;
+    }
+    const existing = await getAngebotByNumber(trimmed);
+    if (existing && existing.id !== draft.id) {
+      await sendMessage({
+        chatId,
+        text: `⚠️ ${trimmed} numaralı Angebot zaten var. Başka bir numara yaz.`,
+      });
+      return true;
+    }
+    const finalDraft = await updateInvoiceDraft(draft.id, {
+      number: trimmed,
+      current_step: 'confirm',
+    });
+    await buildAndPreviewAngebot(chatId, finalDraft);
+    return true;
+  }
+
+  return false;
+}
+
 async function handleInvoiceItemMore(
   chatId: number,
   draftId: string,
@@ -2291,10 +2613,12 @@ async function handleInvoiceNumberAuto(
     await sendMessage({ chatId, text: `❓ Taslak bulunamadı: ${draftId}` });
     return;
   }
-  const auto = draft.pending_item?.suggestedNumber ?? (await nextInvoiceNumber());
-  const existing = await getInvoiceByNumber(auto);
-  const finalNumber =
-    existing && existing.id !== draft.id ? await nextInvoiceNumber() : auto;
+  let finalNumber = draft.pending_item?.suggestedNumber ?? (await nextInvoiceNumber());
+  for (let i = 0; i < 5; i++) {
+    const existing = await getInvoiceByNumber(finalNumber);
+    if (!existing || existing.id === draft.id) break;
+    finalNumber = await nextInvoiceNumber();
+  }
   const updated = await updateInvoiceDraft(draftId, {
     number: finalNumber,
     current_step: 'confirm',
@@ -2361,6 +2685,15 @@ async function handleInvoiceRestart(chatId: number): Promise<void> {
   await handleFaturaCommand(chatId);
 }
 
+async function handleDeleteAllInvoices(chatId: number): Promise<void> {
+  await cancelActiveInvoiceDrafts(chatId);
+  const count = await deleteAllInvoices();
+  await sendMessage({
+    chatId,
+    text: `🗑 ${count} fatura silindi (soft delete). Hepsi "deleted" durumunda.`,
+  });
+}
+
 async function handleInvoiceSendMail(
   chatId: number,
   invoiceId: string,
@@ -2422,6 +2755,145 @@ async function handleInvoiceSendMail(
   } catch (err) {
     await notifyError(chatId, err);
   }
+}
+
+async function handleAngebotItemMore(chatId: number, draftId: string): Promise<void> {
+  await updateInvoiceDraft(draftId, { current_step: 'item_description' });
+  await sendMessage({ chatId, text: 'Yeni kalemin açıklaması?' });
+}
+
+async function handleAngebotNoMoreItems(chatId: number, draftId: string): Promise<void> {
+  await moveToAngebotFooterStep(chatId, draftId);
+}
+
+async function handleAngebotFooterPreset(
+  chatId: number,
+  draftId: string,
+  key: string,
+): Promise<void> {
+  const note = ANGEBOT_FOOTER_PRESETS[key] ?? null;
+  await updateInvoiceDraft(draftId, { footer_note: note });
+  await moveToAngebotNumberStep(chatId, draftId);
+}
+
+async function handleAngebotFooterManual(chatId: number, draftId: string): Promise<void> {
+  await updateInvoiceDraft(draftId, { current_step: 'footer_manual' });
+  await sendMessage({ chatId, text: 'Notu yaz (tek satırlık serbest metin):' });
+}
+
+async function handleAngebotFooterSkip(chatId: number, draftId: string): Promise<void> {
+  await updateInvoiceDraft(draftId, { footer_note: null });
+  await moveToAngebotNumberStep(chatId, draftId);
+}
+
+async function handleAngebotNumberAuto(chatId: number, draftId: string): Promise<void> {
+  const draft = await getInvoice(draftId);
+  if (!draft) return;
+  let finalNumber = await nextAngebotNumber();
+  for (let i = 0; i < 5; i++) {
+    const existing = await getAngebotByNumber(finalNumber);
+    if (!existing || existing.id === draft.id) break;
+    finalNumber = await nextAngebotNumber();
+  }
+  const updated = await updateInvoiceDraft(draftId, {
+    number: finalNumber,
+    current_step: 'confirm',
+  });
+  await buildAndPreviewAngebot(chatId, updated);
+}
+
+async function handleAngebotNumberManual(chatId: number, draftId: string): Promise<void> {
+  await updateInvoiceDraft(draftId, { current_step: 'number_manual' });
+  await sendMessage({
+    chatId,
+    text: 'Yeni numara? Format: YYYY-AN-NNN\nÖrnek: 2026-AN-051',
+  });
+}
+
+async function handleAngebotSave(chatId: number, draftId: string): Promise<void> {
+  await markInvoiceSent(draftId);
+  const d = await getInvoice(draftId);
+  await sendMessage({
+    chatId,
+    text: `💾 Angebot ${d?.number ?? draftId} kaydedildi.`,
+  });
+}
+
+async function handleAngebotRestart(chatId: number): Promise<void> {
+  await cancelActiveInvoiceDrafts(chatId);
+  await handleAngebotCommand(chatId);
+}
+
+async function handleAngebotDelete(chatId: number, draftId: string): Promise<void> {
+  await markInvoiceDeleted(draftId);
+  const d = await getInvoice(draftId);
+  await sendMessage({
+    chatId,
+    text: `🗑 ${d?.number ?? draftId} silindi.`,
+  });
+}
+
+async function handleAngebotSendMail(chatId: number, invoiceId: string): Promise<void> {
+  const inv = await getInvoice(invoiceId);
+  if (!inv) {
+    await sendMessage({ chatId, text: `❓ Angebot bulunamadı: ${invoiceId}` });
+    return;
+  }
+  if (!inv.recipient) {
+    await sendMessage({
+      chatId,
+      text: '🔴 Angebot\'ta alıcı yok — mail atılamaz.',
+    });
+    return;
+  }
+
+  await sendMessage({
+    chatId,
+    text: '📧 Mail hazırlanıyor… (PDF eklenecek, AI Almanca metin yazıyor)',
+  });
+
+  try {
+    const brandKit = await getBrandKit();
+    const data = invoiceToData(inv);
+    const [pdfBuf, cover] = await Promise.all([
+      renderInvoicePdf(data),
+      generateInvoiceCoverLetter(data, brandKit),
+    ]);
+
+    await cancelActiveDrafts(chatId);
+
+    await sendMessage({
+      chatId,
+      text: 'Müşterinin email adresini yaz (sadece adres):',
+    });
+    await createDraft({
+      to_email: 'pending@angebot.local',
+      subject: cover.subject,
+      body: cover.body,
+      instruction: `__ANGEBOT_PENDING__:${inv.id}`,
+      telegram_chat_id: chatId,
+      status: 'awaiting_regen',
+      attachments: [
+        {
+          filename: `Angebot_${inv.number}.pdf`,
+          mime: 'application/pdf',
+          base64: pdfBuf.toString('base64'),
+        },
+      ],
+    });
+  } catch (err) {
+    await notifyError(chatId, err);
+  }
+}
+
+async function handleAngebotConvert(chatId: number, draftId: string): Promise<void> {
+  const newNumber = await nextInvoiceNumber();
+  const invoice = await convertAngebotToInvoice(draftId, newNumber);
+  const angebot = await getInvoice(draftId);
+  await sendMessage({
+    chatId,
+    text: `✅ Angebot #${angebot?.number ?? draftId} → Rechnung #${invoice.number} dönüştürüldü.\n\n/fatura ile devam edebilirsin.`,
+  });
 }
 
 // ───── Haftalik Plan Handlers ─────
@@ -3743,8 +4215,18 @@ async function handleCommand(
     return;
   }
 
+  if (trimmed === '/faturasil') {
+    await handleDeleteAllInvoices(chatId);
+    return;
+  }
+
   if (trimmed.startsWith('/fatura')) {
     await handleFaturaCommand(chatId);
+    return;
+  }
+
+  if (trimmed === '/angebot') {
+    await handleAngebotCommand(chatId);
     return;
   }
 
@@ -3840,11 +4322,16 @@ async function handleCommand(
     return;
   }
 
-  // Active invoice draft: drive the multi-step state machine first.
+  // Active invoice/angebot draft: drive the multi-step state machine first.
   const activeInvoice = await getActiveInvoiceDraft(chatId);
   if (activeInvoice && activeInvoice.status === 'collecting') {
-    const handled = await handleInvoiceText(chatId, activeInvoice, trimmed);
-    if (handled) return;
+    if (activeInvoice.type === 'angebot') {
+      const handled = await handleAngebotText(chatId, activeInvoice, trimmed);
+      if (handled) return;
+    } else {
+      const handled = await handleInvoiceText(chatId, activeInvoice, trimmed);
+      if (handled) return;
+    }
   }
 
   // Active ads draft: drive the URL / budget collection steps.
@@ -3890,6 +4377,48 @@ async function handleCommand(
             listIds: emailListIds(),
           });
         } catch { /* Brevo failure shouldn't block invoice sending */ }
+      }
+
+      const sent = await sendMessage({
+        chatId,
+        text: formatMailPreview(updated),
+        replyMarkup: mailPreviewKeyboard(updated.id),
+      });
+      await updateDraft(updated.id, {
+        telegram_preview_msg_id: sent.message_id,
+      });
+      return;
+    }
+    if (activeDraft.instruction.startsWith('__ANGEBOT_PENDING__:')) {
+      const looksLikeEmail = /[\w.+-]+@[\w-]+\.[\w.-]+/.test(trimmed);
+      if (!looksLikeEmail) {
+        await sendMessage({
+          chatId,
+          text: '⚠️ Geçerli bir email adresi yaz (sadece adres):',
+        });
+        return;
+      }
+      const recipientEmail = trimmed.trim();
+      const updated = await updateDraft(activeDraft.id, {
+        to_email: recipientEmail,
+        instruction: '',
+        status: 'drafting',
+      });
+
+      // Auto-add to Brevo contact list (don't block on failure)
+      const angebotId = activeDraft.instruction.split(':')[1];
+      if (angebotId) {
+        try {
+          const angebot = await getInvoice(angebotId);
+          await createContact({
+            email: recipientEmail,
+            attributes: {
+              NAME: angebot?.recipient?.name ?? '',
+              COMPANY: angebot?.recipient?.company ?? '',
+            },
+            listIds: emailListIds(),
+          });
+        } catch { /* Brevo failure shouldn't block angebot sending */ }
       }
 
       const sent = await sendMessage({
@@ -3991,10 +4520,20 @@ async function handleCallback(
       await handleAnzahlungAdd(chatId, postId);
     } else if (action === 'inv_anzahlung_skip' && postId) {
       await handleAnzahlungSkip(chatId, postId);
-    } else if (action === 'inv_item_more' && postId) {
-      await handleInvoiceItemMore(chatId, postId);
-    } else if (action === 'inv_no_more_items' && postId) {
-      await handleInvoiceNoMoreItems(chatId, postId);
+    } else if ((action === 'inv_item_more' || action === 'ang_item_more') && postId) {
+      const d = await getInvoice(postId);
+      if (d?.type === 'angebot') {
+        await handleAngebotItemMore(chatId, postId);
+      } else {
+        await handleInvoiceItemMore(chatId, postId);
+      }
+    } else if ((action === 'inv_no_more_items' || action === 'ang_no_more_items') && postId) {
+      const d = await getInvoice(postId);
+      if (d?.type === 'angebot') {
+        await handleAngebotNoMoreItems(chatId, postId);
+      } else {
+        await handleInvoiceNoMoreItems(chatId, postId);
+      }
     } else if (action === 'inv_fp' && postId) {
       const key = rest[0] ?? '';
       await handleInvoiceFooterPreset(chatId, postId, key);
@@ -4014,6 +4553,27 @@ async function handleCallback(
       await handleInvoiceDelete(chatId, postId);
     } else if (action === 'inv_send_mail' && postId) {
       await handleInvoiceSendMail(chatId, postId);
+    } else if (action === 'ang_fp' && postId) {
+      const key = rest[0] ?? '';
+      await handleAngebotFooterPreset(chatId, postId, key);
+    } else if (action === 'ang_footer_manual' && postId) {
+      await handleAngebotFooterManual(chatId, postId);
+    } else if (action === 'ang_footer_skip' && postId) {
+      await handleAngebotFooterSkip(chatId, postId);
+    } else if (action === 'ang_number_auto' && postId) {
+      await handleAngebotNumberAuto(chatId, postId);
+    } else if (action === 'ang_number_manual' && postId) {
+      await handleAngebotNumberManual(chatId, postId);
+    } else if (action === 'ang_save' && postId) {
+      await handleAngebotSave(chatId, postId);
+    } else if (action === 'ang_restart') {
+      await handleAngebotRestart(chatId);
+    } else if (action === 'ang_delete' && postId) {
+      await handleAngebotDelete(chatId, postId);
+    } else if (action === 'ang_send_mail' && postId) {
+      await handleAngebotSendMail(chatId, postId);
+    } else if (action === 'ang_convert' && postId) {
+      await handleAngebotConvert(chatId, postId);
     } else if (action === 'kz_suggest' && postId) {
       await handleKzSuggest(chatId, messageId, postId);
     } else if (action === 'kz_alts' && postId) {
