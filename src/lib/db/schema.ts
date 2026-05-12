@@ -170,6 +170,24 @@ export const emailPreferences = pgTable('email_preferences', {
   updated_at: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
+// ── Ads Preferences (singleton, id=1) ──
+export const adsPreferences = pgTable('ads_preferences', {
+  id: integer('id').primaryKey().default(1),
+  daily_limit_cents: integer('daily_limit_cents').notNull().default(5000),
+  monthly_limit_cents: integer('monthly_limit_cents').notNull().default(100000),
+  default_location_id: bigint('default_location_id', { mode: 'number' })
+    .notNull()
+    .default(2276), // Germany
+  default_language_code: text('default_language_code').notNull().default('de'),
+  notify_anomaly_threshold_pct: integer('notify_anomaly_threshold_pct')
+    .notNull()
+    .default(300),
+  report_chat_id: bigint('report_chat_id', { mode: 'number' }),
+  updated_at: timestamp('updated_at', { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+});
+
 // ── Email Campaigns (history for dedup) ──
 export const emailCampaigns = pgTable('email_campaigns', {
   id: uuid('id').primaryKey().defaultRandom(),
