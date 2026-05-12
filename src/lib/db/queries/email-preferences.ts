@@ -24,9 +24,13 @@ export async function getEmailPreferences(): Promise<{ theme: string }> {
   return created;
 }
 
-export async function updateEmailPreferences(theme: string): Promise<void> {
-  await db
+export async function updateEmailPreferences(theme: ThemeId): Promise<void> {
+  const [updated] = await db
     .update(emailPreferences)
-    .set({ theme, updatedAt: new Date() })
-    .where(eq(emailPreferences.id, 1));
+    .set({ theme, updated_at: new Date() })
+    .where(eq(emailPreferences.id, 1))
+    .returning();
+  if (!updated) {
+    throw new Error('Email preferences row missing — call getEmailPreferences() first to seed');
+  }
 }

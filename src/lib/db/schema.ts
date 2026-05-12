@@ -167,7 +167,7 @@ export const brandKit = pgTable('brand_kit', {
 export const emailPreferences = pgTable('email_preferences', {
   id: integer('id').primaryKey().default(1),
   theme: text('theme').notNull().default('dark_steel'),
-  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow(),
+  updated_at: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
 // ───── Secrets (encrypted with pgcrypto) ─────
