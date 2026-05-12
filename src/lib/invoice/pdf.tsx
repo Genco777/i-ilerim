@@ -23,28 +23,28 @@ const COLORS = {
 
 const styles = StyleSheet.create({
   page: {
-    paddingTop: 48,
-    paddingBottom: 64,
-    paddingHorizontal: 56,
+    paddingTop: 40,
+    paddingBottom: 48,
+    paddingHorizontal: 52,
     fontFamily: 'Helvetica',
-    fontSize: 10,
+    fontSize: 9,
     color: COLORS.ink,
-    lineHeight: 1.4,
+    lineHeight: 1.35,
   },
   header: {
     flexDirection: 'row',
     alignItems: 'flex-start',
     justifyContent: 'space-between',
-    marginBottom: 24,
+    marginBottom: 18,
   },
-  logo: { width: 90, height: 90, objectFit: 'contain' },
+  logo: { width: 80, height: 80, objectFit: 'contain' },
   headerRight: {
-    fontSize: 14,
+    fontSize: 12,
     fontFamily: 'Helvetica',
     letterSpacing: 1,
     color: COLORS.ink,
     textAlign: 'right',
-    marginTop: 24,
+    marginTop: 18,
   },
   topRow: {
     flexDirection: 'row',
@@ -54,36 +54,36 @@ const styles = StyleSheet.create({
   block: { flexDirection: 'column' },
   label: {
     fontFamily: 'Helvetica-Bold',
-    fontSize: 9,
+    fontSize: 8,
     letterSpacing: 1,
-    marginBottom: 2,
+    marginBottom: 1,
   },
-  value: { fontSize: 9, color: COLORS.ink, marginBottom: 1 },
+  value: { fontSize: 8, color: COLORS.ink, marginBottom: 1 },
   bigType: {
     fontFamily: 'Helvetica-Bold',
-    fontSize: 20,
+    fontSize: 18,
+    letterSpacing: 1.5,
+    textAlign: 'right',
+    lineHeight: 1.2,
+    marginBottom: 4,
+  },
+  bigNumber: {
+    fontFamily: 'Helvetica-Bold',
+    fontSize: 18,
     letterSpacing: 1.5,
     textAlign: 'right',
     lineHeight: 1.2,
     marginBottom: 6,
   },
-  bigNumber: {
-    fontFamily: 'Helvetica-Bold',
-    fontSize: 20,
-    letterSpacing: 1.5,
-    textAlign: 'right',
-    lineHeight: 1.2,
-    marginBottom: 8,
-  },
-  recipient: { marginTop: 32 },
+  recipient: { marginTop: 24 },
   hr: {
     borderBottomWidth: 1,
     borderBottomColor: COLORS.rule,
-    marginVertical: 12,
+    marginVertical: 8,
   },
   tableHead: {
     flexDirection: 'row',
-    paddingVertical: 8,
+    paddingVertical: 5,
   },
   tableCol1: { flex: 4, fontFamily: 'Helvetica-Bold', letterSpacing: 1 },
   tableCol2: {
@@ -104,10 +104,10 @@ const styles = StyleSheet.create({
     letterSpacing: 1,
     textAlign: 'right',
   },
-  tableRow: { flexDirection: 'row', paddingVertical: 6 },
-  tableCellL: { flex: 4, fontSize: 9 },
-  tableCellR: { flex: 1, fontSize: 9, textAlign: 'right' },
-  totalsBlock: { marginTop: 12, alignItems: 'flex-end' },
+  tableRow: { flexDirection: 'row', paddingVertical: 4 },
+  tableCellL: { flex: 4, fontSize: 8 },
+  tableCellR: { flex: 1, fontSize: 8, textAlign: 'right' },
+  totalsBlock: { marginTop: 8, alignItems: 'flex-end' },
   totalsRow: {
     flexDirection: 'row',
     justifyContent: 'flex-end',
@@ -118,65 +118,65 @@ const styles = StyleSheet.create({
     flex: 6,
     textAlign: 'right',
     paddingRight: 12,
-    fontSize: 9,
+    fontSize: 8,
   },
-  totalsValue: { width: 80, textAlign: 'right', fontSize: 9 },
+  totalsValue: { width: 80, textAlign: 'right', fontSize: 8 },
   bigTotal: {
     flexDirection: 'row',
     justifyContent: 'flex-end',
-    marginTop: 8,
-    paddingVertical: 6,
+    marginTop: 4,
+    paddingVertical: 3,
   },
   bigTotalLabel: {
     fontFamily: 'Helvetica-Bold',
-    fontSize: 11,
+    fontSize: 10,
     letterSpacing: 1.2,
     textAlign: 'right',
     paddingRight: 16,
   },
   bigTotalValue: {
     fontFamily: 'Helvetica-Bold',
-    fontSize: 11,
+    fontSize: 10,
     width: 100,
     textAlign: 'right',
   },
   noteText: {
-    marginTop: 24,
+    marginTop: 16,
     textAlign: 'center',
-    fontSize: 10,
+    fontSize: 9,
     color: COLORS.muted,
   },
-  payInfo: { marginTop: 56 },
+  payInfo: { marginTop: 32 },
   payTitle: {
     fontFamily: 'Helvetica-Bold',
-    fontSize: 9,
+    fontSize: 8,
     letterSpacing: 1,
-    marginBottom: 6,
+    marginBottom: 4,
   },
-  payRow: { flexDirection: 'row', marginBottom: 2 },
-  payLabel: { width: 100, fontSize: 9 },
-  payValue: { fontSize: 9 },
-  conditions: { marginTop: 28 },
+  payRow: { flexDirection: 'row', marginBottom: 1 },
+  payLabel: { width: 100, fontSize: 8 },
+  payValue: { fontSize: 8 },
+  conditions: { marginTop: 20 },
   conditionsTitle: {
     fontFamily: 'Helvetica-Bold',
-    fontSize: 9,
+    fontSize: 8,
     letterSpacing: 1,
-    marginBottom: 6,
+    marginBottom: 4,
   },
-  conditionsText: { fontSize: 8, lineHeight: 1.5, color: COLORS.ink },
-  conditionsItem: { flexDirection: 'row', marginBottom: 2 },
-  conditionsBullet: { width: 10, fontSize: 8 },
-  conditionsBody: { flex: 1, fontSize: 8 },
+  conditionsText: { fontSize: 7, lineHeight: 1.4, color: COLORS.ink },
+  conditionsItem: { flexDirection: 'row', marginBottom: 1 },
+  conditionsBullet: { width: 10, fontSize: 7 },
+  conditionsBody: { flex: 1, fontSize: 7 },
   footer: {
     position: 'absolute',
-    bottom: 24,
-    left: 56,
-    right: 56,
+    bottom: 20,
+    left: 52,
+    right: 52,
     borderTopWidth: 1,
     borderTopColor: COLORS.rule,
-    paddingTop: 8,
+    paddingTop: 6,
     textAlign: 'center',
-    fontSize: 9,
+    fontSize: 8,
   },
 });
 
@@ -206,13 +206,13 @@ function InvoicePdf({ data }: InvoicePdfProps): React.JSX.Element {
         <View style={styles.topRow}>
           <View style={styles.block}>
             <View style={{ flexDirection: 'row' }}>
-              <Text style={[styles.label, { width: 140 }]}>
+              <Text style={[styles.label, { width: 130 }]}>
                 LEISTUNGSERBRINGER:
               </Text>
               <View>
                 <Text style={styles.value}>Fly &amp; Froth Grafik- &amp; Webdesign</Text>
                 <Text style={styles.value}>Röderweg 19, 61184 Karben</Text>
-                <Text style={[styles.value, { marginTop: 8 }]}>
+                <Text style={[styles.value, { marginTop: 6 }]}>
                   Telefon: +49 163 1474127
                 </Text>
                 <Text style={styles.value}>E-Mail: info@fly-froth.com</Text>
@@ -221,13 +221,13 @@ function InvoicePdf({ data }: InvoicePdfProps): React.JSX.Element {
             </View>
           </View>
           <View>
-            <Text style={[styles.bigType, data.type === 'angebot' ? { fontSize: 16, letterSpacing: 1 } : {}]}>{INVOICE_TYPE_LABEL[data.type]}</Text>
-            <Text style={[styles.bigNumber, data.type === 'angebot' ? { fontSize: 16, letterSpacing: 1 } : {}]}>#{data.number}</Text>
+            <Text style={[styles.bigType, data.type === 'angebot' ? { fontSize: 14, letterSpacing: 1 } : {}]}>{INVOICE_TYPE_LABEL[data.type]}</Text>
+            <Text style={[styles.bigNumber, data.type === 'angebot' ? { fontSize: 14, letterSpacing: 1 } : {}]}>#{data.number}</Text>
           </View>
         </View>
 
         <View style={[styles.recipient, { flexDirection: 'row' }]}>
-          <Text style={[styles.label, { width: 140 }]}>RECHNUNG AN:</Text>
+          <Text style={[styles.label, { width: 130 }]}>RECHNUNG AN:</Text>
           <View>
             {data.recipient.company ? (
               <Text style={styles.value}>{data.recipient.company}</Text>
@@ -238,14 +238,14 @@ function InvoicePdf({ data }: InvoicePdfProps): React.JSX.Element {
           </View>
         </View>
 
-        <View style={[{ flexDirection: 'row', marginTop: 12 }]}>
-          <Text style={[styles.label, { width: 140 }]}>DATUM:</Text>
+        <View style={[{ flexDirection: 'row', marginTop: 8 }]}>
+          <Text style={[styles.label, { width: 130 }]}>DATUM:</Text>
           <Text style={styles.value}>{data.date}</Text>
         </View>
 
         {data.validUntil ? (
-          <View style={[{ flexDirection: 'row', marginTop: 4 }]}>
-            <Text style={[styles.label, { width: 140 }]}>GÜLTIG BIS:</Text>
+          <View style={[{ flexDirection: 'row', marginTop: 2 }]}>
+            <Text style={[styles.label, { width: 130 }]}>GÜLTIG BIS:</Text>
             <Text style={styles.value}>{data.validUntil}</Text>
           </View>
         ) : null}
