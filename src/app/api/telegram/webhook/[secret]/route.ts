@@ -1801,7 +1801,7 @@ const FOOTER_PRESETS: Record<string, string> = {
 };
 
 const ANGEBOT_FOOTER_PRESETS: Record<string, string> = {
-  ap1: 'Angebot freibleibend. Preise zzgl. MwSt.',
+  ap1: 'Angebot freibleibend.',
 };
 
 function validUntilFromToday(plusDays: number): string {

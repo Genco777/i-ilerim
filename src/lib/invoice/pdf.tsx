@@ -266,7 +266,7 @@ function InvoicePdf({ data }: InvoicePdfProps): React.JSX.Element {
 
         <View style={styles.totalsBlock}>
           <View style={styles.totalsRow}>
-            <Text style={styles.totalsLabel}>Zwischensumme (netto)</Text>
+            <Text style={styles.totalsLabel}>Zwischensumme</Text>
             <Text style={styles.totalsValue}>{formatCents(data.totalCents)}</Text>
           </View>
           {data.type !== 'angebot' ? (
@@ -279,7 +279,7 @@ function InvoicePdf({ data }: InvoicePdfProps): React.JSX.Element {
           ) : null}
           <View style={{ borderBottomWidth: 1, borderBottomColor: COLORS.rule, width: '60%', marginTop: 4 }} />
           <View style={styles.bigTotal}>
-            <Text style={styles.bigTotalLabel}>GESAMTBETRAG (BRUTTO)</Text>
+            <Text style={styles.bigTotalLabel}>GESAMTBETRAG</Text>
             <Text style={styles.bigTotalValue}>
               {formatCents(data.totalCents)}€
             </Text>
