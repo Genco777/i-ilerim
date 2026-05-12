@@ -3836,7 +3836,15 @@ export async function POST(
       update.message.text,
     );
   } else if (update.callback_query) {
-    await handleCallback(update.callback_query);
+    try {
+      await handleCallback(update.callback_query);
+    } catch (err) {
+      console.error('[callback] Unhandled error:', err);
+      // Try to answer callback even on error so Telegram stops retrying
+      try {
+        await answerCallbackQuery({ callbackQueryId: update.callback_query.id });
+      } catch { /* ok */ }
+    }
   }
 
   return NextResponse.json({ ok: true });
