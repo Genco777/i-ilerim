@@ -1,4 +1,5 @@
 import { sendMail } from '@/lib/mail/smtp';
+import { wrapMailHtml } from '@/lib/email/mail-html';
 import type { KleinanzeigenThread } from '@/types';
 
 export async function sendKleinanzeigenReply(
@@ -12,6 +13,7 @@ export async function sendKleinanzeigenReply(
     to: thread.sender_address,
     subject,
     body: replyText,
+    html: wrapMailHtml({ subject, bodyText: replyText }),
     attachments: thread.attachments ?? [],
     ...(thread.email_message_id
       ? { inReplyTo: thread.email_message_id, references: thread.email_message_id }

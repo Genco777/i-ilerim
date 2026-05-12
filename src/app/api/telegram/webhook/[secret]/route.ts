@@ -104,6 +104,7 @@ import { weeklyDigest, portfolioNewsletter } from '@/lib/email/templates';
 import type { DigestItem, PortfolioItem } from '@/lib/email/templates';
 import { wrapInvoiceHtml } from '@/lib/email/invoice-email';
 import { wrapAngebotHtml } from '@/lib/email/angebot-email';
+import { wrapMailHtml } from '@/lib/email/mail-html';
 import { generateEmailContent } from '@/lib/email/generate-content';
 import type { EmailContent } from '@/lib/email/generate-content';
 import { getLists, createContact, sendEmail, getAccount, createCampaign, sendCampaignNow } from '@/lib/email/brevo';
@@ -1542,7 +1543,7 @@ async function handleMailSend(
       ? isAngebot
         ? wrapAngebotHtml({ subject: draft.subject, bodyText: draft.body })
         : wrapInvoiceHtml({ subject: draft.subject, bodyText: draft.body })
-      : undefined;
+      : wrapMailHtml({ subject: draft.subject, bodyText: draft.body });
     const result = await sendMail({
       to: draft.to_email,
       subject: draft.subject,
