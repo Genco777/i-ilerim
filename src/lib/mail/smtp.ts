@@ -24,6 +24,7 @@ export interface SendMailOptions {
   to: string;
   subject: string;
   body: string;
+  html?: string;
   attachments?: { filename: string; mime: string; base64: string }[];
   inReplyTo?: string;
   references?: string;
@@ -40,6 +41,7 @@ export async function sendMail(
     to: opts.to,
     subject: opts.subject,
     text: opts.body,
+    ...(opts.html ? { html: opts.html } : {}),
     attachments: (opts.attachments ?? []).map((a) => ({
       filename: a.filename,
       content: Buffer.from(a.base64, 'base64'),
