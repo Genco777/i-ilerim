@@ -172,7 +172,7 @@ const styles = StyleSheet.create({
 let cachedLogo: Buffer | null = null;
 function loadLogo(): Buffer {
   if (cachedLogo) return cachedLogo;
-  const path = join(process.cwd(), 'public', 'branding', 'logo-dark.png');
+  const path = join(process.cwd(), 'public', 'branding', 'logo-navy.png');
   cachedLogo = readFileSync(path);
   return cachedLogo;
 }
@@ -210,8 +210,8 @@ function InvoicePdf({ data }: InvoicePdfProps): React.JSX.Element {
             </View>
           </View>
           <View>
-            <Text style={styles.bigType}>{INVOICE_TYPE_LABEL[data.type]}</Text>
-            <Text style={styles.bigNumber}>#{data.number}</Text>
+            <Text style={[styles.bigType, data.type === 'angebot' ? { fontSize: 16, letterSpacing: 1 } : {}]}>{INVOICE_TYPE_LABEL[data.type]}</Text>
+            <Text style={[styles.bigNumber, data.type === 'angebot' ? { fontSize: 16, letterSpacing: 1 } : {}]}>#{data.number}</Text>
           </View>
         </View>
 
@@ -231,6 +231,13 @@ function InvoicePdf({ data }: InvoicePdfProps): React.JSX.Element {
           <Text style={[styles.label, { width: 140 }]}>DATUM:</Text>
           <Text style={styles.value}>{data.date}</Text>
         </View>
+
+        {data.validUntil ? (
+          <View style={[{ flexDirection: 'row', marginTop: 4 }]}>
+            <Text style={[styles.label, { width: 140 }]}>GÜLTIG BIS:</Text>
+            <Text style={styles.value}>{data.validUntil}</Text>
+          </View>
+        ) : null}
 
         <View style={styles.hr} />
 
@@ -262,12 +269,14 @@ function InvoicePdf({ data }: InvoicePdfProps): React.JSX.Element {
             <Text style={styles.totalsLabel}>Zwischensumme (netto)</Text>
             <Text style={styles.totalsValue}>{formatCents(data.totalCents)}</Text>
           </View>
-          <View style={styles.totalsRow}>
-            <Text style={styles.totalsLabel}>
-              Gemäß §19 UStG wird keine Umsatzsteuer berechnet.
-            </Text>
-            <Text style={styles.totalsValue}>0</Text>
-          </View>
+          {data.type !== 'angebot' ? (
+            <View style={styles.totalsRow}>
+              <Text style={styles.totalsLabel}>
+                Gemäß §19 UStG wird keine Umsatzsteuer berechnet.
+              </Text>
+              <Text style={styles.totalsValue}>0</Text>
+            </View>
+          ) : null}
           <View style={{ borderBottomWidth: 1, borderBottomColor: COLORS.rule, width: '60%', marginTop: 4 }} />
           <View style={styles.bigTotal}>
             <Text style={styles.bigTotalLabel}>GESAMTBETRAG (BRUTTO)</Text>
