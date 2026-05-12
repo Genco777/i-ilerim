@@ -2713,10 +2713,10 @@ async function handleEmailWizardCallback(
   messageId: number,
   data: string,
 ): Promise<void> {
-  const state = getWizardState(chatId);
+  const state = await getWizardState(chatId);
 
   if (data === 'ew:cancel') {
-    clearWizardState(chatId);
+    await clearWizardState(chatId);
     await editMessageText({
       chatId, messageId,
       text: '❌ Email kampanyası iptal edildi.',
@@ -3103,7 +3103,7 @@ async function handleWizardContent(
 
 // Handle text input for editing (called from handleCommand when wizard is in edit mode)
 async function handleWizardEditInput(chatId: number, text: string): Promise<void> {
-  const state = getWizardState(chatId);
+  const state = await getWizardState(chatId);
   if (!state || state.step !== 'content') return;
 
   const field = (state as any)._editingField as string | undefined;
@@ -3337,7 +3337,7 @@ async function handleCommand(
   const trimmed = text.trim();
 
   // Intercept: wizard content editing
-  const wizardState = getWizardState(chatId);
+  const wizardState = await getWizardState(chatId);
   if (wizardState && wizardState.step === 'content' && (wizardState as any)._editingField) {
     await handleWizardEditInput(chatId, trimmed);
     return;
