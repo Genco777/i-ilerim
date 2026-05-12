@@ -1,5 +1,5 @@
 import Anthropic from '@anthropic-ai/sdk';
-import type { PortfolioItemWizard } from './wizard-cache';
+import type { CampaignConcept, PortfolioItemWizard } from './wizard-cache';
 import type { ThemeId } from './themes';
 
 const MODEL = 'claude-sonnet-4-6';
@@ -200,4 +200,75 @@ export async function generateReactivationContent(
       parsed.bodyText ??
       `Hallo ${clientName}, dein ${lastProject} ist schon eine Weile her. Wir haben uns weiterentwickelt und würden uns freuen, wieder von dir zu hören.`,
   };
+}
+
+// ── Concept Generation ──
+
+const FIRMEN_INFO = `Fly & Froth — Grafik & Webdesign Studio, Karben (Rhein-Main)
+Hizmetler: Webdesign (499€+), Logodesign (79€+), Druckdesign/Flyer/Visitenkarten (29€+),
+Google Business Profil (99€), WhatsApp Business (49€), Online-Terminbuchung (149€), Online-Menü (79€)
+USP: 1000+ proje, 5.0 Google (22 yorum), Festpreisgarantie, Express 24h, tek muhatap, %100 memnuniyet
+Hedef kitle: Küçük/orta işletmeler, gastronomi, sağlık, el sanatları, Rhein-Main ve Almanya geneli
+Website: fly-froth.com | Instagram: @fly.froth`;
+
+export async function generateConcepts(
+  campaignType: 'digest' | 'reactivation',
+  pastSubjects: string[],
+  context?: { clientName?: string; lastProject?: string },
+): Promise<CampaignConcept[]> {
+  const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+
+  const pastBlock = pastSubjects.length > 0
+    ? `Geçmiş kampanya konuları (BUNLARI ASLA tekrarlama):\n${pastSubjects.map((s, i) => `${i + 1}. "${s}"`).join('\n')}`
+    : 'Henüz geçmiş kampanya yok.';
+
+  const contextBlock = campaignType === 'reactivation' && context?.clientName
+    ? `Bu bir REAKTİVASYON kampanyası.\nEski müşteri: ${context.clientName}\nSon projesi: ${context.lastProject ?? 'bilinmiyor'}\nKişisel, samimi ama profesyonel ol.`
+    : 'Bu bir GENEL BÜLTEN. Mevcut mailing listindeki herkese gidecek.';
+
+  const system = [
+    'Sen Fly & Froth için email pazarlama konseptleri üreten bir stratejistsin.',
+    '',
+    'FİRMA BİLGİSİ:',
+    FIRMEN_INFO,
+    '',
+    'REFERANS: Premium tasarım ajanslarının bülten stratejilerini referans al.',
+    'Satış odaklı, profesyonel, özgün. Genel "tasarım ajansı bülteni" gibi olmasın.',
+    '',
+    pastBlock,
+    '',
+    contextBlock,
+    '',
+    '2 FARKLI konsept üret. Her biri FARKLI bir açıdan yaklaşsın.',
+    'Örnek açılar: portfolyo vitrini, sektörel trend/ipucu, başarı hikayesi/müşteri yolculuğu, hizmet derinlemesine, sezonluk kampanya, dijital dönüşüm tavsiyesi',
+    'Her konsept satışa yönlendirmeli.',
+    '',
+    'JSON formatında dön:',
+    '{',
+    '  "concepts": [',
+    '    {',
+    '      "title": "Konsept başlığı (butonda gösterilecek, max 40 karakter)",',
+    '      "angle": "Satış açısı (1 cümle)",',
+    '      "subjectLine": "Önerilen konu satırı (max 60 karakter)",',
+    '      "introText": "2-3 cümle giriş metni",',
+    '      "closingText": "1 cümle kapanış + CTA",',
+    '      "portfolioFocus": ["hizmet1", "hizmet2"]',
+    '    }',
+    '  ]',
+    '}',
+  ].join('\n');
+
+  const raw = await client.messages.create({
+    model: MODEL,
+    max_tokens: 2048,
+    system,
+    messages: [{ role: 'user', content: '2 email kampanya konsepti üret.' }],
+  }).then((r) => {
+    const block = r.content[0];
+    if (!block || block.type !== 'text') throw new Error('No text from Claude');
+    return block.text;
+  });
+
+  const parsed = JSON.parse(raw);
+  return (parsed.concepts ?? []).slice(0, 2);
 }
