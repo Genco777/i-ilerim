@@ -229,3 +229,86 @@ export function weeklyDigest(
     year,
   );
 }
+
+// ── New theme-based exports ──
+
+import { renderTheme, type ThemeContent, type ThemeId, type SectionBlock, THEME_META, DEFAULT_THEME } from './themes/index';
+
+export { type ThemeId, type ThemeContent, type SectionBlock, THEME_META, DEFAULT_THEME } from './themes/index';
+
+export function renderPortfolioNewsletter(
+  items: PortfolioItem[],
+  themeId: ThemeId,
+  introText?: string,
+  closingText?: string,
+): string {
+  const sections: SectionBlock[] = items.map((item) => ({
+    type: 'portfolio-card' as const,
+    title: item.headline,
+    subtitle: item.serviceType,
+    bodyHtml: item.description,
+    ctaLabel: item.cta,
+    ctaUrl: 'https://fly-froth.com/kontakt',
+  }));
+
+  const content: ThemeContent = {
+    headline: 'Neue Arbeiten aus dem Studio',
+    introHtml: introText ?? 'Frische Design-Projekte von Fly & Froth — direkt aus Karben, Rhein-Main.',
+    sections,
+    closingHtml: closingText ?? 'Alle Angebote mit <strong>Express 24h</strong> verfügbar.',
+    ctaLabel: 'Zur Website',
+    ctaUrl: 'https://fly-froth.com',
+  };
+
+  return renderTheme(themeId, content);
+}
+
+export function renderWeeklyDigest(
+  items: DigestItem[],
+  week: number,
+  themeId: ThemeId,
+  introText?: string,
+): string {
+  const year = new Date().getFullYear();
+
+  const pillarLabels: Record<string, string> = {
+    vitrine: 'Portfolio',
+    prozess: 'Behind the Scenes',
+    insight: 'Design-Wissen',
+    lokal: 'Rhein-Main Lokal',
+    reel: 'Video',
+  };
+
+  const sections: SectionBlock[] = [];
+  const byPillar: Record<string, DigestItem[]> = {};
+  for (const item of items) {
+    const bucket = (byPillar[item.pillar] ??= []);
+    bucket.push(item);
+  }
+
+  for (const [pillar, entries] of Object.entries(byPillar)) {
+    sections.push({
+      type: 'text',
+      bodyHtml: `<strong>${pillarLabels[pillar] ?? pillar}</strong>`,
+    });
+    for (const e of entries) {
+      const icon = e.channel === 'story' ? '📖' : e.channel === 'reel' ? '🎬' : '📱';
+      sections.push({
+        type: 'digest-item',
+        subtitle: icon,
+        bodyHtml: e.topic,
+      });
+    }
+  }
+
+  const content: ThemeContent = {
+    headline: 'Dein Weekly Digest',
+    introHtml: introText ?? `Kalenderwoche ${week} — ${year}. Das sind unsere Themen diese Woche.`,
+    sections,
+    closingHtml: 'Folge uns auf Instagram <strong>@fly.froth</strong> für tägliche Updates.',
+    ctaLabel: 'Zur Website',
+    ctaUrl: 'https://fly-froth.com',
+  };
+
+  return renderTheme(themeId, content);
+}
