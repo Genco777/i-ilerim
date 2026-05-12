@@ -2394,7 +2394,7 @@ async function handleAngebotText(
     });
     await sendMessage({
       chatId,
-      text: `Tarih: ${today}\n\nGültig bis (son geçerlilik)?\nVarsayılan: ${vu}\n\n"✓" ya da DD.MM.YYYY yaz:`,
+      text: `Tarih: ${today}\n\nGültig bis (son geçerlilik)?\nVarsayılan: ${vu}\n\n"Y" ya da DD.MM.YYYY yaz:`,
     });
     return true;
   }
@@ -2402,14 +2402,14 @@ async function handleAngebotText(
   // --- valid_until ---
   if (step === 'valid_until') {
     let vu: string;
-    if (text.trim() === '✓' || text.trim().toLowerCase() === 'ok') {
+    if (text.trim().toUpperCase() === 'Y' || text.trim().toLowerCase() === 'ok') {
       vu = validUntilFromToday(2);
     } else {
       const parsed = parseGermanDate(text);
       if (!parsed) {
         await sendMessage({
           chatId,
-          text: '⚠️ Tarih formatı yanlış. DD.MM.YYYY ya da "✓" yaz.',
+          text: '⚠️ Tarih formatı yanlış. DD.MM.YYYY ya da "Y" yaz.',
         });
         return true;
       }
