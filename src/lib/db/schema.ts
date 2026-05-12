@@ -100,6 +100,28 @@ export const slotStatus = pgEnum('slot_status', [
   'rejected',
 ]);
 
+export const adsCampaignType = pgEnum('ads_campaign_type', [
+  'search',
+  'pmax',
+  'display',
+  'retargeting',
+  'local',
+]);
+
+export const adsCampaignStatus = pgEnum('ads_campaign_status', [
+  'enabled',
+  'paused',
+  'removed',
+]);
+
+export const adsDraftStatus = pgEnum('ads_draft_status', [
+  'collecting',
+  'awaiting_approval',
+  'confirmed',
+  'cancelled',
+  'failed',
+]);
+
 export const contentChannel = pgEnum('content_channel', [
   'feed',
   'story',
@@ -187,6 +209,36 @@ export const adsPreferences = pgTable('ads_preferences', {
     .notNull()
     .defaultNow(),
 });
+
+export const adsCampaigns = pgTable(
+  'ads_campaigns',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    google_campaign_id: text('google_campaign_id').unique(),
+    name: text('name').notNull(),
+    type: adsCampaignType('type').notNull(),
+    status: adsCampaignStatus('status').notNull().default('paused'),
+    daily_budget_cents: integer('daily_budget_cents').notNull(),
+    target_url: text('target_url').notNull(),
+    conversion_action: text('conversion_action'),
+    start_date: text('start_date'),
+    end_date: text('end_date'),
+    created_via: text('created_via').notNull(),
+    telegram_chat_id: bigint('telegram_chat_id', { mode: 'number' }).notNull(),
+    created_at: timestamp('created_at', { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updated_at: timestamp('updated_at', { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => ({
+    chatStatusIdx: index('ads_campaigns_chat_status_idx').on(
+      t.telegram_chat_id,
+      t.status,
+    ),
+  }),
+);
 
 // ── Email Campaigns (history for dedup) ──
 export const emailCampaigns = pgTable('email_campaigns', {
