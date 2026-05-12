@@ -162,9 +162,30 @@ export function angebotPreviewKeyboard(
         { text: '🔄 Faturaya çevir', callback_data: `ang_convert:${angebotId}` },
       ],
       [
+        { text: '➕ Kalem ekle', callback_data: `ang_add_item:${angebotId}` },
+        { text: '➖ Kalem çıkar', callback_data: `ang_remove_item:${angebotId}` },
+      ],
+      [
         { text: '🔄 Yeniden başla', callback_data: `ang_restart:${angebotId}` },
         { text: '🗑 Sil', callback_data: `ang_delete:${angebotId}` },
       ],
+    ],
+  };
+}
+
+export function angebotRemoveItemKeyboard(
+  angebotId: string,
+  items: { description: string; unitPriceCents: number; quantity: number }[],
+): InlineKeyboardMarkup {
+  return {
+    inline_keyboard: [
+      ...items.map((it, i) => [
+        {
+          text: `🗑 ${it.description} (${it.quantity}×)`,
+          callback_data: `ang_item_remove:${angebotId}:${i}`,
+        },
+      ]),
+      [{ text: '↩ Geri', callback_data: `ang_back:${angebotId}` }],
     ],
   };
 }

@@ -161,6 +161,28 @@ export async function appendItem(
   return updated;
 }
 
+export async function removeItem(
+  id: string,
+  index: number,
+): Promise<Invoice> {
+  const current = await getInvoice(id);
+  if (!current) throw new Error(`Invoice ${id} not found`);
+  const items = (current.items ?? []) as InvoiceLineItem[];
+  if (index < 0 || index >= items.length) {
+    throw new Error(`Item index ${index} out of range`);
+  }
+  const removed = items[index]!;
+  const newItems = [...items.slice(0, index), ...items.slice(index + 1)];
+  const newTotal = (current.total_cents ?? 0) - removed.unitPriceCents * removed.quantity;
+  const [updated] = await db
+    .update(invoices)
+    .set({ items: JSON.stringify(newItems) as unknown as InvoiceLineItem[], total_cents: newTotal })
+    .where(eq(invoices.id, id))
+    .returning();
+  if (!updated) throw new Error(`Invoice ${id} not found`);
+  return updated;
+}
+
 export async function deleteAllInvoices(): Promise<number> {
   const rows = await db
     .update(invoices)

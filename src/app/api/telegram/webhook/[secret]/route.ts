@@ -28,6 +28,7 @@ import {
   angebotFooterKeyboard,
   angebotNumberKeyboard,
   angebotPreviewKeyboard,
+  angebotRemoveItemKeyboard,
 } from '@/lib/telegram/invoice-keyboard';
 import {
   cancelActiveDrafts as cancelActiveInvoiceDrafts,
@@ -36,6 +37,7 @@ import {
   getInvoice,
   updateDraft as updateInvoiceDraft,
   appendItem as appendInvoiceItem,
+  removeItem as removeInvoiceItem,
   setPendingItem as setInvoicePendingItem,
   setRecipient as setInvoiceRecipient,
   markPreview as markInvoicePreview,
@@ -2922,6 +2924,57 @@ async function handleAngebotSendMail(chatId: number, invoiceId: string): Promise
   }
 }
 
+async function handleAngebotAddItem(chatId: number, draftId: string): Promise<void> {
+  await updateInvoiceDraft(draftId, { status: 'collecting', current_step: 'item_description' });
+  await sendMessage({ chatId, text: 'Yeni kalemin açıklaması?' });
+}
+
+async function handleAngebotRemoveItem(chatId: number, draftId: string): Promise<void> {
+  const draft = await getInvoice(draftId);
+  if (!draft) {
+    await sendMessage({ chatId, text: '❓ Angebot bulunamadı.' });
+    return;
+  }
+  const items = (draft.items ?? []) as { description: string; unitPriceCents: number; quantity: number }[];
+  if (items.length === 0) {
+    await sendMessage({ chatId, text: 'Silinecek kalem yok.' });
+    return;
+  }
+  await sendMessage({
+    chatId,
+    text: 'Hangi kalemi silelim?',
+    replyMarkup: angebotRemoveItemKeyboard(draftId, items),
+  });
+}
+
+async function handleAngebotItemRemove(
+  chatId: number,
+  draftId: string,
+  index: number,
+): Promise<void> {
+  try {
+    await removeInvoiceItem(draftId, index);
+  } catch {
+    await sendMessage({ chatId, text: '⚠️ Kalem silinemedi, tekrar dene.' });
+    return;
+  }
+  const draft = await getInvoice(draftId);
+  if (!draft) {
+    await sendMessage({ chatId, text: '❓ Angebot kayboldu.' });
+    return;
+  }
+  await buildAndPreviewAngebot(chatId, draft);
+}
+
+async function handleAngebotBack(chatId: number, draftId: string): Promise<void> {
+  const draft = await getInvoice(draftId);
+  if (!draft) {
+    await sendMessage({ chatId, text: '❓ Angebot bulunamadı.' });
+    return;
+  }
+  await buildAndPreviewAngebot(chatId, draft);
+}
+
 async function handleAngebotConvert(chatId: number, draftId: string): Promise<void> {
   const angebot = await getInvoice(draftId);
   if (!angebot) {
@@ -4628,6 +4681,14 @@ async function handleCallback(
       await handleAngebotSendMail(chatId, postId);
     } else if (action === 'ang_convert' && postId) {
       await handleAngebotConvert(chatId, postId);
+    } else if (action === 'ang_add_item' && postId) {
+      await handleAngebotAddItem(chatId, postId);
+    } else if (action === 'ang_remove_item' && postId) {
+      await handleAngebotRemoveItem(chatId, postId);
+    } else if (action === 'ang_item_remove' && postId) {
+      await handleAngebotItemRemove(chatId, postId, parseInt(rest[0] ?? '0', 10));
+    } else if (action === 'ang_back' && postId) {
+      await handleAngebotBack(chatId, postId);
     } else if (action === 'kz_suggest' && postId) {
       await handleKzSuggest(chatId, messageId, postId);
     } else if (action === 'kz_alts' && postId) {
