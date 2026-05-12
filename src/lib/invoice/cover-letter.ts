@@ -60,6 +60,7 @@ function userPrompt(invoice: InvoiceData): string {
     rechnung: 'Rechnung',
     teilrechnung: 'Teilrechnung',
     schlussrechnung: 'Schlussrechnung',
+    angebot: 'Angebot',
   };
 
   return [
