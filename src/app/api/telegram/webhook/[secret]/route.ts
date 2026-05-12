@@ -1700,6 +1700,62 @@ async function handleMailReply(
   });
 }
 
+async function handleMailTranslate(
+  chatId: number,
+  inboxId: string,
+  callbackQueryId?: string,
+): Promise<void> {
+  const inbox = await getInboxById(inboxId);
+  if (!inbox) {
+    await sendMessage({ chatId, text: `❓ Mail bulunamadı: ${inboxId}` });
+    return;
+  }
+
+  const bodyText = (inbox as any).body_text ?? inbox.body_preview ?? '';
+  if (!bodyText.trim()) {
+    await answerCallbackQuery({ callbackQueryId: callbackQueryId ?? '', text: '⚠️ Bu mailde çevrilecek metin yok.' });
+    return;
+  }
+
+  if (callbackQueryId) {
+    try { await answerCallbackQuery({ callbackQueryId, text: '🌐 Çevriliyor…' }); } catch { /* ok */ }
+  }
+
+  const subject = inbox.subject ?? '';
+  const fromLine = inbox.from_name
+    ? `${inbox.from_name} <${inbox.from_email}>`
+    : inbox.from_email;
+
+  try {
+    const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+    const raw = await client.messages.create({
+      model: 'claude-sonnet-4-6',
+      max_tokens: 2048,
+      system: 'Du bist ein professioneller Übersetzer. Übersetze den folgenden Text ins Türkische. Behalte Formatierung und Ton bei. Gib NUR die Übersetzung zurück, keine Erklärungen.',
+      messages: [{ role: 'user', content: bodyText }],
+    }).then((r) => {
+      const block = r.content[0];
+      if (!block || block.type !== 'text') throw new Error('No text from Claude');
+      return block.text;
+    });
+
+    const text = [
+      `🌐 *Çeviri*`,
+      `Kimden: ${fromLine}`,
+      `Konu: ${subject}`,
+      '',
+      raw.slice(0, 3800),
+      '',
+      `_Orijinal mailin altındaki butonlarla cevap yazabilirsin._`,
+    ].join('\n');
+
+    await sendMessage({ chatId, text, parseMode: 'Markdown' });
+  } catch (err) {
+    console.error('handleMailTranslate error:', err);
+    await sendMessage({ chatId, text: '⚠️ Çeviri sırasında hata oluştu. Tekrar dene.' });
+  }
+}
+
 async function handleMailCancel(
   chatId: number,
   messageId: number,
@@ -3914,6 +3970,8 @@ async function handleCallback(
       await handleMailAttachPrompt(chatId, postId);
     } else if (action === 'mail_cancel' && postId) {
       await handleMailCancel(chatId, messageId, postId);
+    } else if (action === 'mail_translate' && postId) {
+      await handleMailTranslate(chatId, postId, query.id);
     } else if (action === 'mail_reply' && postId) {
       await handleMailReply(chatId, postId);
     } else if (action === 'email_digest_test' && postId) {

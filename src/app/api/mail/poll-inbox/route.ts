@@ -91,6 +91,7 @@ export async function GET(req: Request): Promise<NextResponse> {
         from_name: mail.fromName,
         subject: mail.subject,
         body_preview: mail.bodyPreview,
+        body_text: mail.bodyText,
         received_at: mail.receivedAt,
       });
       try {

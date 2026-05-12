@@ -6,6 +6,7 @@ function inboxReplyKeyboard(inboxId: string): InlineKeyboardMarkup {
   return {
     inline_keyboard: [
       [
+        { text: '🌐 Çevir', callback_data: `mail_translate:${inboxId}` },
         { text: '💬 Cevap yaz', callback_data: `mail_reply:${inboxId}` },
       ],
     ],

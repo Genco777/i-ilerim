@@ -1,0 +1,1 @@
+ALTER TABLE "mail_inbox" ADD COLUMN "body_text" text;

@@ -407,6 +407,7 @@ export const mailInbox = pgTable(
     from_name: text('from_name'),
     subject: text('subject'),
     body_preview: text('body_preview'),
+    body_text: text('body_text'),
     received_at: timestamp('received_at', { withTimezone: true }).notNull(),
     replied_draft_id: uuid('replied_draft_id').references(() => mailDrafts.id, {
       onDelete: 'set null',
