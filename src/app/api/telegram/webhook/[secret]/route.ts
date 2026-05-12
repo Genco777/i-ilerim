@@ -2553,9 +2553,42 @@ async function handleAngebotText(
       street: parsed.street,
       zipCity: parsed.zipCity,
     });
-    // Now proceed with the actual conversion
-    const newNumber = await nextInvoiceNumber();
-    const invoice = await convertAngebotToInvoice(draft.id, newNumber);
+    // Ask for invoice number
+    const auto = await nextInvoiceNumber();
+    await updateInvoiceDraft(draft.id, { current_step: 'convert_number' });
+    await sendMessage({
+      chatId,
+      text: `Fatura numarası?\nVarsayılan: ${auto}\n\n"Y" ya da YYYY-NNN formatında yaz:`,
+    });
+    return true;
+  }
+
+  // --- convert_number (Angebot → Rechnung dönüşümünde fatura numarası sorulur) ---
+  if (step === 'convert_number') {
+    const trimmed = text.trim();
+    let finalNumber: string;
+    if (trimmed.toUpperCase() === 'Y' || trimmed.toLowerCase() === 'ok') {
+      finalNumber = await nextInvoiceNumber();
+    } else {
+      const parsed = parseInvoiceNumber(trimmed);
+      if (!parsed) {
+        await sendMessage({
+          chatId,
+          text: '⚠️ Format: YYYY-NNN (4 hane yıl, 3 hane sayı)\nÖrnek: 2026-051',
+        });
+        return true;
+      }
+      finalNumber = trimmed;
+      const existing = await getInvoiceByNumber(finalNumber);
+      if (existing && existing.id !== draft.id) {
+        await sendMessage({
+          chatId,
+          text: `⚠️ ${finalNumber} numaralı fatura zaten var. Başka bir numara yaz.`,
+        });
+        return true;
+      }
+    }
+    const invoice = await convertAngebotToInvoice(draft.id, finalNumber);
     await sendMessage({
       chatId,
       text: `✅ Angebot #${draft.number} → Rechnung #${invoice.number} dönüştürüldü.\n\n/fatura ile devam edebilirsin.`,
@@ -2908,11 +2941,12 @@ async function handleAngebotConvert(chatId: number, draftId: string): Promise<vo
     return;
   }
 
-  const newNumber = await nextInvoiceNumber();
-  const invoice = await convertAngebotToInvoice(draftId, newNumber);
+  // Ask for invoice number
+  const auto = await nextInvoiceNumber();
+  await updateInvoiceDraft(draftId, { status: 'collecting', current_step: 'convert_number' });
   await sendMessage({
     chatId,
-    text: `✅ Angebot #${angebot.number ?? draftId} → Rechnung #${invoice.number} dönüştürüldü.\n\n/fatura ile devam edebilirsin.`,
+    text: `Fatura numarası?\nVarsayılan: ${auto}\n\n"Y" ya da YYYY-NNN formatında yaz:`,
   });
 }
 
