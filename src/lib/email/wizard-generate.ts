@@ -4,6 +4,13 @@ import type { ThemeId } from './themes';
 
 const MODEL = 'claude-sonnet-4-6';
 
+function cleanJson(raw: string): string {
+  return raw
+    .replace(/^```(?:json)?\s*\n?/i, '')
+    .replace(/\n?```\s*$/i, '')
+    .trim();
+}
+
 function themeTone(theme: ThemeId): string {
   switch (theme) {
     case 'dark_gold':
@@ -71,7 +78,7 @@ export async function generateDigestContent(
       return block.text;
     });
 
-  const parsed = JSON.parse(raw);
+  const parsed = JSON.parse(cleanJson(raw));
   const itemTexts: Array<{ headline: string; description: string; cta: string }> =
     parsed.itemTexts ?? [];
 
@@ -138,7 +145,7 @@ export async function generateOutreachContent(
       return block.text;
     });
 
-  const parsed = JSON.parse(raw);
+  const parsed = JSON.parse(cleanJson(raw));
   return {
     subjectLine: parsed.subjectLine ?? `Design-Service für ${city}`,
     headline:
@@ -193,7 +200,7 @@ export async function generateReactivationContent(
       return block.text;
     });
 
-  const parsed = JSON.parse(raw);
+  const parsed = JSON.parse(cleanJson(raw));
   return {
     subjectLine: parsed.subjectLine ?? `Wieder von dir hören, ${clientName}!`,
     bodyText:
@@ -269,6 +276,6 @@ export async function generateConcepts(
     return block.text;
   });
 
-  const parsed = JSON.parse(raw);
+  const parsed = JSON.parse(cleanJson(raw));
   return (parsed.concepts ?? []).slice(0, 2);
 }
