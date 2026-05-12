@@ -15,7 +15,8 @@
     "db:studio": "drizzle-kit studio",
     "db:push": "drizzle-kit push",
     "check:google-ads": "tsx scripts/check-google-ads.ts",
-    "get:refresh-token": "tsx scripts/get-refresh-token.ts"
+    "get:refresh-token": "tsx scripts/get-refresh-token.ts",
+    "sync:vercel-env": "tsx scripts/sync-vercel-env.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.95.0",
