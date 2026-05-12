@@ -156,6 +156,17 @@ const styles = StyleSheet.create({
   payRow: { flexDirection: 'row', marginBottom: 2 },
   payLabel: { width: 100, fontSize: 9 },
   payValue: { fontSize: 9 },
+  conditions: { marginTop: 28 },
+  conditionsTitle: {
+    fontFamily: 'Helvetica-Bold',
+    fontSize: 9,
+    letterSpacing: 1,
+    marginBottom: 6,
+  },
+  conditionsText: { fontSize: 8, lineHeight: 1.5, color: COLORS.ink },
+  conditionsItem: { flexDirection: 'row', marginBottom: 2 },
+  conditionsBullet: { width: 10, fontSize: 8 },
+  conditionsBody: { flex: 1, fontSize: 8 },
   footer: {
     position: 'absolute',
     bottom: 24,
@@ -303,6 +314,47 @@ function InvoicePdf({ data }: InvoicePdfProps): React.JSX.Element {
           <View style={styles.payRow}>
             <Text style={styles.payLabel}>IBAN:</Text>
             <Text style={styles.payValue}>DE29100110012403427850</Text>
+          </View>
+        </View>
+
+        <View style={styles.conditions}>
+          <Text style={styles.conditionsTitle}>PROJEKTBEDINGUNGEN:</Text>
+          <View style={styles.conditionsItem}>
+            <Text style={styles.conditionsBullet}>{'•'}</Text>
+            <Text style={styles.conditionsBody}>
+              Projektstart nach Eingang einer Anzahlung in Höhe von 50 % des Gesamtbetrags.
+            </Text>
+          </View>
+          <View style={styles.conditionsItem}>
+            <Text style={styles.conditionsBullet}>{'•'}</Text>
+            <Text style={styles.conditionsBody}>
+              Die restlichen 50 % werden nach Fertigstellung und vor Übergabe der finalen Dateien fällig.
+            </Text>
+          </View>
+          <View style={styles.conditionsItem}>
+            <Text style={styles.conditionsBullet}>{'•'}</Text>
+            <Text style={styles.conditionsBody}>
+              Im Preis sind zwei Korrekturrunden enthalten. Kleinere Anpassungen erfolgen in der Regel kostenfrei.
+              Bei größeren nachträglichen Änderungen kann je nach Aufwand ein Aufpreis anfallen.
+            </Text>
+          </View>
+          <View style={styles.conditionsItem}>
+            <Text style={styles.conditionsBullet}>{'•'}</Text>
+            <Text style={styles.conditionsBody}>
+              Als kreative Dienstleistung sind begonnene Projekte von Rückerstattungen ausgeschlossen.
+            </Text>
+          </View>
+          <View style={styles.conditionsItem}>
+            <Text style={styles.conditionsBullet}>{'•'}</Text>
+            <Text style={styles.conditionsBody}>
+              Entsteht beim Druck ein Fehler auf unserer Seite, erfolgt eine kostenfreie Nachproduktion.
+            </Text>
+          </View>
+          <View style={styles.conditionsItem}>
+            <Text style={styles.conditionsBullet}>{'•'}</Text>
+            <Text style={styles.conditionsBody}>
+              Mit der Beauftragung gelten diese Bedingungen als akzeptiert.
+            </Text>
           </View>
         </View>
 
