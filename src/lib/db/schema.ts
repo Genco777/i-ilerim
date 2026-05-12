@@ -100,6 +100,28 @@ export const slotStatus = pgEnum('slot_status', [
   'rejected',
 ]);
 
+export const adsCampaignType = pgEnum('ads_campaign_type', [
+  'search',
+  'pmax',
+  'display',
+  'retargeting',
+  'local',
+]);
+
+export const adsCampaignStatus = pgEnum('ads_campaign_status', [
+  'enabled',
+  'paused',
+  'removed',
+]);
+
+export const adsDraftStatus = pgEnum('ads_draft_status', [
+  'collecting',
+  'awaiting_approval',
+  'confirmed',
+  'cancelled',
+  'failed',
+]);
+
 export const contentChannel = pgEnum('content_channel', [
   'feed',
   'story',
@@ -170,6 +192,54 @@ export const emailPreferences = pgTable('email_preferences', {
   updated_at: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
+// ── Ads Preferences (singleton, id=1) ──
+export const adsPreferences = pgTable('ads_preferences', {
+  id: integer('id').primaryKey().default(1),
+  daily_limit_cents: integer('daily_limit_cents').notNull().default(5000),
+  monthly_limit_cents: integer('monthly_limit_cents').notNull().default(100000),
+  default_location_id: bigint('default_location_id', { mode: 'number' })
+    .notNull()
+    .default(2276), // Germany
+  default_language_code: text('default_language_code').notNull().default('de'),
+  notify_anomaly_threshold_pct: integer('notify_anomaly_threshold_pct')
+    .notNull()
+    .default(300),
+  report_chat_id: bigint('report_chat_id', { mode: 'number' }),
+  updated_at: timestamp('updated_at', { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+});
+
+export const adsCampaigns = pgTable(
+  'ads_campaigns',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    google_campaign_id: text('google_campaign_id').unique(),
+    name: text('name').notNull(),
+    type: adsCampaignType('type').notNull(),
+    status: adsCampaignStatus('status').notNull().default('paused'),
+    daily_budget_cents: integer('daily_budget_cents').notNull(),
+    target_url: text('target_url').notNull(),
+    conversion_action: text('conversion_action'),
+    start_date: text('start_date'),
+    end_date: text('end_date'),
+    created_via: text('created_via').notNull(),
+    telegram_chat_id: bigint('telegram_chat_id', { mode: 'number' }).notNull(),
+    created_at: timestamp('created_at', { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updated_at: timestamp('updated_at', { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => ({
+    chatStatusIdx: index('ads_campaigns_chat_status_idx').on(
+      t.telegram_chat_id,
+      t.status,
+    ),
+  }),
+);
+
 // ── Email Campaigns (history for dedup) ──
 export const emailCampaigns = pgTable('email_campaigns', {
   id: uuid('id').primaryKey().defaultRandom(),
@@ -183,7 +253,7 @@ export const emailCampaigns = pgTable('email_campaigns', {
   created_at: timestamp('created_at', { withTimezone: true }).defaultNow(),
 });
 
-// ── Wizard State (DB-backed, survives cold starts) ──
+// ── Wizard States (Telegram email wizard, cross-instance on Vercel Fluid Compute) ──
 export const wizardStates = pgTable('wizard_states', {
   chatId: bigint('chat_id', { mode: 'number' }).primaryKey(),
   state: jsonb('state').notNull(),
@@ -492,6 +562,57 @@ export const failedJobs = pgTable('failed_jobs', {
     .defaultNow(),
   retried_at: timestamp('retried_at', { withTimezone: true }),
 });
+
+// ───── Ads Drafts (Telegram /ads wizard state) ─────
+export interface AdsDraftPayload {
+  type?: 'search' | 'pmax' | 'display' | 'retargeting' | 'local';
+  target_url?: string;
+  conversion_action?: string;
+  campaign_name?: string;
+  daily_budget_cents?: number;
+  start_date?: string;
+  end_date?: string;
+}
+
+export interface AdsGeneratedCopy {
+  headlines: string[];
+  descriptions: string[];
+}
+
+export interface AdsGeneratedKeyword {
+  keyword: string;
+  match_type: 'BROAD' | 'PHRASE' | 'EXACT';
+  estimated_monthly_volume?: number;
+}
+
+export const adsDrafts = pgTable(
+  'ads_drafts',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    status: adsDraftStatus('status').notNull().default('collecting'),
+    current_step: text('current_step').notNull().default('type'),
+    draft_payload: jsonb('draft_payload')
+      .$type<AdsDraftPayload>()
+      .notNull()
+      .default({}),
+    generated_copy: jsonb('generated_copy').$type<AdsGeneratedCopy | null>(),
+    generated_keywords: jsonb('generated_keywords')
+      .$type<AdsGeneratedKeyword[] | null>(),
+    telegram_chat_id: bigint('telegram_chat_id', { mode: 'number' }).notNull(),
+    telegram_preview_msg_id: integer('telegram_preview_msg_id'),
+    error: text('error'),
+    created_at: timestamp('created_at', { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    sent_at: timestamp('sent_at', { withTimezone: true }),
+  },
+  (t) => ({
+    chatStatusIdx: index('ads_drafts_chat_status_idx').on(
+      t.telegram_chat_id,
+      t.status,
+    ),
+  }),
+);
 
 // ───── Content Planning ─────
 export const contentPlans = pgTable('content_plans', {

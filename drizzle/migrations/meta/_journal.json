@@ -71,6 +71,13 @@
       "when": 1778589185923,
       "tag": "0009_graceful_firedrake",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1778592683317,
+      "tag": "0010_furry_shiva",
+      "breakpoints": true
     }
   ]
 }

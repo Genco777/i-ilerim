@@ -1,6 +1,6 @@
 import { db } from '@/lib/db';
 import { wizardStates } from '@/lib/db/schema';
-import { eq, and, lt } from 'drizzle-orm';
+import { eq, lt } from 'drizzle-orm';
 import type { ThemeId } from './themes';
 
 export interface CampaignConcept {
@@ -46,55 +46,86 @@ export interface WizardState {
   lastProject?: string;
 }
 
-const TTL_MS = 30 * 60 * 1000;
+const TTL_MS = 30 * 60 * 1000; // 30 minutes
 
-function isExpired(row: { expiresAt: Date }): boolean {
-  return new Date(row.expiresAt) < new Date();
+// In-memory fallback — keeps the bot alive when DB is unreachable
+const memFallback = new Map<number, { state: WizardState; expiresAt: number }>();
+
+function memGet(chatId: number): WizardState | undefined {
+  const entry = memFallback.get(chatId);
+  if (!entry) return undefined;
+  if (Date.now() > entry.expiresAt) {
+    memFallback.delete(chatId);
+    return undefined;
+  }
+  return entry.state;
+}
+
+function memSet(chatId: number, state: WizardState): void {
+  memFallback.set(chatId, { state, expiresAt: Date.now() + TTL_MS });
+}
+
+function memDelete(chatId: number): void {
+  memFallback.delete(chatId);
 }
 
 export async function getWizardState(chatId: number): Promise<WizardState | undefined> {
   try {
-    const [row] = await db
+    // Clean up expired rows on read
+    await db.delete(wizardStates).where(lt(wizardStates.expiresAt, new Date()));
+
+    const rows = await db
       .select()
       .from(wizardStates)
       .where(eq(wizardStates.chatId, chatId))
       .limit(1);
-    if (!row || isExpired(row)) {
-      if (row) await clearWizardState(chatId).catch(() => {});
+
+    if (rows.length === 0) return undefined;
+
+    const row = rows[0]!;
+    if (new Date(row.expiresAt) < new Date()) {
+      await db.delete(wizardStates).where(eq(wizardStates.chatId, chatId));
       return undefined;
     }
-    return row.state as WizardState;
-  } catch {
-    return undefined;
+
+    return row.state as unknown as WizardState;
+  } catch (err) {
+    console.error('getWizardState DB error, using memory fallback:', err);
+    return memGet(chatId);
   }
 }
 
 export async function setWizardState(chatId: number, state: WizardState): Promise<void> {
   const expiresAt = new Date(Date.now() + TTL_MS);
-  await db
-    .insert(wizardStates)
-    .values({
-      chatId,
-      state: state as unknown as Record<string, unknown>,
-      expiresAt,
-    })
-    .onConflictDoUpdate({
-      target: wizardStates.chatId,
-      set: { state: state as unknown as Record<string, unknown>, expiresAt },
-    });
+
+  try {
+    await db
+      .insert(wizardStates)
+      .values({
+        chatId,
+        state: state as unknown as Record<string, unknown>,
+        expiresAt,
+      })
+      .onConflictDoUpdate({
+        target: wizardStates.chatId,
+        set: {
+          state: state as unknown as Record<string, unknown>,
+          expiresAt,
+        },
+      });
+  } catch (err) {
+    console.error('setWizardState DB error, using memory fallback:', err);
+  }
+
+  // Always update memory fallback so callbacks work even during DB outages
+  memSet(chatId, state);
 }
 
 export async function clearWizardState(chatId: number): Promise<void> {
   try {
     await db.delete(wizardStates).where(eq(wizardStates.chatId, chatId));
-  } catch { /* table might not exist yet */ }
-}
-
-// Clean up expired states (call periodically)
-export async function cleanupExpiredStates(): Promise<void> {
-  try {
-    await db
-      .delete(wizardStates)
-      .where(lt(wizardStates.expiresAt, new Date()));
-  } catch { /* ok */ }
+  } catch (err) {
+    console.error('clearWizardState DB error:', err);
+  }
+  memDelete(chatId);
 }
