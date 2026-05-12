@@ -99,6 +99,7 @@ async function main() {
 
       for (let i = 0; i < statements.length; i++) {
         const stmt = statements[i];
+        if (!stmt) continue;
         console.log(`    [${i + 1}/${statements.length}] ${stmt.substring(0, 100).replace(/\n/g, ' ')}...`);
         await query(stmt);
       }
