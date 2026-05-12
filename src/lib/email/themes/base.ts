@@ -18,8 +18,23 @@ export interface BaseOpts {
   imprintUrl?: string;
 }
 
-function socialIcon(href: string, svg: string, accent: string): string {
-  return `<a href="${href}" target="_blank" style="display:inline-block;width:36px;height:36px;background:${accent};border-radius:50%;text-align:center;line-height:34px;text-decoration:none;margin:0 6px;vertical-align:middle;">${svg}</a>`;
+// VML round button for Outlook + CSS circle for modern clients
+function socialIcon(href: string, svg: string, label: string, accent: string): string {
+  return `<!--[if mso]>
+    <v:roundrect xmlns:v="urn:schemas-microsoft-com:vml" xmlns:w="urn:schemas-microsoft-com:office:word" href="${href}" style="height:36px;width:36px;arcsize:50%;" strokecolor="${accent}" fillcolor="${accent}">
+    <w:anchorlock/>
+    <center style="color:#ffffff;font-family:Arial,sans-serif;font-size:11px;font-weight:bold;">${label}</center>
+    </v:roundrect>
+  <![endif]-->
+  <!--[if !mso]><!-->
+  <a href="${href}" target="_blank" style="display:inline-block;width:36px;height:36px;background:${accent};border-radius:50%;text-align:center;line-height:34px;text-decoration:none;margin:0 6px;vertical-align:middle;">${svg}</a>
+  <!--<![endif]-->`;
+}
+
+// Solid divider fallback for Outlook (no gradient support)
+function divider(color: string): string {
+  return `<!--[if mso]><div style="height:1px;background:${color};"></div><![endif]-->
+  <!--[if !mso]><!--><div style="height:1px;background:linear-gradient(to right,transparent,${color},transparent);"></div><!--<![endif]-->`;
 }
 
 // Fly & Froth wordmark logo — navy (#0F1B2D) primary variant
@@ -83,15 +98,20 @@ export function baseLayout(opts: BaseOpts): string {
 
   <!-- Header with Logo -->
   <tr><td style="padding:36px 40px 24px;text-align:center;">
+    <!--[if mso]>
+    <div style="color:#0F1B2D;font-family:Outfit,Arial,sans-serif;font-size:28px;font-weight:800;letter-spacing:-0.5px;margin-bottom:6px;">FLY &amp; FROTH</div>
+    <![endif]-->
+    <!--[if !mso]><!-->
     <div style="margin-bottom:8px;">
       ${LOGO_SVG}
     </div>
+    <!--<![endif]-->
     <p style="color:${opts.mutedColor};font-family:${opts.fontFamily};font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.22em;margin:6px 0 0;">Grafik- &amp; Webdesign Studio &middot; Karben, Rhein-Main</p>
   </td></tr>
 
   <!-- Divider -->
   <tr><td style="padding:0 40px;">
-    <div style="height:1px;background:linear-gradient(to right,transparent,${opts.accent}40,transparent);"></div>
+    ${divider(opts.accent + '40')}
   </td></tr>
 
   <!-- Body -->
@@ -101,7 +121,7 @@ export function baseLayout(opts: BaseOpts): string {
 
   <!-- USP Bar -->
   <tr><td style="padding:16px 40px 0;">
-    <div style="height:1px;background:linear-gradient(to right,transparent,${opts.accent}30,transparent);margin-bottom:16px;"></div>
+    <div style="margin-bottom:16px;">${divider(opts.accent + '30')}</div>
     <table width="100%" cellpadding="0" cellspacing="0">
       <tr>
         <td align="center" style="padding:12px 8px;background:${opts.bgColor};border-radius:8px;border:1px solid ${opts.borderColor};width:33%;">
@@ -124,17 +144,17 @@ export function baseLayout(opts: BaseOpts): string {
 
   <!-- Divider -->
   <tr><td style="padding:18px 40px 0;">
-    <div style="height:1px;background:linear-gradient(to right,transparent,${opts.accent}30,transparent);"></div>
+    ${divider(opts.accent + '30')}
   </td></tr>
 
   <!-- Social + Footer -->
   <tr><td style="padding:22px 40px 32px;text-align:center;">
     <table cellpadding="0" cellspacing="0" align="center" style="margin:0 auto 16px;">
       <tr>
-        <td>${socialIcon('https://fly-froth.com', GLOBE_SVG, opts.accent)}</td>
-        <td>${socialIcon('https://www.instagram.com/fly.froth', INSTAGRAM_SVG, opts.accent)}</td>
-        <td>${socialIcon('https://www.linkedin.com/company/fly-froth', LINKEDIN_SVG, opts.accent)}</td>
-        <td>${socialIcon('https://maps.google.com/?q=Fly+Froth+Karben', MAP_SVG, opts.accent)}</td>
+        <td>${socialIcon('https://fly-froth.com', GLOBE_SVG, 'Web', opts.accent)}</td>
+        <td>${socialIcon('https://www.instagram.com/fly.froth', INSTAGRAM_SVG, 'IG', opts.accent)}</td>
+        <td>${socialIcon('https://www.linkedin.com/company/fly-froth', LINKEDIN_SVG, 'IN', opts.accent)}</td>
+        <td>${socialIcon('https://maps.google.com/?q=Fly+Froth+Karben', MAP_SVG, 'Map', opts.accent)}</td>
       </tr>
     </table>
     <p style="color:${opts.mutedColor};font-family:${opts.fontFamily};font-size:12px;margin:0 0 4px;">
