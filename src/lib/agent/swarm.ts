@@ -42,10 +42,10 @@ async function runSubAgentTurn(
     { role: 'user', content: `${userMessage}${contextLines}` },
   ];
 
-  for (let turn = 0; turn < 5; turn++) {
+  for (let turn = 0; turn < 2; turn++) {
     const response = await anthropic.messages.create({
       model: agent.model,
-      max_tokens: 1200,
+      max_tokens: 800,
       system: [
         { type: 'text', text: agent.systemPrompt },
         {
@@ -145,18 +145,56 @@ export function routeToAgent(userMessage: string): { agent: SwarmAgent; confiden
   const financeMatches = financeKeywords.filter((k) => lower.includes(k));
   const financeScore = financeMatches.length / Math.max(1, financeKeywords.length);
 
+  // Lüks pazar araştırma sinyalleri
+  const luxuryResearchKeywords = ['pazar araştır', 'market research', 'trend', 'rakip analiz',
+    'hedef kitle', 'lüks pazar', 'sektör raporu', 'marka değerleme', 'rekabet',
+    'büyüme tahmini', 'pazar büyüklüğü', 'tüketici davranışı', 'segmentasyon',
+    'luxury market', 'competitor', 'consumer insight', 'pazar analizi', 'fırsat'];
+  const luxuryResearchMatches = luxuryResearchKeywords.filter((k) => lower.includes(k));
+  const luxuryResearchScore = luxuryResearchMatches.length / Math.max(1, luxuryResearchKeywords.length);
+
+  // Satın alma sinyalleri
+  const buyerKeywords = ['tedarikçi', 'satın alma', 'ürün kataloğu', 'moq', 'birim maliyet',
+    'lojistik', 'kalite kontrol', 'pazarlık', 'alım takvimi', 'stok', 'envanter',
+    'supplier', 'sourcing', 'procurement', 'toptan', 'ithalat', 'ihracat',
+    'minimum sipariş', 'marj', 'maliyet hesabı', 'tedarik zinciri'];
+  const buyerMatches = buyerKeywords.filter((k) => lower.includes(k));
+  const buyerScore = buyerMatches.length / Math.max(1, buyerKeywords.length);
+
+  // Shopify / e-ticaret sinyalleri
+  const shopifyKeywords = ['shopify', 'e-ticaret', 'ecommerce', 'mağaza', 'tema', 'theme',
+    'checkout', 'ödeme', 'dönüşüm', 'conversion', 'cro', 'ürün sayfası', 'koleksiyon',
+    'apps', 'klaviyo', 'mağaza kur', 'mağaza optimizasyonu', 'sipariş yönetimi',
+    'e commerce', 'online satış', 'dijital mağaza', 'store', 'shop', 'sepet'];
+  const shopifyMatches = shopifyKeywords.filter((k) => lower.includes(k));
+  const shopifyScore = shopifyMatches.length / Math.max(1, shopifyKeywords.length);
+
+  // Lüks pazarlama sinyalleri
+  const luxuryMarketingKeywords = ['lüks pazarlama', 'marka stratejisi', 'konumlandırma',
+    'influencer', 'kol', 'lansman', 'koleksiyon lansmanı', 'vip', 'lüks marka',
+    'brand collab', 'co-branding', 'scarcity', 'exclusivity', 'miras', 'heritage',
+    'lifestyle', 'statü', 'premium', 'luxury marketing', 'marka imajı', 'rebranding',
+    'lüks segment', 'butik', 'niş', 'niche', 'zanaat', 'craftsmanship', 'el yapımı'];
+  const luxuryMarketingMatches = luxuryMarketingKeywords.filter((k) => lower.includes(k));
+  const luxuryMarketingScore = luxuryMarketingMatches.length / Math.max(1, luxuryMarketingKeywords.length);
+
   const scores: Array<{ agent: SwarmAgent; score: number; reason: string }> = [
     { agent: ALL_AGENTS.sales_agent!, score: salesScore, reason: `Satış sinyali: ${salesMatches.join(', ') || 'genel'}` },
     { agent: ALL_AGENTS.social_agent!, score: socialScore, reason: `Sosyal medya sinyali: ${socialMatches.join(', ') || 'genel'}` },
     { agent: ALL_AGENTS.design_agent!, score: designScore, reason: `Tasarım sinyali: ${designMatches.join(', ') || 'genel'}` },
     { agent: ALL_AGENTS.finance_agent!, score: financeScore, reason: `Finans sinyali: ${financeMatches.join(', ') || 'genel'}` },
+    { agent: ALL_AGENTS.luxury_market_researcher!, score: luxuryResearchScore, reason: `Pazar araştırma: ${luxuryResearchMatches.join(', ') || 'genel'}` },
+    { agent: ALL_AGENTS.luxury_buyer!, score: buyerScore, reason: `Satın alma: ${buyerMatches.join(', ') || 'genel'}` },
+    { agent: ALL_AGENTS.luxury_shopify_director!, score: shopifyScore, reason: `Shopify/e-ticaret: ${shopifyMatches.join(', ') || 'genel'}` },
+    { agent: ALL_AGENTS.luxury_marketing_director!, score: luxuryMarketingScore, reason: `Lüks pazarlama: ${luxuryMarketingMatches.join(', ') || 'genel'}` },
   ];
 
   scores.sort((a, b) => b.score - a.score);
   const best = scores[0]!;
 
   if (best.score < 0.05) {
-    return { agent: ALL_AGENTS.sales_agent!, confidence: 0.3, reason: 'Varsayılan: satış ajanı (en genel yetkinlik)' };
+    // No strong signal — let main agent handle directly (faster, better for general chat)
+    return { agent: ALL_AGENTS.sales_agent!, confidence: 0, reason: 'Genel sohbet — ana ajan yanıtlasın' };
   }
 
   return { agent: best.agent, confidence: best.score, reason: best.reason };

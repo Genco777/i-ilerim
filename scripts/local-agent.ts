@@ -199,6 +199,89 @@ async function executeTask(task: AgentTask): Promise<void> {
         break;
       }
 
+      case 'generate_and_embed_images': {
+        const html = (task.payload.html as string) ?? '';
+        const promptsJson = (task.payload.imagePrompts as string) ?? '[]';
+        if (!html) throw new Error('HTML required for image embedding');
+        const prompts: string[] = JSON.parse(promptsJson);
+        if (!prompts.length) throw new Error('At least one image prompt required');
+
+        const { generateImage } = await import('../src/lib/ai/image.js');
+        const fs = await import('fs/promises');
+        const path = await import('path');
+
+        const dir = path.join(process.cwd(), 'compositions', `img_${task.id.slice(0, 8)}`);
+        await fs.mkdir(dir, { recursive: true });
+
+        let modifiedHtml = html;
+        const images: Array<{ blobUrl: string | null; type: string; error?: string }> = [];
+
+        for (let i = 0; i < Math.min(prompts.length, 5); i++) {
+          try {
+            const result = await generateImage(prompts[i]!, { aspectRatio: '1:1' });
+            const imgPath = path.join(dir, `image_${i}.png`);
+            await fs.writeFile(imgPath, result.buffer);
+
+            // Upload to Vercel Blob if token available
+            let blobUrl: string | null = null;
+            const blobToken = process.env.BLOB_READ_WRITE_TOKEN;
+            if (blobToken) {
+              try {
+                const filename = `images/local-gen-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.png`;
+                const blobRes = await fetch(`https://blob.vercel-storage.com/${filename}`, {
+                  method: 'PUT',
+                  headers: {
+                    Authorization: `Bearer ${blobToken}`,
+                    'Content-Type': 'image/png',
+                    'X-Content-Type-Options': 'nosniff',
+                  },
+                  body: new Uint8Array(result.buffer),
+                });
+                if (blobRes.ok) {
+                  const blobData = await blobRes.json() as { url?: string };
+                  blobUrl = blobData.url ?? null;
+                }
+              } catch { /* blob optional */ }
+            }
+
+            // Place image in HTML based on index (hero=0, product=1, background=2)
+            if (blobUrl) {
+              if (i === 0) {
+                const heroHtml = `<div style="width:100%;max-height:50%;overflow:hidden;border-radius:4px;margin-bottom:16px;"><img src="${blobUrl}" alt="hero" style="width:100%;height:auto;object-fit:cover;display:block;" /></div>`;
+                modifiedHtml = modifiedHtml.replace('<body>', `<body>\n${heroHtml}`);
+              } else if (i === 1) {
+                const productHtml = `<div style="float:right;width:40%;max-width:300px;margin:0 0 12px 16px;border-radius:6px;overflow:hidden;"><img src="${blobUrl}" alt="product" style="width:100%;height:auto;object-fit:cover;display:block;" /></div>`;
+                const headingMatch = modifiedHtml.match(/<(h[12]|div class="panel-header")[^>]*>/);
+                if (headingMatch) {
+                  const idx = modifiedHtml.indexOf(headingMatch[0]) + headingMatch[0].length;
+                  modifiedHtml = modifiedHtml.slice(0, idx) + productHtml + modifiedHtml.slice(idx);
+                } else {
+                  modifiedHtml = modifiedHtml.replace('<body>', `<body>\n${productHtml}`);
+                }
+              } else {
+                const decorationHtml = `<div style="text-align:center;opacity:0.5;margin-top:16px;"><img src="${blobUrl}" alt="decoration" style="width:80px;height:auto;display:inline-block;" /></div>`;
+                modifiedHtml = modifiedHtml.replace('</body>', `${decorationHtml}</body>`);
+              }
+            }
+
+            images.push({ blobUrl, type: i === 0 ? 'hero' : i === 1 ? 'product' : 'decoration' });
+          } catch (err: any) {
+            images.push({ blobUrl: null, type: 'error', error: err.message ?? 'Unknown' });
+          }
+        }
+
+        const htmlPath = path.join(dir, 'embedded.html');
+        await fs.writeFile(htmlPath, modifiedHtml);
+        await reportResult(task.id, {
+          htmlPath,
+          html: modifiedHtml,
+          images,
+          embeddedCount: images.filter(img => img.blobUrl).length,
+          message: `${images.filter(img => img.blobUrl).length}/${prompts.length} gorsel uretildi ve HTML'e gomuldu.`,
+        });
+        break;
+      }
+
       case 'general': {
         const command = task.payload.command as string;
         if (!command) throw new Error('command required for general task');
@@ -223,7 +306,7 @@ async function executeTask(task: AgentTask): Promise<void> {
 
 async function main() {
   console.log(`[local-agent] Worker ${WORKER_ID} starting — polling ${BASE}`);
-  console.log(`[local-agent] Handlers: render_video, render_flyer_pdf, video_analysis, design_critique, general`);
+  console.log(`[local-agent] Handlers: render_video, render_flyer_pdf, video_analysis, design_critique, generate_and_embed_images, general`);
 
   while (true) {
     try {

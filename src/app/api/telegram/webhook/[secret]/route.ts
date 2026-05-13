@@ -4264,13 +4264,15 @@ async function handleChatCommand(chatId: number, text: string): Promise<void> {
     return;
   }
   const sent = await sendMessage({ chatId, text: '🤔 Düşünüyorum...' });
-  runAgentTurn(chatId, message, sent.message_id).catch(async (err) => {
+  try {
+    await runAgentTurn(chatId, message, sent.message_id);
+  } catch (err) {
     console.error('[agent] chat command error:', err);
     await sendMessage({
       chatId,
-      text: `❌ Hata: ${err instanceof Error ? err.message.slice(0, 200) : 'Bilinmeyen hata'}`,
+      text: `Hata: ${err instanceof Error ? err.message.slice(0, 200) : 'Bilinmeyen hata'}`,
     }).catch(() => {});
-  });
+  }
 }
 
 async function handleCommand(
@@ -4599,15 +4601,16 @@ async function handleCommand(
   }
 
   // ── AI Assistant fallback ──
-  // Fire-and-forget: agent runs async, edits its own message
   const sent = await sendMessage({ chatId, text: '🤔 ...' });
-  runAgentTurn(chatId, trimmed, sent.message_id).catch(async (err) => {
+  try {
+    await runAgentTurn(chatId, trimmed, sent.message_id);
+  } catch (err) {
     console.error('[agent] fallback error:', err);
     await sendMessage({
       chatId,
-      text: `❌ Asistan hatası: ${err instanceof Error ? err.message.slice(0, 200) : 'Bilinmeyen hata'}`,
+      text: `Asistan hatasi: ${err instanceof Error ? err.message.slice(0, 200) : 'Bilinmeyen hata'}`,
     }).catch(() => {});
-  });
+  }
 }
 
 async function handleCallback(
@@ -5012,17 +5015,19 @@ export async function POST(
         if (fileInfo.file_path) {
           const buffer = await downloadFile(fileInfo.file_path);
           const base64 = buffer.toString('base64');
-          const sent = await sendMessage({ chatId, text: '🤔 Görsel analiz ediliyor...' });
-          runAgentTurn(chatId, caption || 'Bu görseli analiz et.', sent.message_id, {
-            data: base64,
-            media_type: 'image/jpeg',
-          }).catch(async (err) => {
+          const sent = await sendMessage({ chatId, text: '🤔 Gorsel analiz ediliyor...' });
+          try {
+            await runAgentTurn(chatId, caption || 'Bu gorseli analiz et.', sent.message_id, {
+              data: base64,
+              media_type: 'image/jpeg',
+            });
+          } catch (err) {
             console.error('[agent] vision error:', err);
             await sendMessage({
               chatId,
-              text: `❌ Görsel analiz hatası: ${err instanceof Error ? err.message.slice(0, 200) : 'Bilinmeyen hata'}`,
+              text: `Gorsel analiz hatasi: ${err instanceof Error ? err.message.slice(0, 200) : 'Bilinmeyen hata'}`,
             }).catch(() => {});
-          });
+          }
         } else {
           await sendMessage({ chatId, text: '⚠️ Görsel indirilemedi.' });
         }

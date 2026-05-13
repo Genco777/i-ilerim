@@ -33,42 +33,6 @@ function adminUserIds(): number[] {
 export async function GET(req: Request) {
   if (!checkAuth(req)) return unauthorized();
 
-  try {
-    const items = await scanAll();
-    const report = formatWatchdogReport(items);
-
-    // If there are high urgency items or >2 items total, notify admin
-    const hasHighUrgency = items.some((i) => i.urgency === 'high');
-    const shouldNotify = hasHighUrgency || items.length >= 2;
-
-    if (shouldNotify && report) {
-      const ids = adminUserIds();
-      await Promise.all(
-        ids.map((chatId) =>
-          sendMessage({ chatId, text: report }).catch((err) =>
-            console.error(`[watchdog] sendMessage to ${chatId} failed:`, err),
-          ),
-        ),
-      );
-      return NextResponse.json({
-        ok: true,
-        notified: true,
-        items: items.length,
-        report,
-      });
-    }
-
-    return NextResponse.json({
-      ok: true,
-      notified: false,
-      items: items.length,
-      reason: items.length === 0 ? 'no issues' : 'below notification threshold',
-    });
-  } catch (err) {
-    console.error('[watchdog] scan error:', err);
-    return NextResponse.json(
-      { ok: false, error: err instanceof Error ? err.message : 'Scan failed' },
-      { status: 500 },
-    );
-  }
+  // Watchdog devre disi — Telegram bildirimi istenmiyor
+  return NextResponse.json({ ok: true, disabled: true });
 }

@@ -245,3 +245,82 @@ export function listTasks(): { id: string; description: string; deadline: string
   if (!taskMap) return [];
   return Array.from(taskMap.values()) as { id: string; description: string; deadline: string | null; priority: string }[];
 }
+
+// ─── Client Approval State Machine ───
+
+export type ApprovalStatus = 'draft' | 'pending_review' | 'approved' | 'needs_revision';
+
+export interface ApprovalRecord {
+  id: string;
+  designId: string;
+  clientName: string;
+  designType: 'flyer' | 'menu' | 'logo' | 'social_post' | 'brochure';
+  status: ApprovalStatus;
+  version: number;
+  createdAt: string;
+  updatedAt: string;
+  notes: string[];
+  designHtml?: string;
+  brandName?: string;
+}
+
+function getApprovalStore(): Map<string, ApprovalRecord> {
+  const key = '__agent_approvals';
+  if (!(globalThis as Record<string, unknown>)[key]) {
+    (globalThis as Record<string, unknown>)[key] = new Map<string, ApprovalRecord>();
+  }
+  return (globalThis as Record<string, unknown>)[key] as Map<string, ApprovalRecord>;
+}
+
+export function createApproval(params: {
+  clientName: string;
+  designType: ApprovalRecord['designType'];
+  designHtml?: string;
+  brandName?: string;
+  notes?: string[];
+}): ApprovalRecord {
+  const store = getApprovalStore();
+  const record: ApprovalRecord = {
+    id: crypto.randomUUID(),
+    designId: `design_${Date.now()}`,
+    clientName: params.clientName,
+    designType: params.designType,
+    status: 'draft',
+    version: 1,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    notes: params.notes ?? [],
+    designHtml: params.designHtml,
+    brandName: params.brandName,
+  };
+  store.set(record.id, record);
+  return record;
+}
+
+export function updateApprovalStatus(
+  id: string,
+  status: ApprovalStatus,
+  note?: string,
+  designHtml?: string,
+): ApprovalRecord | null {
+  const store = getApprovalStore();
+  const record = store.get(id);
+  if (!record) return null;
+  record.status = status;
+  record.updatedAt = new Date().toISOString();
+  if (status === 'needs_revision') record.version++;
+  if (note) record.notes.push(note);
+  if (designHtml) record.designHtml = designHtml;
+  return record;
+}
+
+export function getApproval(id: string): ApprovalRecord | undefined {
+  return getApprovalStore().get(id);
+}
+
+export function listApprovals(filter?: { status?: ApprovalStatus; clientName?: string }): ApprovalRecord[] {
+  let records = Array.from(getApprovalStore().values());
+  if (filter?.status) records = records.filter(r => r.status === filter.status);
+  if (filter?.clientName) records = records.filter(r => r.clientName.toLowerCase().includes(filter.clientName!.toLowerCase()));
+  return records.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+}

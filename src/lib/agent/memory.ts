@@ -78,31 +78,35 @@ export async function extractAndStoreMemories(
 
 // Build memory section for system prompt injection
 export async function buildMemoryContext(): Promise<string> {
-  const memories = await getImportantMemories(15);
+  try {
+    const memories = await getImportantMemories(15);
+    if (memories.length === 0) return '';
 
-  if (memories.length === 0) return '';
+    const lines: string[] = [];
+    lines.push('YAKIN ZAMANDA OGRENILENLER:');
 
-  const lines: string[] = [];
-  lines.push('YAKIN ZAMANDA ÖĞRENİLENLER:');
-
-  const byCategory: Record<string, typeof memories> = {};
-  for (const m of memories) {
-    if (!byCategory[m.category]) byCategory[m.category] = [];
-    byCategory[m.category]!.push(m);
-  }
-
-  for (const [category, items] of Object.entries(byCategory)) {
-    const emoji = categoryIcons[category] ?? '📌';
-    for (const item of items) {
-      const value = typeof item.value === 'object' && item.value !== null
-        ? (item.value as Record<string, unknown>)
-        : { value: item.value };
-      const context = value.context ?? value.decision ?? JSON.stringify(value).slice(0, 150);
-      lines.push(`${emoji} [${item.importance}/10] ${context}`);
+    const byCategory: Record<string, typeof memories> = {};
+    for (const m of memories) {
+      if (!byCategory[m.category]) byCategory[m.category] = [];
+      byCategory[m.category]!.push(m);
     }
-  }
 
-  return lines.join('\n');
+    for (const [category, items] of Object.entries(byCategory)) {
+      const emoji = categoryIcons[category] ?? '📌';
+      for (const item of items) {
+        const value = typeof item.value === 'object' && item.value !== null
+          ? (item.value as Record<string, unknown>)
+          : { value: item.value };
+        const context = value.context ?? value.decision ?? JSON.stringify(value).slice(0, 150);
+        lines.push(`${emoji} [${item.importance}/10] ${context}`);
+      }
+    }
+
+    return lines.join('\n');
+  } catch (err) {
+    console.error('[memory] buildMemoryContext failed:', err instanceof Error ? err.message : String(err));
+    return '';
+  }
 }
 
 const categoryIcons: Record<string, string> = {
