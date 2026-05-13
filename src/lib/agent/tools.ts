@@ -2586,7 +2586,77 @@ const FLYER_STYLE_PRESETS: Record<string, {
     layoutPattern: 'edge-to-edge',
     decorativeElements: ['splash-bg', 'neon-glow-text', 'halftone-pattern'],
   },
+  'wedding-romantic': {
+    primaryColor: '#2C1810', secondaryColor: '#FFF0F5', bgColor: '#FFFDF9', textColor: '#2C1810', accentColor: '#D4A0A0',
+    headingFont: 'Playfair Display', bodyFont: 'Cormorant Garamond',
+    layoutPattern: 'centered',
+    decorativeElements: ['floral-corner', 'elegant-script-divider', 'rose-gold-filigree', 'lace-pattern-bg'],
+  },
+  'corporate-clean': {
+    primaryColor: '#1B2A4A', secondaryColor: '#F0F4F8', bgColor: '#FFFFFF', textColor: '#1B2A4A', accentColor: '#2563EB',
+    headingFont: 'Inter', bodyFont: 'Source Sans 3',
+    layoutPattern: 'grid',
+    decorativeElements: ['geometric-grid-lines', 'data-dot-accent', 'corporate-angle'],
+  },
+  'real-estate-premium': {
+    primaryColor: '#1A1F2E', secondaryColor: '#F5F0E8', bgColor: '#FFFFFF', textColor: '#1A1F2E', accentColor: '#C9A84C',
+    headingFont: 'Marcellus', bodyFont: 'Jost',
+    layoutPattern: 'split',
+    decorativeElements: ['architectural-line', 'gold-accent-bar', 'property-keyline-icon'],
+  },
+  'automotive-bold': {
+    primaryColor: '#0D0D0D', secondaryColor: '#FF1A1A', bgColor: '#FFFFFF', textColor: '#0D0D0D', accentColor: '#FF1A1A',
+    headingFont: 'Bebas Neue', bodyFont: 'Rajdhani',
+    layoutPattern: 'banner',
+    decorativeElements: ['speed-line-diagonal', 'carbon-fiber-texture', 'racing-stripe', 'bold-number-plate'],
+  },
 };
+
+// QR Code SVG generator — canvas-free, pure SVG
+function generateQRCodeSVG(url: string, size = 160): string {
+  // Simple QR-alike pattern for visual placeholder
+  // In production, use the 'qrcode' npm package for real QR generation
+  const cells = 21;
+  const cellSize = size / cells;
+  const encoded = encodeURIComponent(url);
+  const qrAPIURL = `https://api.qrserver.com/v1/create-qr-code/?size=${size}x${size}&data=${encoded}`;
+
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 ${size} ${size}">
+  <rect width="${size}" height="${size}" fill="#FFFFFF" rx="8"/>
+  <image href="${qrAPIURL}" width="${size}" height="${size}" x="0" y="0"/>
+  <rect x="${size - 24}" y="${size - 24}" width="20" height="20" fill="#FFFFFF" rx="3"/>
+  <text x="${size - 14}" y="${size - 9}" font-size="14" font-family="sans-serif" fill="#000000" text-anchor="middle" font-weight="700">QR</text>
+</svg>`;
+}
+
+// SVG decorative elements library
+function getDecorativeSVG(element: string, color: string, width: number): string {
+  const w = Math.round(width);
+  switch (element) {
+    case 'floral-corner':
+      return `<svg width="${w}" height="${w}" viewBox="0 0 100 100" style="position:absolute;top:8px;left:8px;opacity:0.15;"><path d="M10 50 Q30 10 50 10 Q70 10 90 50" fill="none" stroke="${color}" stroke-width="1.5"/><circle cx="20" cy="25" r="4" fill="${color}" opacity="0.3"/><circle cx="35" cy="15" r="3" fill="${color}" opacity="0.3"/></svg>`;
+    case 'rose-gold-filigree':
+      return `<svg width="${w * 2}" height="60" viewBox="0 0 200 60" style="display:block;margin:0 auto;opacity:0.2;"><path d="M10 30 Q50 5 100 30 Q150 55 190 30" fill="none" stroke="${color}" stroke-width="1"/><circle cx="100" cy="30" r="3" fill="${color}"/><path d="M70 30 Q85 15 100 30 Q115 45 130 30" fill="none" stroke="${color}" stroke-width="0.8"/></svg>`;
+    case 'architectural-line':
+      return `<svg width="${w}" height="3" viewBox="0 0 200 3" style="display:block;margin:0 auto;"><line x1="0" y1="1.5" x2="80" y2="1.5" stroke="${color}" stroke-width="2.5"/><circle cx="95" cy="1.5" r="2.5" fill="${color}"/><line x1="110" y1="1.5" x2="200" y2="1.5" stroke="${color}" stroke-width="1"/></svg>`;
+    case 'speed-line-diagonal':
+      return `<svg width="${w}" height="${w}" viewBox="0 0 200 200" style="position:absolute;opacity:0.06;" preserveAspectRatio="none"><line x1="0" y1="200" x2="100" y2="0" stroke="${color}" stroke-width="30"/><line x1="50" y1="200" x2="150" y2="0" stroke="${color}" stroke-width="15"/><line x1="100" y1="200" x2="200" y2="0" stroke="${color}" stroke-width="8"/></svg>`;
+    case 'geometric-grid-lines':
+      return `<svg width="${w}" height="${w}" viewBox="0 0 100 100" style="position:absolute;top:0;left:0;opacity:0.04;"><rect x="10" y="10" width="80" height="80" fill="none" stroke="${color}" stroke-width="0.5"/><line x1="10" y1="30" x2="90" y2="30" stroke="${color}" stroke-width="0.3"/><line x1="10" y1="50" x2="90" y2="50" stroke="${color}" stroke-width="0.3"/><line x1="30" y1="10" x2="30" y2="90" stroke="${color}" stroke-width="0.3"/><line x1="50" y1="10" x2="50" y2="90" stroke="${color}" stroke-width="0.3"/></svg>`;
+    case 'racing-stripe':
+      return `<svg width="${w / 3}" height="${w * 2}" viewBox="0 0 33 200" style="position:absolute;right:20px;top:0;opacity:0.08;"><rect x="0" y="0" width="15" height="200" fill="${color}"/><rect x="18" y="0" width="5" height="200" fill="${color}"/></svg>`;
+    case 'gold-accent-bar':
+      return `<svg width="${w}" height="4" viewBox="0 0 200 4" style="display:block;margin:0 auto;"><rect x="0" y="0" width="200" height="4" fill="${color}" opacity="0.4" rx="2"/><rect x="60" y="0" width="80" height="4" fill="${color}" opacity="0.8" rx="2"/></svg>`;
+    case 'data-dot-accent':
+      return `<svg width="${60}" height="${60}" viewBox="0 0 60 60" style="display:inline-block;opacity:0.5;"><circle cx="10" cy="10" r="3" fill="${color}"/><circle cx="30" cy="10" r="2" fill="${color}" opacity="0.6"/><circle cx="50" cy="10" r="1.5" fill="${color}" opacity="0.3"/><circle cx="10" cy="30" r="2.5" fill="${color}" opacity="0.6"/><circle cx="30" cy="30" r="5" fill="${color}" opacity="0.8"/><circle cx="50" cy="30" r="2" fill="${color}" opacity="0.4"/><circle cx="10" cy="50" r="1.5" fill="${color}" opacity="0.3"/><circle cx="30" cy="50" r="2" fill="${color}" opacity="0.5"/><circle cx="50" cy="50" r="3" fill="${color}" opacity="0.6"/></svg>`;
+    case 'lace-pattern-bg':
+      return `<svg width="${w}" height="${w}" viewBox="0 0 100 100" style="position:absolute;top:0;left:0;opacity:0.03;"><circle cx="10" cy="10" r="8" fill="none" stroke="${color}" stroke-width="0.5"/><circle cx="10" cy="10" r="3" fill="${color}"/><circle cx="30" cy="10" r="8" fill="none" stroke="${color}" stroke-width="0.5"/><circle cx="30" cy="10" r="3" fill="${color}"/><circle cx="50" cy="10" r="8" fill="none" stroke="${color}" stroke-width="0.5"/><circle cx="50" cy="10" r="3" fill="${color}"/></svg>`;
+    case 'carbon-fiber-texture':
+      return `<svg width="${w}" height="${w}" viewBox="0 0 100 100" style="position:absolute;top:0;left:0;opacity:0.04;"><rect x="0" y="0" width="100" height="100" fill="none"/><line x1="10" y1="0" x2="0" y2="10" stroke="${color}" stroke-width="0.5"/><line x1="30" y1="0" x2="0" y2="30" stroke="${color}" stroke-width="0.3"/><line x1="60" y1="0" x2="0" y2="60" stroke="${color}" stroke-width="0.5"/><line x1="90" y1="0" x2="0" y2="90" stroke="${color}" stroke-width="0.3"/></svg>`;
+    default:
+      return '';
+  }
+}
 
 // Layout HTML templates
 function buildFlyerLayoutHTML(config: {
@@ -2599,6 +2669,7 @@ function buildFlyerLayoutHTML(config: {
   offerText?: string;
   language?: string;
   doubleSided?: boolean;
+  qrContent?: string;
   layoutPreset: typeof FLYER_STYLE_PRESETS[string];
   spec: any;
   palette: any;
@@ -2872,6 +2943,9 @@ function buildFlyerLayoutHTML(config: {
     <div class="deco-corner-br"></div>
     ` : ''}
 
+    <!-- SVG Decorative Elements -->
+    ${layoutPreset.decorativeElements.map(el => getDecorativeSVG(el, accentHex, pxW > 1000 ? 300 : 200)).join('\n    ')}
+
     <!-- Layout: ${layoutPreset.layoutPattern} -->
     ${layoutPreset.layoutPattern === 'centered' ? `
     <div class="layout-centered">
@@ -2933,6 +3007,14 @@ function buildFlyerLayoutHTML(config: {
       <span class="label">${offerText.replace(/\d+%?\s*/, '').slice(0, 20)}</span>
     </div>
     ` : ''}
+
+    <!-- QR Code -->
+    ${config.qrContent ? `
+    <div style="position:absolute;bottom:${safeL + 10}px;right:${safeL + 10}px;text-align:center;z-index:10;">
+      ${generateQRCodeSVG(config.qrContent, 140)}
+      <div style="font-size:11px;color:${layoutPreset.textColor};opacity:0.5;margin-top:4px;font-family:sans-serif;">${lang === 'tr' ? 'Tara & Keşfet' : lang === 'de' ? 'Scannen & Entdecken' : 'Scan & Explore'}</div>
+    </div>
+    ` : ''}
   </div>
 </body>
 </html>`;
@@ -2989,29 +3071,57 @@ async function execGenerateFlyer(input: Record<string, unknown>): Promise<unknow
   const language = typeof input.language === 'string' ? input.language : 'tr';
   const doubleSided = input.doubleSided === true;
 
+  // Extract QR content from contact info or description
+  let qrContent = '';
+  if (contactInfo) {
+    const urlMatch = contactInfo.match(/(https?:\/\/[^\s,]+)/);
+    const phoneMatch = contactInfo.match(/(\+?\d{7,}[\d\s-]*)/);
+    const waMatch = contactInfo.match(/wa\.me\/[\w\d]+/i) || contactInfo.match(/WhatsApp[:\s]*([+\d\s-]+)/i);
+    if (urlMatch?.[1]) qrContent = urlMatch[1];
+    else if (waMatch) qrContent = `https://wa.me/${(waMatch[1] ?? waMatch[0]).replace(/[^\d+]/g, '')}`;
+    else if (phoneMatch?.[1]) qrContent = `tel:${phoneMatch[1].replace(/[^\d+]/g, '')}`;
+  }
+  if (!qrContent && description.match(/https?:\/\/[^\s]+/)) {
+    qrContent = description.match(/(https?:\/\/[^\s]+)/)?.[0] ?? '';
+  }
+
   // Get print specs
   const specResult = await execCalculatePrintSpecs({ format, hasBleed: true }) as any;
   if (specResult.error) return { error: 'Geçersiz format.' };
 
+  // Detect industry and mood from description + style
+  const descLower = description.toLowerCase();
+  const detectedIndustry = descLower.includes('restoran') || descLower.includes('restaurant') || descLower.includes('kebap') || descLower.includes('döner') || descLower.includes('cafe') || descLower.includes('kahve') || descLower.includes('mekan') ? 'restoran'
+    : descLower.includes('düğün') || descLower.includes('wedding') || descLower.includes('gelin') || descLower.includes('nikah') ? 'moda'
+    : descLower.includes('emlak') || descLower.includes('gayrimenkul') || descLower.includes('real estate') || descLower.includes('konut') || descLower.includes('villa') || descLower.includes('immobilien') ? 'teknoloji'
+    : descLower.includes('oto') || descLower.includes('araba') || descLower.includes('galeri') || descLower.includes('auto') || descLower.includes('servis') ? 'teknoloji'
+    : descLower.includes('moda') || descLower.includes('giyim') || descLower.includes('butik') ? 'moda'
+    : descLower.includes('teknoloji') || descLower.includes('yazılım') || descLower.includes('bilişim') ? 'teknoloji'
+    : 'restoran';
+
+  const detectedMood = style.includes('wedding') ? 'lüks'
+    : style.includes('corporate') || style.includes('real-estate') ? 'klasik'
+    : style.includes('automotive') || style.includes('bold') || style.includes('street') ? 'enerjik'
+    : style.includes('elegant') || style.includes('luxury') ? 'lüks'
+    : style.includes('vintage') ? 'klasik'
+    : 'modern';
+
+  const detectedFontStyle = style.includes('wedding') || style.includes('elegant') || style.includes('luxury') ? 'luxury'
+    : style.includes('vintage') ? 'classic-serif'
+    : style.includes('street') || style.includes('bold') || style.includes('automotive') ? 'tech'
+    : style.includes('corporate') ? 'tech'
+    : 'modern-minimal';
+
   // Generate color palette
   const paletteResult = await execGenerateColorPalette({
-    industry: description.includes('restoran') || description.includes('Restaurant') ? 'restoran'
-      : description.includes('moda') || description.includes('giyim') ? 'moda'
-      : description.includes('teknoloji') || description.includes('yazılım') ? 'teknoloji'
-      : 'restoran',
-    mood: style.includes('elegant') || style.includes('luxury') ? 'lüks'
-      : style.includes('bold') || style.includes('street') ? 'enerjik'
-      : style.includes('vintage') ? 'klasik'
-      : 'modern',
+    industry: detectedIndustry,
+    mood: detectedMood,
     count: 5,
   }) as any;
 
   // Get font pairing
   const fontResult = await execSuggestFontPairing({
-    style: style.includes('elegant') || style.includes('luxury') ? 'luxury'
-      : style.includes('vintage') ? 'classic-serif'
-      : style.includes('street') || style.includes('bold') ? 'playful'
-      : 'modern-minimal',
+    style: detectedFontStyle,
     usage: 'print',
   }) as any;
 
@@ -3021,32 +3131,61 @@ async function execGenerateFlyer(input: Record<string, unknown>): Promise<unknow
   // Build HTML
   const { frontHtml, backHtml } = buildFlyerLayoutHTML({
     description, format, style, businessName, contactInfo, cta, offerText, language, doubleSided,
+    qrContent: qrContent || undefined,
     layoutPreset, spec: specResult, palette: paletteResult, fonts: fontResult,
   });
+
+  const qrSVG = qrContent ? generateQRCodeSVG(qrContent, 160) : '';
 
   // Generate AI image prompts for visuals
   const imagePrompts = [
     `Professional commercial photography for print flyer. ${description.slice(0, 100)}. High resolution, well-lit, ${layoutPreset.layoutPattern} composition. Suitable for ${specResult.format} print. 300 DPI CMYK ready.`,
-    `Hero image for restaurant/food flyer. Appetizing food photography, warm tones, shallow depth of field. Professional studio lighting. ${businessName ? `Brand: ${businessName}.` : ''}`,
+    `Hero product/food/lifestyle image matching "${style}" design style. ${businessName ? `Brand: ${businessName}.` : ''} Professional studio lighting, high detail, commercial photography quality.`,
     `Background texture or pattern for print design. ${style} style. Subtle, elegant, suitable for ${specResult.format} format. 300 DPI seamless.`,
   ];
 
   // Tips for production
   const productionTips = language === 'tr' ? [
     'HTML\'i tarayıcıda açıp "Yazdır" → "PDF Olarak Kaydet" ile baskıya hazır PDF al',
+    'Vercel Blob preview link\'ini tarayıcıda açıp anında önizleme yap',
     'PDF\'i CMYK\'ya çevirmek için Acrobat Pro veya online CMYK converter kullan',
     'Görselleri ayrıca AI (Midjourney/DALL-E) ile üretip HTML\'deki placeholder\'larla değiştir',
     'Baskı öncesi mutlaka 1:1 ölçekte proof al',
     'Kesim payı (bleed) alanına dikkat et — kritik içeriği safe zone içinde tut',
   ] : [
     'Open HTML in browser → Print → Save as PDF for print-ready output',
+    'Use Vercel Blob preview link for instant visual preview',
     'Convert PDF to CMYK using Acrobat Pro or online CMYK converter',
     'Generate images with AI (Midjourney/DALL-E) and replace in HTML',
     'Always get a 1:1 proof before final print run',
     'Keep critical content within safe zone — bleed area will be trimmed',
   ];
 
-  return {
+  // Try Vercel Blob upload for instant preview
+  let previewUrl: string | null = null;
+  try {
+    const blobToken = process.env.BLOB_READ_WRITE_TOKEN;
+    if (blobToken) {
+      const filename = `flyers/preview-${Date.now()}-${style}.html`;
+      const blobRes = await fetch(`https://blob.vercel-storage.com/${filename}`, {
+        method: 'PUT',
+        headers: {
+          Authorization: `Bearer ${blobToken}`,
+          'Content-Type': 'text/html',
+          'X-Content-Type-Options': 'nosniff',
+        },
+        body: frontHtml,
+      });
+      if (blobRes.ok) {
+        const blobData = await blobRes.json() as { url?: string };
+        previewUrl = blobData.url ?? null;
+      }
+    }
+  } catch {
+    // Preview upload is optional — silently fail
+  }
+
+  const result: any = {
     format: specResult.format,
     dimensions: specResult.dimensions,
     pixelSize: specResult.pixelDimensions,
@@ -3067,10 +3206,52 @@ async function execGenerateFlyer(input: Record<string, unknown>): Promise<unknow
       recommendedPaper: specResult.recommendedPaper,
     },
     productionTips,
+    previewUrl,
+    ...(qrContent ? {
+      qrCode: {
+        content: qrContent,
+        svg: qrSVG,
+        note: 'QR kod flyer\'ın sağ alt köşesine otomatik eklenir.',
+      },
+    } : {}),
     designerNotes: language === 'tr'
-      ? `Bu flyer "${style}" stilinde, ${specResult.format} için optimize edildi. HTML doğrudan tarayıcıda açılabilir ve PDF olarak kaydedilebilir. Renkler CMYK baskı için uygundur. Görseller için AI prompt'ları hazır — sırayla üretip HTML'deki placeholder alanlara yerleştir.`
-      : `This flyer is optimized for ${specResult.format} in "${style}" style. HTML can be opened directly in browser and saved as PDF. Colors are CMYK-print suitable. AI image prompts are ready — generate them and place in HTML.`,
+      ? `Bu flyer "${style}" stilinde, ${specResult.format} için optimize edildi. ${previewUrl ? `Önizleme: ${previewUrl}` : 'HTML doğrudan tarayıcıda açılabilir.'} Renkler CMYK baskı için uygundur. Görseller için AI prompt'ları hazır.`
+      : `Flyer optimized for ${specResult.format} in "${style}" style. ${previewUrl ? `Preview: ${previewUrl}` : 'HTML can be opened directly in browser.'} Colors are CMYK-print suitable. AI image prompts ready.`,
   };
+
+  // Auto-create a PDF render task for the local bridge if available
+  if (process.env.CRON_SECRET) {
+    try {
+      const deplUrl = process.env.DEPLOY_URL || process.env.VERCEL_URL
+        ? `https://${process.env.VERCEL_URL ?? process.env.DEPLOY_URL}`
+        : null;
+      if (deplUrl) {
+        await fetch(`${deplUrl}/api/agent/tasks`, {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${process.env.CRON_SECRET}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            task_type: 'render_flyer_pdf',
+            title: `Flyer PDF: ${businessName ?? description.slice(0, 40)}`,
+            payload: {
+              html: frontHtml,
+              format: specResult.format,
+              style,
+              businessName: businessName ?? '',
+            },
+            priority: 5,
+          }),
+        });
+      }
+      result.pdfTaskQueued = true;
+    } catch {
+      result.pdfTaskQueued = false;
+    }
+  }
+
+  return result;
 }
 
 // ── Executor Map ──

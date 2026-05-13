@@ -101,6 +101,50 @@ async function executeTask(task: AgentTask): Promise<void> {
         break;
       }
 
+      case 'render_flyer_pdf': {
+        const html = (task.payload.html as string) ?? '';
+        const flyerFormat = (task.payload.format as string) ?? 'flyer-a5';
+        if (!html) throw new Error('HTML required for PDF render');
+        const fs = await import('fs/promises');
+        const path = await import('path');
+        const { execSync } = await import('child_process');
+
+        const dir = path.join(process.cwd(), 'compositions', `flyer_${task.id.slice(0, 8)}`);
+        await fs.mkdir(dir, { recursive: true });
+        const htmlPath = path.join(dir, 'flyer.html');
+        await fs.writeFile(htmlPath, html);
+        const pdfPath = path.join(dir, 'flyer.pdf');
+
+        try {
+          execSync(`npx puppeteer html "${htmlPath}" --output "${pdfPath}" --format "${flyerFormat.includes('a5') ? 'A5' : flyerFormat.includes('a6') ? 'A6' : flyerFormat.includes('a4') ? 'A4' : 'A5'}" --print-background`, {
+            cwd: process.cwd(),
+            stdio: 'pipe',
+            timeout: 60_000,
+          });
+        } catch {
+          // Puppeteer may not be installed — fallback message
+        }
+
+        try {
+          const stat = await fs.stat(pdfPath);
+          await reportResult(task.id, {
+            pdfPath,
+            pdfSizeBytes: stat.size,
+            htmlPath,
+            format: flyerFormat,
+            message: stat.size > 0 ? 'PDF rendered successfully' : 'PDF render attempted — verify output',
+          });
+        } catch {
+          await reportResult(task.id, {
+            htmlPath,
+            format: flyerFormat,
+            message: 'HTML saved. Install puppeteer (npm i puppeteer) for PDF rendering, or open HTML in browser → Print → Save as PDF.',
+            pdfNote: 'npx puppeteer html flyer.html --output flyer.pdf --format A5 --print-background',
+          });
+        }
+        break;
+      }
+
       case 'video_analysis': {
         const videoPath = (task.payload.videoPath as string) ?? (task.payload.videoUrl as string);
         if (!videoPath) throw new Error('videoPath or videoUrl required');
