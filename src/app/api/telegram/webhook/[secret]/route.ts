@@ -95,6 +95,7 @@ import {
   ignoreMessage,
 } from '@/lib/messages/reply-manager';
 import { parseMailCommand } from '@/lib/mail/parse-mail-command';
+import { handleVoiceMessage } from '@/lib/agent/voice';
 import {
   runWeeklyEmailCampaign,
   runCityOutreach,
@@ -238,6 +239,7 @@ interface TelegramMessage {
   caption?: string;
   photo?: TelegramPhotoSize[];
   document?: TelegramDocument;
+  voice?: { file_id: string; duration: number; mime_type?: string };
   date: number;
 }
 
@@ -5024,6 +5026,26 @@ export async function POST(
         console.error('[agent] photo download error:', err);
         await sendMessage({ chatId, text: '⚠️ Görsel işlenirken hata oluştu.' }).catch(() => {});
       }
+    }
+  } else if (update.message?.voice) {
+    // Voice message — transcribe and treat as text
+    const voiceFileId = update.message.voice.file_id;
+    await sendMessage({ chatId, text: '🎤 Ses kaydi isleniyor...' }).catch(() => {});
+    try {
+      const { transcribed, success } = await handleVoiceMessage(voiceFileId);
+      if (success && transcribed) {
+        await sendMessage({
+          chatId,
+          text: `📝 *Transkript:*\n${transcribed}`,
+          parseMode: 'Markdown',
+        }).catch(() => {});
+        await handleCommand(chatId, update.message.message_id, transcribed);
+      } else {
+        await sendMessage({ chatId, text: '⚠️ Ses kaydi cozulemedi. Lutfen tekrar deneyin.' }).catch(() => {});
+      }
+    } catch (err) {
+      console.error('[voice] handler error:', err);
+      await sendMessage({ chatId, text: '⚠️ Ses islemede hata olustu.' }).catch(() => {});
     }
   } else if (update.message?.text) {
     await handleCommand(
