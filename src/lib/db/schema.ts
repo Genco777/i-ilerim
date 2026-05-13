@@ -655,3 +655,38 @@ export const contentSlots = pgTable(
     ),
   }),
 );
+
+// ───── Chat Conversations (AI Assistant) ─────
+export const chatConversations = pgTable(
+  'chat_conversations',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    telegram_chat_id: bigint('telegram_chat_id', { mode: 'number' }).notNull(),
+    title: text('title'),
+    message_count: integer('message_count').notNull().default(0),
+    created_at: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updated_at: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    chatIdx: index('chat_conv_chat_idx').on(t.telegram_chat_id),
+    chatUpdatedIdx: index('chat_conv_updated_idx').on(t.telegram_chat_id, t.updated_at),
+  }),
+);
+
+export const chatMessages = pgTable(
+  'chat_messages',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    conversation_id: uuid('conversation_id')
+      .notNull()
+      .references(() => chatConversations.id, { onDelete: 'cascade' }),
+    role: text('role').notNull(),
+    content: jsonb('content').notNull(),
+    tool_calls: jsonb('tool_calls'),
+    created_at: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    convIdx: index('chat_msg_conv_idx').on(t.conversation_id),
+    convCreatedIdx: index('chat_msg_conv_created_idx').on(t.conversation_id, t.created_at),
+  }),
+);

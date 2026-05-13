@@ -201,6 +201,7 @@ import {
 } from '@/lib/db/queries/ads-campaigns';
 import { getAdsPreferences } from '@/lib/db/queries/ads-preferences';
 import type { AdsCampaignType } from '@/lib/db/queries/ads-campaigns'; // used in Task 15
+import { runAgentTurn, clearAgentSession } from '@/lib/agent';
 
 // In-memory session for manual text editing (post caption)
 const textEditSessions = new Map<number, string>(); // chatId -> postId
@@ -292,6 +293,10 @@ const HELP_TEXT = [
   '  /ads pause <id>         — kampanyayı durdur',
   '  /ads resume <id>        — kampanyayı devam ettir',
   '  /help                   — bu mesaj',
+  '',
+  '💬 AI Asistan:',
+  '  /chat <mesaj>           — AI asistan ile sohbet (sormadan direkt mesaj da yazılabilir)',
+  '  /chat_yeni              — yeni sohbet başlat',
   '',
   'Yeni FB/IG yorumları otomatik olarak buraya bildirilir.',
   'Onay sonrası seçilen kanal(lar)a yayınlanır.',
@@ -4227,6 +4232,37 @@ function buildEmailHtml(state: WizardState): string {
   });
 }
 
+async function handleChatCommand(chatId: number, text: string): Promise<void> {
+  const message = text.replace(/^\/chat(@\w+)?\s*/, '').trim();
+  if (!message) {
+    await sendMessage({
+      chatId,
+      text:
+        '💬 **Fly & Froth AI Asistan**\n\n' +
+        'Bana istediğini sorabilir, yapmamı istediğin işleri söyleyebilirsin.\n\n' +
+        'Örnekler:\n' +
+        '• "Bu hafta kaç fatura kestik?"\n' +
+        '• "Son 3 Kleinanzeigen mesajını kontrol et"\n' +
+        '• "Yarın için bir Instagram postu oluştur"\n' +
+        '• "Müşteri listesini göster"\n' +
+        '• "Flyer tasarla: yaz indirimi %50"\n' +
+        '• "Sistem durumu nedir?"\n\n' +
+        'Direkt mesaj da yazabilirsin, /chat yazmana gerek yok.\n' +
+        '/chat\\_yeni — yeni sohbet başlat.',
+      parseMode: 'Markdown',
+    });
+    return;
+  }
+  const sent = await sendMessage({ chatId, text: '🤔 Düşünüyorum...' });
+  runAgentTurn(chatId, message, sent.message_id).catch(async (err) => {
+    console.error('[agent] chat command error:', err);
+    await sendMessage({
+      chatId,
+      text: `❌ Hata: ${err instanceof Error ? err.message.slice(0, 200) : 'Bilinmeyen hata'}`,
+    }).catch(() => {});
+  });
+}
+
 async function handleCommand(
   chatId: number,
   messageId: number,
@@ -4247,6 +4283,16 @@ async function handleCommand(
   }
   if (trimmed === '/help') {
     await sendMessage({ chatId, text: HELP_TEXT });
+    return;
+  }
+
+  if (trimmed === '/chat' || trimmed.startsWith('/chat ')) {
+    await handleChatCommand(chatId, trimmed);
+    return;
+  }
+  if (trimmed === '/chat-yeni' || trimmed === '/chat_yeni') {
+    clearAgentSession(chatId);
+    await sendMessage({ chatId, text: '💬 Yeni sohbet başlatıldı. Önceki konuşma silindi.' });
     return;
   }
 
@@ -4542,9 +4588,15 @@ async function handleCommand(
     return;
   }
 
-  await sendMessage({
-    chatId,
-    text: `❓ Anlamadım: "${trimmed}". /help yaz.`,
+  // ── AI Assistant fallback ──
+  // Fire-and-forget: agent runs async, edits its own message
+  const sent = await sendMessage({ chatId, text: '🤔 ...' });
+  runAgentTurn(chatId, trimmed, sent.message_id).catch(async (err) => {
+    console.error('[agent] fallback error:', err);
+    await sendMessage({
+      chatId,
+      text: `❌ Asistan hatası: ${err instanceof Error ? err.message.slice(0, 200) : 'Bilinmeyen hata'}`,
+    }).catch(() => {});
   });
 }
 
@@ -4939,7 +4991,36 @@ export async function POST(
   // Background-style: Telegram needs a 200 OK fast. We return after
   // dispatching, but each handler does its own send back.
   if (update.message?.photo && update.message.photo.length > 0) {
-    await handlePhotoMessage(update.message);
+    const caption = update.message.caption?.trim() ?? '';
+    if (caption.startsWith('/raw')) {
+      await handlePhotoMessage(update.message);
+    } else {
+      // Route to AI assistant with vision
+      const largest = update.message.photo[update.message.photo.length - 1]!;
+      try {
+        const fileInfo = await getFile(largest.file_id);
+        if (fileInfo.file_path) {
+          const buffer = await downloadFile(fileInfo.file_path);
+          const base64 = buffer.toString('base64');
+          const sent = await sendMessage({ chatId, text: '🤔 Görsel analiz ediliyor...' });
+          runAgentTurn(chatId, caption || 'Bu görseli analiz et.', sent.message_id, {
+            data: base64,
+            media_type: 'image/jpeg',
+          }).catch(async (err) => {
+            console.error('[agent] vision error:', err);
+            await sendMessage({
+              chatId,
+              text: `❌ Görsel analiz hatası: ${err instanceof Error ? err.message.slice(0, 200) : 'Bilinmeyen hata'}`,
+            }).catch(() => {});
+          });
+        } else {
+          await sendMessage({ chatId, text: '⚠️ Görsel indirilemedi.' });
+        }
+      } catch (err) {
+        console.error('[agent] photo download error:', err);
+        await sendMessage({ chatId, text: '⚠️ Görsel işlenirken hata oluştu.' }).catch(() => {});
+      }
+    }
   } else if (update.message?.text) {
     await handleCommand(
       chatId,
