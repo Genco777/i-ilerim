@@ -795,3 +795,11 @@ export const agentTasks = pgTable(
     pendingPriorityIdx: index('task_pending_priority_idx').on(t.priority.desc()),
   }),
 );
+
+// ── System Config (key-value store for operational settings) ──
+export const systemConfig = pgTable('system_config', {
+  key: text('key').primaryKey(),
+  value: text('value').notNull(),
+  description: text('description'),
+  updated_at: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});

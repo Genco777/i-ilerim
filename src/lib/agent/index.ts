@@ -35,6 +35,41 @@ function getOrCreateSession(chatId: number): {
 // System prompt cache — 5 dk TTL
 let cachedSystemPrompt: { text: string; until: number } | null = null;
 
+export function bustSystemPromptCache(): void {
+  cachedSystemPrompt = null;
+}
+
+async function getExtraInstructions(): Promise<string> {
+  try {
+    const { getSystemConfigValue } = await import('@/lib/db/queries/system-config');
+    const extra = await getSystemConfigValue('agent_system_prompt_extra', '');
+    return extra || '(Henuz ozel talimat eklenmemis.)';
+  } catch {
+    return '(Ozel talimatlar yuklenemedi.)';
+  }
+}
+
+async function getConfigNumber(key: string, fallback: number): Promise<number> {
+  try {
+    const { getSystemConfigValue } = await import('@/lib/db/queries/system-config');
+    const val = await getSystemConfigValue(key, String(fallback));
+    const n = Number(val);
+    return Number.isFinite(n) && n > 0 ? n : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+async function getConfigBool(key: string, fallback: boolean): Promise<boolean> {
+  try {
+    const { getSystemConfigValue } = await import('@/lib/db/queries/system-config');
+    const val = await getSystemConfigValue(key, fallback ? 'true' : 'false');
+    return val === 'true';
+  } catch {
+    return fallback;
+  }
+}
+
 async function buildSystemPrompt(): Promise<string> {
   const now = Date.now();
   if (cachedSystemPrompt && now < cachedSystemPrompt.until) return cachedSystemPrompt.text;
@@ -68,6 +103,9 @@ ${businessProfile}
 
 HAFIZA (son 7 gunde ogrenilen onemli bilgiler):
 ${await buildMemoryContext()}
+
+OZEL TALIMATLAR (Mehmet'in ekledigi canli yonergeler):
+${await getExtraInstructions()}
 
 KRITISCHE REGELN:
 1. Wenn Mehmet dich bittet etwas zu tun (z.B. "erstell eine Rechnung", "schick eine Mail", "check die inbox"), dann TUE ES SOFORT mit den verfugbaren Tools. Frage NICHT ob du es tun sollst.
@@ -138,13 +176,20 @@ export async function runAgentTurn(
     console.log('[agent] reply delivered via send', { chatId, len: safe.length });
   };
 
-  // 28s safety timeout — guarantees user always gets some response
+  // Read operational config from DB (with fallbacks)
+  const [maxTurns, safetyTimeoutMs, swarmEnabled] = await Promise.all([
+    getConfigNumber('agent_max_tool_turns', MAX_TOOL_TURNS),
+    getConfigNumber('agent_safety_timeout_ms', 28_000),
+    getConfigBool('agent_swarm_enabled', true),
+  ]);
+
+  // Safety timeout from DB config — guarantees user always gets some response
   const safetyTimer = setTimeout(() => {
     if (!replied) {
       console.error('[agent] SAFETY TIMEOUT — forcing reply', { chatId, elapsed: Date.now() - startTime });
       deliverReply('Islem cok uzun surdu. Lutfen tekrar deneyin veya daha spesifik bir istek yapin.').catch(() => {});
     }
-  }, 28_000);
+  }, safetyTimeoutMs);
 
   try {
     const session = getOrCreateSession(chatId);
@@ -179,8 +224,9 @@ export async function runAgentTurn(
 
     // Swarm routing — only for messages with clear intent keywords
     // Short messages (<= 8 chars) skip swarm entirely
+    // Can be disabled via DB config: update_system_config key=agent_swarm_enabled value=false
     const isShortMessage = userText.length <= 8;
-    const swarmPromise = isShortMessage
+    const swarmPromise = (isShortMessage || !swarmEnabled)
       ? Promise.resolve({ reply: '', delegatedTo: '', toolCalls: 0, swarmed: false } as const)
       : runSwarmTurn(userText);
 
@@ -206,7 +252,7 @@ export async function runAgentTurn(
     let turnCount = 0;
     let finalText = '';
 
-    while (turnCount < MAX_TOOL_TURNS) {
+    while (turnCount < maxTurns) {
       console.log('[agent] starting turn', { turnCount, elapsed: Date.now() - startTime });
 
       const currentMessages: MessageParam[] = [

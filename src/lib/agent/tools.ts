@@ -919,6 +919,32 @@ export const AGENT_TOOLS: AgentTool[] = [
       required: ['action'],
     },
   },
+
+  // ── System Configuration ──
+  {
+    name: 'get_system_config',
+    description: 'Sistem yapilandirmasini goruntuler. Tum ayarlari veya belirli bir anahtarin degerini getirir. Anahtarlar: agent_system_prompt_extra, agent_max_tool_turns, agent_safety_timeout_ms, agent_swarm_enabled, agent_verbose_logging.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        key: { type: 'string', description: 'Config anahtari (bos birakilirsa tum ayarlari getirir). Orn: agent_swarm_enabled' },
+      },
+      required: [],
+    },
+  },
+  {
+    name: 'update_system_config',
+    description: 'Canli sistem yapilandirmasini gunceller. Agent davranisi, system prompt ekleri ve esik degerlerini Telegramdan degistirmek icin kullanilir. Sunucu restart gerektirmez.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        key: { type: 'string', description: 'Config anahtari. Gecerli: agent_system_prompt_extra, agent_max_tool_turns, agent_safety_timeout_ms, agent_swarm_enabled, agent_verbose_logging.' },
+        value: { type: 'string', description: 'Yeni deger. Boolean icin "true"/"false", sayi icin "8", metin icin serbest yazi.' },
+        description: { type: 'string', description: 'Aciklama (opsiyonel). Bu ayarin ne ise yaradigini belgelemek icin.' },
+      },
+      required: ['key', 'value'],
+    },
+  },
 ];
 
 // ── AI Image Auto-Generation & Embedding ──
@@ -5039,6 +5065,73 @@ async function execManageDesignApproval(input: Record<string, unknown>): Promise
   }
 }
 
+// ── System Config Executors ──
+
+async function execGetSystemConfig(input: Record<string, unknown>): Promise<unknown> {
+  const key = typeof input.key === 'string' && input.key.trim() ? input.key.trim() : null;
+  const { getAllSystemConfig, getSystemConfig } = await import('@/lib/db/queries/system-config');
+
+  if (key) {
+    const entry = await getSystemConfig(key);
+    if (!entry) return { error: `Config anahtari bulunamadi: ${key}` };
+    return { config: entry };
+  }
+
+  const all = await getAllSystemConfig();
+  return {
+    count: all.length,
+    configs: all,
+    note: 'Guncellemek icin update_system_config kullanin.',
+  };
+}
+
+async function execUpdateSystemConfig(input: Record<string, unknown>): Promise<unknown> {
+  const key = typeof input.key === 'string' && input.key.trim() ? input.key.trim() : '';
+  const value = typeof input.value === 'string' ? input.value : '';
+  const description = typeof input.description === 'string' ? input.description : undefined;
+
+  if (!key) return { error: 'key gerekli.' };
+  if (!value && value !== 'false' && value !== '0') return { error: 'value gerekli (bos dize gecersiz, en az "false" veya "0" yazin).' };
+
+  const validKeys = [
+    'agent_system_prompt_extra',
+    'agent_max_tool_turns',
+    'agent_safety_timeout_ms',
+    'agent_swarm_enabled',
+    'agent_verbose_logging',
+  ];
+
+  if (!validKeys.includes(key)) {
+    return { error: `Gecersiz config anahtari: ${key}. Gecerli: ${validKeys.join(', ')}` };
+  }
+
+  // Validate value types
+  if (key === 'agent_max_tool_turns' || key === 'agent_safety_timeout_ms') {
+    const n = Number(value);
+    if (!Number.isFinite(n) || n <= 0) return { error: `${key} pozitif bir sayi olmali. Girdi: ${value}` };
+  }
+  if (key === 'agent_swarm_enabled' || key === 'agent_verbose_logging') {
+    if (value !== 'true' && value !== 'false') return { error: `${key} "true" veya "false" olmali. Girdi: ${value}` };
+  }
+
+  const { setSystemConfig } = await import('@/lib/db/queries/system-config');
+  const entry = await setSystemConfig(key, value, description);
+
+  // Bust system prompt cache so next turn picks up the change
+  const { bustSystemPromptCache } = await import('@/lib/agent/index');
+  bustSystemPromptCache();
+
+  return {
+    updated: true,
+    config: entry,
+    note: key === 'agent_system_prompt_extra'
+      ? 'System prompt ekleri guncellendi. Bir sonraki mesajdan itibaren aktif.'
+      : key === 'agent_swarm_enabled'
+        ? `Swarm routing ${value === 'true' ? 'AKTIF' : 'DEVRE DISI'}. Degisiklik hemen gecerli.`
+        : `Config "${key}" guncellendi. Degisiklik hemen gecerli.`,
+  };
+}
+
 // ── Executor Map ──
 
 const EXECUTORS: Record<string, ToolExecutor> = {
@@ -5114,6 +5207,8 @@ const EXECUTORS: Record<string, ToolExecutor> = {
   generate_moodboard: execGenerateMoodboard,
   check_brand_consistency: execCheckBrandConsistency,
   manage_design_approval: execManageDesignApproval,
+  get_system_config: execGetSystemConfig,
+  update_system_config: execUpdateSystemConfig,
 };
 
 export async function executeTool(
