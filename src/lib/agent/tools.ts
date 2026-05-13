@@ -725,6 +725,100 @@ export const AGENT_TOOLS: AgentTool[] = [
       required: ['eventId'],
     },
   },
+  {
+    name: 'generate_color_palette',
+    description: 'Sektör, mood ve marka kişiliğine göre akıllı renk paleti oluşturur. Hex, CMYK, kullanım yüzdeleri ve anlamlarıyla birlikte.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        industry: { type: 'string', description: 'Sektör (örn. restoran, teknoloji, moda, hukuk, sağlık)' },
+        mood: { type: 'string', description: 'Mood (örn. modern, klasik, enerjik, sakin, lüks, samimi)' },
+        existingColors: { type: 'string', description: 'Mevcut renk varsa hex kodları (örn. "#1A2B3C,#FF5733")' },
+        count: { type: 'number', description: 'Kaç renk? Varsayılan 5.' },
+      },
+      required: ['industry', 'mood'],
+    },
+  },
+  {
+    name: 'suggest_font_pairing',
+    description: 'Tasarım stiline uygun font eşleştirmesi önerir (Google Fonts + sistem fontları). Başlık ve gövde için ayrı ayrı, CSS import ile birlikte.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        style: { type: 'string', description: 'Stil (örn. modern-minimal, classic-serif, playful, luxury, tech, handcrafted)' },
+        language: { type: 'string', description: 'Dil desteği (örn. de, tr, ar). Varsayılan Latin.' },
+        usage: { type: 'string', description: 'Kullanım yeri (örn. logo, web, print, brand-identity)' },
+      },
+      required: ['style'],
+    },
+  },
+  {
+    name: 'generate_logo_concepts',
+    description: 'İşletme bilgilerinden 3-5 logo konsept yönü üretir. Her konsept: stil adı, sembol fikri, tipografi, renk paleti, AI görsel promptu.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        businessName: { type: 'string', description: 'İşletme adı' },
+        industry: { type: 'string', description: 'Sektör' },
+        values: { type: 'string', description: 'Marka değerleri/kişiliği (örn. güvenilir, yenilikçi, samimi)' },
+        targetAudience: { type: 'string', description: 'Hedef kitle' },
+        preferences: { type: 'string', description: 'Tercihler veya kısıtlamalar (örn. minimalist, sadece tipografik, retro, mascot)' },
+        competitors: { type: 'string', description: 'Farklılaşmak istenen rakipler (isteğe bağlı)' },
+      },
+      required: ['businessName', 'industry'],
+    },
+  },
+  {
+    name: 'calculate_print_specs',
+    description: 'Basılı materyal formatı için teknik baskı özelliklerini hesaplar: ölçü, bleed, safe zone, DPI, renk profili, önerilen kağıt.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        format: { type: 'string', description: 'Format (örn. flyer-a5, flyer-a6, business-card, poster-a3, poster-a2, banner-rollup, brosur-dl, brosur-a4, letterhead, folder, social-media-post, social-media-story)' },
+        customWidthMm: { type: 'number', description: 'Özel en (mm) — format belirtilmezse kullanılır' },
+        customHeightMm: { type: 'number', description: 'Özel boy (mm) — format belirtilmezse kullanılır' },
+        folding: { type: 'string', description: 'Katlamalı ise tip (örn. z-fold, tri-fold, half-fold)' },
+        hasBleed: { type: 'boolean', description: 'Tam bleed (kesim payı) gerekli mi? Varsayılan true.' },
+      },
+      required: [],
+    },
+  },
+  {
+    name: 'analyze_design_psychology',
+    description: 'Renk, kompozisyon ve stilin hedef kitlede uyandırdığı psikolojik etkiyi analiz eder. Kültürel bağlam (TR/DE) ve sektörel beklentileri değerlendirir.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        designType: { type: 'string', description: 'Tasarım tipi (örn. logo, flyer, web, banner, kartvizit, ambalaj)' },
+        colors: { type: 'string', description: 'Kullanılan ana renkler (hex kodlarıyla, virgülle ayrılmış)' },
+        style: { type: 'string', description: 'Tasarım stili (örn. minimalist, bold, elegant, playful, corporate, brutalist)' },
+        targetEmotion: { type: 'string', description: 'Hedeflenen duygu (örn. güven, heyecan, huzur, lüks, samimiyet, güç)' },
+        targetAudience: { type: 'string', description: 'Hedef kitle profili' },
+        industry: { type: 'string', description: 'Sektör' },
+        region: { type: 'string', description: 'Kültürel bağlam (tr, de, eu, global). Varsayılan tr.' },
+      },
+      required: ['designType'],
+    },
+  },
+  {
+    name: 'generate_flyer',
+    description: 'Text açıklamasından baskıya hazır flyer tasarımı üretir. Tam HTML/CSS layout, CMYK renk paleti, font eşleştirmesi, baskı teknik özellikleri ve AI görsel promptları içerir. A5, A6, DL, kare gibi formatlarda çıktı verir.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        description: { type: 'string', description: 'Flyer için text açıklaması: ne için, hangi mesaj, hedef kitle, özel istekler. Örn: "Kebap restoranı için Ramazan menü flyer. Sıcak renkler, geleneksel motifler, iftar vurgusu. A5 çift taraflı. İletişim: 0176 123456, @kebaphaus.frankfurt"' },
+        format: { type: 'string', description: 'Flyer formatı: flyer-a5, flyer-a6, brosur-dl, flyer-a4, square-social, story-social. Varsayılan flyer-a5.' },
+        style: { type: 'string', description: 'Tasarım stili (örn. modern-minimal, elegant-restaurant, bold-promo, vintage-market, luxury-boutique, street-food). Varsayılan modern-minimal.' },
+        businessName: { type: 'string', description: 'İşletme adı' },
+        contactInfo: { type: 'string', description: 'İletişim bilgileri (tel, adres, sosyal medya, web)' },
+        cta: { type: 'string', description: 'Call-to-action (örn. "Hemen Ara", "Menüyü İndir", "%20 İndirim")' },
+        offerText: { type: 'string', description: 'Özel teklif/indirim metni' },
+        language: { type: 'string', description: 'Dil (tr, de, en). Varsayılan tr.' },
+        doubleSided: { type: 'boolean', description: 'Çift taraflı mı? Varsayılan false (ön yüz).' },
+      },
+      required: ['description'],
+    },
+  },
 ];
 
 // ── Tool Executors ──
@@ -2028,6 +2122,957 @@ async function execCancelAppointment(input: Record<string, unknown>): Promise<un
   return { success: true, eventId, message: 'Randevu iptal edildi.' };
 }
 
+// ── Graphic Design Executors ──
+
+// Industry/mood-based color palette knowledge base
+const COLOR_KNOWLEDGE: Record<string, Record<string, { hex: string; cmyk: [number, number, number, number]; meaning: string; usage: number }[]>> = {
+  restoran: {
+    modern: [
+      { hex: '#1A1A1A', cmyk: [0, 0, 0, 90], meaning: 'Siyah — premium, sofistike', usage: 60 },
+      { hex: '#D4A574', cmyk: [0, 22, 45, 17], meaning: 'Altın-bej — sıcaklık, doğallık', usage: 25 },
+      { hex: '#F5F0EB', cmyk: [0, 2, 4, 4], meaning: 'Krem — temizlik, ferahlık', usage: 10 },
+      { hex: '#8B4513', cmyk: [0, 50, 86, 45], meaning: 'Kahve — toprak, organik', usage: 5 },
+    ],
+    klasik: [
+      { hex: '#8B0000', cmyk: [0, 100, 100, 45], meaning: 'Bordo — geleneksel, otantik', usage: 40 },
+      { hex: '#F5DEB3', cmyk: [0, 8, 26, 4], meaning: 'Buğday — davetkar, rustik', usage: 30 },
+      { hex: '#2F4F4F', cmyk: [45, 0, 0, 69], meaning: 'Koyu yeşil — tazelik, doğa', usage: 20 },
+      { hex: '#DAA520', cmyk: [0, 15, 85, 15], meaning: 'Altın — kalite, özen', usage: 10 },
+    ],
+    enerjik: [
+      { hex: '#FF4500', cmyk: [0, 73, 100, 0], meaning: 'Turuncu-kırmızı — iştah, enerji', usage: 45 },
+      { hex: '#FFD700', cmyk: [0, 10, 100, 0], meaning: 'Sarı — mutluluk, hız', usage: 30 },
+      { hex: '#FFFFFF', cmyk: [0, 0, 0, 0], meaning: 'Beyaz — temiz, ferah', usage: 20 },
+      { hex: '#2E2E2E', cmyk: [0, 0, 0, 82], meaning: 'Koyu gri — denge', usage: 5 },
+    ],
+  },
+  teknoloji: {
+    modern: [
+      { hex: '#0A0E27', cmyk: [76, 63, 0, 85], meaning: 'Koyu lacivert — derinlik, güven', usage: 50 },
+      { hex: '#00D4FF', cmyk: [65, 0, 4, 0], meaning: 'Cyan — teknoloji, hız', usage: 25 },
+      { hex: '#7000FF', cmyk: [56, 100, 0, 0], meaning: 'Mor — inovasyon, yaratıcılık', usage: 15 },
+      { hex: '#FFFFFF', cmyk: [0, 0, 0, 0], meaning: 'Beyaz — kontrast, minimal', usage: 10 },
+    ],
+    lüks: [
+      { hex: '#0F0F0F', cmyk: [0, 0, 0, 94], meaning: 'Siyah — ultra premium', usage: 55 },
+      { hex: '#C9A84C', cmyk: [0, 16, 62, 21], meaning: 'Altın — eksklüzivite', usage: 20 },
+      { hex: '#1A1A2E', cmyk: [44, 44, 0, 82], meaning: 'Gece mavisi — derinlik', usage: 15 },
+      { hex: '#E5E5E5', cmyk: [0, 0, 0, 10], meaning: 'Açık gri — nefes alanı', usage: 10 },
+    ],
+  },
+  moda: {
+    modern: [
+      { hex: '#000000', cmyk: [0, 0, 0, 100], meaning: 'Siyah — zamansız, şık', usage: 50 },
+      { hex: '#F5F5F5', cmyk: [0, 0, 0, 4], meaning: 'Beyaz — temiz, minimalist', usage: 30 },
+      { hex: '#D4AF37', cmyk: [0, 17, 74, 17], meaning: 'Metalik altın — lüks', usage: 15 },
+      { hex: '#8B8B8B', cmyk: [0, 0, 0, 45], meaning: 'Gri — nötr, sofistike', usage: 5 },
+    ],
+    enerjik: [
+      { hex: '#FF1493', cmyk: [0, 92, 42, 0], meaning: 'Pembe — cesur, genç', usage: 40 },
+      { hex: '#FFD700', cmyk: [0, 10, 100, 0], meaning: 'Sarı — dikkat çekici', usage: 25 },
+      { hex: '#1C1C1C', cmyk: [0, 0, 0, 89], meaning: 'Koyu gri — kontrast', usage: 25 },
+      { hex: '#00CED1', cmyk: [57, 0, 17, 0], meaning: 'Turkuaz — taze, modern', usage: 10 },
+    ],
+  },
+  hukuk: {
+    klasik: [
+      { hex: '#1B2A4A', cmyk: [64, 40, 0, 71], meaning: 'Lacivert — otorite, güven', usage: 50 },
+      { hex: '#C9B078', cmyk: [0, 12, 40, 21], meaning: 'Altın — prestij', usage: 20 },
+      { hex: '#FFFFFF', cmyk: [0, 0, 0, 0], meaning: 'Beyaz — netlik, dürüstlük', usage: 25 },
+      { hex: '#8B4513', cmyk: [0, 50, 86, 45], meaning: 'Kahve — gelenek, sağlamlık', usage: 5 },
+    ],
+  },
+  sağlık: {
+    sakin: [
+      { hex: '#2ECC71', cmyk: [55, 0, 45, 0], meaning: 'Yeşil — sağlık, doğallık', usage: 40 },
+      { hex: '#FFFFFF', cmyk: [0, 0, 0, 0], meaning: 'Beyaz — hijyen, temizlik', usage: 35 },
+      { hex: '#3498DB', cmyk: [67, 27, 0, 0], meaning: 'Mavi — güven, sakinlik', usage: 20 },
+      { hex: '#2C3E50', cmyk: [50, 20, 0, 69], meaning: 'Koyu mavi — profesyonellik', usage: 5 },
+    ],
+  },
+};
+
+// Fallback palettes by mood only
+const MOOD_PALETTES: Record<string, { hex: string; cmyk: [number, number, number, number]; meaning: string; usage: number }[]> = {
+  modern: [
+    { hex: '#1A1A1A', cmyk: [0, 0, 0, 90], meaning: 'Koyu — temel, güçlü', usage: 50 },
+    { hex: '#0066FF', cmyk: [100, 60, 0, 0], meaning: 'Mavi — dijital, güven', usage: 25 },
+    { hex: '#FFFFFF', cmyk: [0, 0, 0, 0], meaning: 'Beyaz — boşluk, nefes', usage: 20 },
+    { hex: '#FF3366', cmyk: [0, 80, 60, 0], meaning: 'Kırmızı-pembe — vurgu', usage: 5 },
+  ],
+  klasik: [
+    { hex: '#2C3E50', cmyk: [50, 20, 0, 69], meaning: 'Koyu mavi — gelenek', usage: 45 },
+    { hex: '#ECF0F1', cmyk: [1, 0, 0, 6], meaning: 'Açık gri — arka plan', usage: 30 },
+    { hex: '#C9A84C', cmyk: [0, 16, 62, 21], meaning: 'Altın — prestij', usage: 15 },
+    { hex: '#E74C3C', cmyk: [0, 67, 74, 9], meaning: 'Kırmızı — vurgu', usage: 10 },
+  ],
+  enerjik: [
+    { hex: '#FF4500', cmyk: [0, 73, 100, 0], meaning: 'Turuncu — enerji, hareket', usage: 35 },
+    { hex: '#FFDD00', cmyk: [0, 7, 99, 0], meaning: 'Sarı — neşe, dikkat', usage: 25 },
+    { hex: '#1A1A2E', cmyk: [44, 44, 0, 82], meaning: 'Lacivert — kontrast', usage: 25 },
+    { hex: '#00D2FF', cmyk: [57, 0, 3, 0], meaning: 'Cyan — fresh, dinamik', usage: 15 },
+  ],
+  sakin: [
+    { hex: '#A8D8EA', cmyk: [28, 0, 3, 0], meaning: 'Açık mavi — huzur', usage: 40 },
+    { hex: '#F8F4E6', cmyk: [0, 2, 7, 3], meaning: 'Krem — yumuşaklık', usage: 30 },
+    { hex: '#B8C9A8', cmyk: [20, 0, 16, 21], meaning: 'Adaçayı — doğa, denge', usage: 20 },
+    { hex: '#D4A574', cmyk: [0, 22, 45, 17], meaning: 'Kum — sıcaklık', usage: 10 },
+  ],
+  lüks: [
+    { hex: '#0A0A0A', cmyk: [0, 0, 0, 96], meaning: 'Derin siyah — eksklüzivite', usage: 50 },
+    { hex: '#D4AF37', cmyk: [0, 17, 74, 17], meaning: 'Metalik altın — zenginlik', usage: 25 },
+    { hex: '#F5F5F0', cmyk: [0, 0, 2, 4], meaning: 'Kirli beyaz — kalite', usage: 15 },
+    { hex: '#800020', cmyk: [0, 100, 75, 50], meaning: 'Bordo — asalet', usage: 10 },
+  ],
+  samimi: [
+    { hex: '#FF6B6B', cmyk: [0, 58, 58, 0], meaning: 'Mercan — sıcak, arkadaş canlısı', usage: 35 },
+    { hex: '#FFE66D', cmyk: [0, 5, 50, 0], meaning: 'Açık sarı — neşeli', usage: 30 },
+    { hex: '#4ECDC4', cmyk: [52, 0, 20, 0], meaning: 'Turkuaz — cana yakın', usage: 25 },
+    { hex: '#2C3E50', cmyk: [50, 20, 0, 69], meaning: 'Koyu — okunaklı metin', usage: 10 },
+  ],
+};
+
+async function execGenerateColorPalette(input: Record<string, unknown>): Promise<unknown> {
+  const industry = String(input.industry ?? '').toLowerCase();
+  const mood = String(input.mood ?? '').toLowerCase();
+  const count = typeof input.count === 'number' && input.count > 0 ? input.count : 5;
+
+  // Try exact match first
+  const industryPalettes = COLOR_KNOWLEDGE[industry];
+  const palette = industryPalettes?.[mood] ?? MOOD_PALETTES[mood] ?? MOOD_PALETTES.modern!;
+
+  const selected = palette.slice(0, count);
+  const existingColors = typeof input.existingColors === 'string'
+    ? input.existingColors.split(',').map((c) => c.trim()).filter(Boolean)
+    : [];
+
+  return {
+    industry,
+    mood,
+    palette: selected.map((c, i) => ({
+      index: i,
+      hex: c.hex,
+      cmyk: `cmyk(${c.cmyk.join('%, ')}%)`,
+      meaning: c.meaning,
+      usagePercent: c.usage,
+      role: i === 0 ? 'primary' : i === 1 ? 'secondary' : i === selected.length - 1 ? 'accent' : 'support',
+    })),
+    existingColors: existingColors.length > 0 ? existingColors : undefined,
+    harmony: mood === 'enerjik' ? 'complementary / triadic' : mood === 'klasik' ? 'analogous / traditional' : mood === 'lüks' ? 'monochromatic + metallic accent' : 'balanced (60-30-10 rule)',
+    usageGuide: '60% primary (arka planlar, geniş alanlar), 30% secondary (bölüm başlıkları, kutular), 10% accent (CTA butonları, vurgular)',
+  };
+}
+
+async function execSuggestFontPairing(input: Record<string, unknown>): Promise<unknown> {
+  const style = String(input.style ?? 'modern-minimal').toLowerCase();
+  const usage = String(input.usage ?? 'brand-identity').toLowerCase();
+  const lang = String(input.language ?? 'latin').toLowerCase();
+
+  const pairings: Record<string, Array<{ heading: string; headingType: string; body: string; bodyType: string; import: string; character: string }>> = {
+    'modern-minimal': [
+      { heading: 'Inter', headingType: 'sans-serif', body: 'Inter', bodyType: 'sans-serif', import: '@import url("https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap");', character: 'Temiz, nötr, profesyonel. Startup ve tech favorisi.' },
+      { heading: 'DM Sans', headingType: 'sans-serif', body: 'DM Sans', bodyType: 'sans-serif', import: '@import url("https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;700&display=swap");', character: 'Geometrik, yumuşak köşeler, davetkar.' },
+      { heading: 'Space Grotesk', headingType: 'sans-serif', body: 'Space Grotesk', bodyType: 'sans-serif', import: '@import url("https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&display=swap");', character: 'Keskin, teknik, kendine özgü karakter.' },
+    ],
+    'classic-serif': [
+      { heading: 'Playfair Display', headingType: 'serif', body: 'Lora', bodyType: 'serif', import: '@import url("https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;500;600;700&family=Lora:wght@400;500&display=swap");', character: 'Zarif, edebi, zamansız. Hukuk ve yayıncılık için ideal.' },
+      { heading: 'Cormorant Garamond', headingType: 'serif', body: 'Libre Baskerville', bodyType: 'serif', import: '@import url("https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@400;500;600;700&family=Libre+Baskerville:wght@400;700&display=swap");', character: 'Klasik kitap estetiği, prestijli.' },
+      { heading: 'EB Garamond', headingType: 'serif', body: 'Source Serif 4', bodyType: 'serif', import: '@import url("https://fonts.googleapis.com/css2?family=EB+Garamond:wght@400;500;600;700&family=Source+Serif+4:wght@400;600&display=swap");', character: 'Rönesans esintili, akademik his.' },
+    ],
+    'playful': [
+      { heading: 'Fredoka', headingType: 'display', body: 'Nunito', bodyType: 'sans-serif', import: '@import url("https://fonts.googleapis.com/css2?family=Fredoka:wght@400;500;600;700&family=Nunito:wght@400;600;700&display=swap");', character: 'Yuvarlak, arkadaş canlısı, çocuk markaları ve F&B için.' },
+      { heading: 'Baloo 2', headingType: 'display', body: 'Quicksand', bodyType: 'sans-serif', import: '@import url("https://fonts.googleapis.com/css2?family=Baloo+2:wght@400;500;600;700&family=Quicksand:wght@400;500;600&display=swap");', character: 'Eğlenceli, yumuşak, Hint esintili.' },
+      { heading: 'Bubblegum Sans', headingType: 'display', body: 'Nunito Sans', bodyType: 'sans-serif', import: '@import url("https://fonts.googleapis.com/css2?family=Bubblegum+Sans&family=Nunito+Sans:wght@400;600;700&display=swap");', character: 'El yazısı havası, neşeli, gündelik.' },
+    ],
+    'luxury': [
+      { heading: 'Playfair Display', headingType: 'serif', body: 'Montserrat', bodyType: 'sans-serif', import: '@import url("https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;500;600;700&family=Montserrat:wght@300;400;500&display=swap");', character: 'Kontrast = lüks. Serif başlık + sans gövde klasik premium formülü.' },
+      { heading: 'Cormorant', headingType: 'serif', body: 'Jost', bodyType: 'sans-serif', import: '@import url("https://fonts.googleapis.com/css2?family=Cormorant:wght@400;500;600;700&family=Jost:wght@300;400;500&display=swap");', character: 'İnce serif + geometrik sans. Moda ve kuyumculuk.' },
+      { heading: 'Bodoni Moda', headingType: 'serif', body: 'Raleway', bodyType: 'sans-serif', import: '@import url("https://fonts.googleapis.com/css2?family=Bodoni+Moda:wght@400;500;600;700&family=Raleway:wght@300;400;500&display=swap");', character: 'Yüksek kontrast, Didone stil. Ultra lüks.' },
+    ],
+    'tech': [
+      { heading: 'JetBrains Mono', headingType: 'mono', body: 'Inter', bodyType: 'sans-serif', import: '@import url("https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Inter:wght@400;500&display=swap");', character: 'Mono başlık + sans gövde. Developer/SaaS estetiği.' },
+      { heading: 'Space Grotesk', headingType: 'sans-serif', body: 'DM Sans', bodyType: 'sans-serif', import: '@import url("https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=DM+Sans:wght@400;500&display=swap");', character: 'Fütüristik, keskin, yapay zeka/blockchain için.' },
+      { heading: 'Sora', headingType: 'sans-serif', body: 'Sora', bodyType: 'sans-serif', import: '@import url("https://fonts.googleapis.com/css2?family=Sora:wght@300;400;500;600;700&display=swap");', character: 'Kompakt, modern, fintech/startup.' },
+    ],
+    'handcrafted': [
+      { heading: 'Caveat', headingType: 'handwriting', body: 'Nunito', bodyType: 'sans-serif', import: '@import url("https://fonts.googleapis.com/css2?family=Caveat:wght@400;500;600;700&family=Nunito:wght@400;600&display=swap");', character: 'Samimi el yazısı + okunaklı gövde. Butik/artisan markalar.' },
+      { heading: 'Amatic SC', headingType: 'handwriting', body: 'Josefin Slab', bodyType: 'slab-serif', import: '@import url("https://fonts.googleapis.com/css2?family=Amatic+SC:wght@400;700&family=Josefin+Slab:wght@400;600&display=swap");', character: 'Sanatsal, bohem, organik ürünler için.' },
+      { heading: 'Kalam', headingType: 'handwriting', body: 'Lato', bodyType: 'sans-serif', import: '@import url("https://fonts.googleapis.com/css2?family=Kalam:wght@400;700&family=Lato:wght@400;700&display=swap");', character: 'Hint kaligrafi esintisi, sıcak ve kişisel.' },
+    ],
+  };
+
+  const matches = pairings[style] ?? pairings['modern-minimal']!;
+
+  // Language-specific notes
+  const langNotes: Record<string, string> = {
+    tr: 'Türkçe için tüm önerilen fontlar ş, ğ, ı, İ, ü, ö, ç karakterlerini destekler.',
+    de: 'Deutsch: Alle Fonts unterstützen ä, ö, ü, ß.',
+    ar: 'Arapça için: önerilen fontlar Arap alfabesi için optimize edilmemiş olabilir. Noto Sans Arabic veya Amiri alternatif olarak düşünülebilir.',
+  };
+
+  return {
+    style,
+    usage,
+    pairings: matches.map((p) => ({
+      heading: { font: p.heading, type: p.headingType },
+      body: { font: p.body, type: p.bodyType },
+      cssImport: p.import,
+      character: p.character,
+    })),
+    languageNote: langNotes[lang] ?? undefined,
+    usageTips: usage === 'logo' ? 'Logo için heading fontunu kullan, kerning ayarlarıyla oyna.' : usage === 'web' ? 'Body fontunu 16-18px, heading\'i 2x-3x oranında kullan.' : 'Print için en az 300 DPI, heading fontunu outline\'a çevirmeyi unutma.',
+  };
+}
+
+// Logo concept styles by industry
+const LOGO_CONCEPTS: Record<string, Array<{ style: string; approach: string; iconType: string; typography: string; colorApproach: string }>> = {
+  restoran: [
+    { style: 'Minimalist Line Art', approach: 'Tek çizgiyle tabak/çatal/bıçak kontürü', iconType: 'Line art ikon', typography: 'İnce serif veya elegant sans', colorApproach: 'Monokrom + tek vurgu rengi' },
+    { style: 'Vintage Badge', approach: 'Dairesel amblem, kuruluş yılıyla', iconType: 'Merkezde şef silüeti veya malzeme', typography: 'Serif + script kombinasyonu', colorApproach: 'Gold foil + mat siyah veya koyu yeşil' },
+    { style: 'Modern Typographic', approach: 'Özel lettering, isim odaklı', iconType: 'İkon yok veya minimal nokta', typography: 'Custom/modifiye edilmiş kalın sans', colorApproach: 'Canlı tek renk veya degrade' },
+    { style: 'Nature Organic', approach: 'Yaprak/tahıl/ateş gibi doğal form', iconType: 'Organik şekilli ikon', typography: 'Yuvarlak, dost canlısı sans', colorApproach: 'Toprak tonları + yeşil' },
+  ],
+  teknoloji: [
+    { style: 'Geometric Abstract', approach: 'Geometrik şekillerle soyut sembol', iconType: 'Altıgen/dörtgen/daire kombinasyonu', typography: 'Geometric sans (Space Grotesk vb)', colorApproach: 'Gradient mavi-mor veya cyan' },
+    { style: 'Minimal Lettermark', approach: 'İsim baş harflerinden geometrik monogram', iconType: 'Monogram/lettermark', typography: 'Temiz, ince sans-serif', colorApproach: 'Tek renk, genelde mavi veya siyah' },
+    { style: 'Circuit/Tech Mark', approach: 'Devre kartı veya node bağlantıları', iconType: 'Teknik, ağ benzeri ikon', typography: 'Mono veya teknik sans', colorApproach: 'Neon vurgulu koyu tema' },
+  ],
+  moda: [
+    { style: 'Elegant Wordmark', approach: 'Özel tipografi, isim ön planda', iconType: 'İkon yok veya çok küçük', typography: 'Didone/Bodoni yüksek kontrast', colorApproach: 'Siyah-beyaz, altın vurgu' },
+    { style: 'Minimal Symbol', approach: 'Tek, güçlü soyut sembol', iconType: 'Basit geometrik veya organik', typography: 'Modern sans, sembolün yanında', colorApproach: 'Monokrom, lüks his' },
+    { style: 'Signature Script', approach: 'El yazısı/script ağırlıklı logo', iconType: 'Akıcı çizgi veya yok', typography: 'Script/el yazısı + küçük sans alt metin', colorApproach: 'Soft pastel veya metalik' },
+  ],
+};
+
+const DEFAULT_LOGO_CONCEPTS = [
+  { style: 'Minimalist Modern', approach: 'Sade geometrik form, az ama öz', iconType: 'Soyut geometrik ikon', typography: 'Temiz sans-serif (Inter, DM Sans)', colorApproach: 'Monokrom + tek vurgu' },
+  { style: 'Classic Badge', approach: 'Dairesel/kalkan amblem, geleneksel', iconType: 'Merkezi sembol', typography: 'Serif başlık + sans alt metin', colorApproach: '2-3 klasik renk' },
+  { style: 'Typographic Focus', approach: 'Tamamen yazıya dayalı, özel lettering', iconType: 'Yok, tipografi ön planda', typography: 'Custom/modifiye display font', colorApproach: 'Tek veya iki renk' },
+  { style: 'Playful Mascot', approach: 'Karakter/maskot odaklı, arkadaş canlısı', iconType: 'İllüstratif maskot', typography: 'Yuvarlak, eğlenceli font', colorApproach: 'Canlı, çok renkli' },
+  { style: 'Abstract Art', approach: 'Sanatsal, yoruma açık soyut form', iconType: 'Serbest form, organik', typography: 'İnce, zarif font', colorApproach: 'Gradient veya su bazlı doku' },
+];
+
+async function execGenerateLogoConcepts(input: Record<string, unknown>): Promise<unknown> {
+  const businessName = String(input.businessName ?? '');
+  const industry = String(input.industry ?? '').toLowerCase();
+  const values = String(input.values ?? '');
+  const preferences = String(input.preferences ?? '');
+
+  const baseConcepts = LOGO_CONCEPTS[industry] ?? DEFAULT_LOGO_CONCEPTS;
+
+  return {
+    businessName,
+    industry,
+    values: values || undefined,
+    preferences: preferences || undefined,
+    conceptCount: baseConcepts.length,
+    concepts: baseConcepts.map((c, i) => ({
+      id: i + 1,
+      name: c.style,
+      approach: c.approach,
+      iconType: c.iconType,
+      typography: c.typography,
+      colorApproach: c.colorApproach,
+      aiImagePrompt: `Logo design for "${businessName}", ${industry} industry. Style: ${c.style}. ${c.approach}. ${c.iconType}. Typography: ${c.typography}. Colors: ${c.colorApproach}. Professional, high-quality vector logo on clean background. ${values ? `Brand values: ${values}.` : ''} ${preferences ? `Preferences: ${preferences}.` : ''}`,
+      suitableFor: i === 0 ? 'Web + sosyal medya (dijital öncelikli)' : i === 1 ? 'Print + kartvizit + tabela' : i === 2 ? 'App icon + favicon + small spaces' : 'Büyük format + merch + araç kaplama',
+    })),
+    nextSteps: 'Bu konseptleri müşteriyle paylaş. Beğenilen yönü seç, refine et. AI image generation için concept.aiImagePrompt kullan.',
+  };
+}
+
+// Print specifications database (all values in mm, 300 DPI)
+const PRINT_SPECS: Record<string, { name: string; wMm: number; hMm: number; bleedMm: number; safeMm: number; dpi: number; colorProfile: string; paper: string; notes: string }> = {
+  'flyer-a5': { name: 'Flyer A5', wMm: 148, hMm: 210, bleedMm: 3, safeMm: 5, dpi: 300, colorProfile: 'CMYK / ISO Coated v2', paper: '135-170g/m² kuşe veya mat', notes: 'Tek veya çift taraflı. Dijital baskı için 300 DPI yeterli, ofset için vektör tercih et.' },
+  'flyer-a6': { name: 'Flyer A6', wMm: 105, hMm: 148, bleedMm: 3, safeMm: 4, dpi: 300, colorProfile: 'CMYK / ISO Coated v2', paper: '170-250g/m² kuşe', notes: 'Kartvizit boyutunda flyer. Küçük alan = büyük punto + az metin.' },
+  'business-card': { name: 'Kartvizit', wMm: 85, hMm: 55, bleedMm: 3, safeMm: 4, dpi: 300, colorProfile: 'CMYK / ISO Coated v2', paper: '300-400g/m² mat veya kuşe', notes: 'EU standart 85x55mm. Spot UV veya foil için ayrı katman hazırla.' },
+  'poster-a3': { name: 'Poster A3', wMm: 297, hMm: 420, bleedMm: 3, safeMm: 8, dpi: 300, colorProfile: 'CMYK / ISO Coated v2', paper: '135-200g/m² kuşe veya mat', notes: 'Büyük format. Görseller en az 300 DPI efektif çözünürlükte olmalı.' },
+  'poster-a2': { name: 'Poster A2', wMm: 420, hMm: 594, bleedMm: 3, safeMm: 10, dpi: 300, colorProfile: 'CMYK / ISO Coated v2', paper: '135-200g/m²', notes: 'A2 ve üstü için vektör ağırlıklı tasarım önerilir. Raster görseller 150-200 DPI efektif tolere edilebilir.' },
+  'poster-a1': { name: 'Poster A1', wMm: 594, hMm: 841, bleedMm: 3, safeMm: 15, dpi: 200, colorProfile: 'CMYK / ISO Coated v2', paper: '135-200g/m²', notes: 'A1 büyük format. 200 DPI yeterli. Metinleri vektör tut. Görselleri 150+ DPI efektifte bırak.' },
+  'banner-rollup': { name: 'Roll-up Banner', wMm: 850, hMm: 2000, bleedMm: 0, safeMm: 30, dpi: 150, colorProfile: 'CMYK / ISO Coated v2', paper: 'PVC branda (frontlit)', notes: 'Üst ve altta mekanizma payı var. Alt 30cm ve üst 10cm genelde görünmez, kritik içeriği ortala.' },
+  'brosur-dl': { name: 'Broşür DL', wMm: 99, hMm: 210, bleedMm: 3, safeMm: 5, dpi: 300, colorProfile: 'CMYK / ISO Coated v2', paper: '135-170g/m²', notes: 'DL = 1/3 A4. Zarf içine sığar. Katlama çizgilerini işaretle (crease).' },
+  'brosur-a4': { name: 'Broşür A4', wMm: 210, hMm: 297, bleedMm: 3, safeMm: 5, dpi: 300, colorProfile: 'CMYK / ISO Coated v2', paper: '135-200g/m²', notes: 'A4 katlamalı. Tri-fold için panel genişlikleri: 98-100-99mm (tam eşit değil, iç panel biraz dar).' },
+  'letterhead': { name: 'Antetli Kağıt', wMm: 210, hMm: 297, bleedMm: 0, safeMm: 15, dpi: 300, colorProfile: 'CMYK / ISO Coated v2', paper: '90-100g/m² ofset', notes: 'Bleed yok. Lazer/inkjet yazıcıda basılabilir olmalı. Logo ve iletişim bilgileri üst/alt.' },
+  'folder': { name: 'Klasör (A4)', wMm: 450, hMm: 315, bleedMm: 3, safeMm: 10, dpi: 300, colorProfile: 'CMYK / ISO Coated v2', paper: '350-400g/m²', notes: 'Açık hali 450x315mm. Katlama ve cep payları için die-cut şablonu gerekir.' },
+  'social-media-post': { name: 'Sosyal Medya Post', wMm: 1080, hMm: 1080, bleedMm: 0, safeMm: 0, dpi: 72, colorProfile: 'RGB / sRGB', paper: 'N/A (dijital)', notes: '1080x1080px @72 DPI. Instagram/Facebook feed. Merkezde kritik içerik, kenarlarda boşluk.' },
+  'social-media-story': { name: 'Sosyal Medya Story', wMm: 1080, hMm: 1920, bleedMm: 0, safeMm: 0, dpi: 72, colorProfile: 'RGB / sRGB', paper: 'N/A (dijital)', notes: '1080x1920px @72 DPI. Üst ve alt %14 (yaklaşık 270px) UI elementleri tarafından kapatılabilir.' },
+};
+
+async function execCalculatePrintSpecs(input: Record<string, unknown>): Promise<unknown> {
+  const format = String(input.format ?? '');
+  const hasBleed = input.hasBleed !== false;
+
+  if (format && PRINT_SPECS[format]) {
+    const spec = PRINT_SPECS[format];
+    const widthWithBleed = spec.bleedMm > 0 && hasBleed ? spec.wMm + spec.bleedMm * 2 : spec.wMm;
+    const heightWithBleed = spec.bleedMm > 0 && hasBleed ? spec.hMm + spec.bleedMm * 2 : spec.hMm;
+    return {
+      format: spec.name,
+      dimensions: { widthMm: spec.wMm, heightMm: spec.hMm },
+      withBleed: { widthMm: widthWithBleed, heightMm: heightWithBleed },
+      bleed: { mm: spec.bleedMm, note: 'Kesim payı. Bu alana arka planı uzat, kritik içerik koyma.' },
+      safeZone: { mm: spec.safeMm, note: 'Güvenli alan. Tüm kritik içerik (metin, logo) bu sınır içinde kalmalı.' },
+      pixelDimensions: { widthPx: Math.round((widthWithBleed / 25.4) * spec.dpi), heightPx: Math.round((heightWithBleed / 25.4) * spec.dpi), atDpi: spec.dpi },
+      colorProfile: spec.colorProfile,
+      recommendedPaper: spec.paper,
+      notes: spec.notes,
+    };
+  }
+
+  // Custom size
+  const w = typeof input.customWidthMm === 'number' ? input.customWidthMm : 210;
+  const h = typeof input.customHeightMm === 'number' ? input.customHeightMm : 297;
+  const bleedMm = hasBleed ? 3 : 0;
+  const safeMm = Math.max(3, Math.min(w, h) * 0.03);
+  const folding = typeof input.folding === 'string' ? input.folding : undefined;
+
+  const result: any = {
+    format: `Custom (${w}x${h}mm)`,
+    dimensions: { widthMm: w, heightMm: h },
+    withBleed: { widthMm: w + bleedMm * 2, heightMm: h + bleedMm * 2 },
+    bleed: { mm: bleedMm, note: 'Standart 3mm kesim payı' },
+    safeZone: { mm: Math.round(safeMm), note: 'Kritik içerik bu sınır içinde kalmalı' },
+    pixelDimensions: { widthPx: Math.round(((w + bleedMm * 2) / 25.4) * 300), heightPx: Math.round(((h + bleedMm * 2) / 25.4) * 300), atDpi: 300 },
+    colorProfile: 'CMYK / ISO Coated v2',
+    recommendedPaper: 'Müşteriyle teyit et',
+  };
+
+  if (folding) {
+    result.folding = folding;
+    if (folding === 'tri-fold') {
+      result.panels = `${w / 3 - 1}/${w / 3}/${w / 3 - 1} mm (iç panel biraz dar)`;
+    } else if (folding === 'half-fold') {
+      result.panels = `${w / 2}/${w / 2} mm`;
+    } else if (folding === 'z-fold') {
+      result.panels = `${w / 3}/${w / 3}/${w / 3} mm`;
+    }
+  }
+
+  return result;
+}
+
+// Color psychology database
+const COLOR_PSYCHOLOGY: Record<string, { emotions: string[]; industries: string[]; cultureTR: string; cultureDE: string; bestWith: string[]; avoidWith: string[] }> = {
+  '#FF0000': { emotions: ['tutku', 'aciliyet', 'heyecan', 'güç'], industries: ['restoran', 'eğlence', 'spor'], cultureTR: 'Bayrak, güç, cesaret', cultureDE: 'Tehlike, dur, yasak', bestWith: ['#FFFFFF', '#000000', '#FFD700'], avoidWith: ['#00FF00'] },
+  '#0000FF': { emotions: ['güven', 'sakinlik', 'profesyonellik'], industries: ['finans', 'teknoloji', 'sağlık'], cultureTR: 'Nazar boncuğu, koruma', cultureDE: 'Güven, kurumsallık', bestWith: ['#FFFFFF', '#FFD700', '#00D4FF'], avoidWith: ['#FF0000'] },
+  '#FFD700': { emotions: ['zenginlik', 'sıcaklık', 'iyimserlik'], industries: ['lüks', 'gıda', 'konaklama'], cultureTR: 'Altın, zenginlik, bolluk', cultureDE: 'Kalite, premium', bestWith: ['#000000', '#1A1A2E', '#800020'], avoidWith: ['#FFFF00'] },
+  '#008000': { emotions: ['doğa', 'büyüme', 'sağlık', 'huzur'], industries: ['organik', 'sağlık', 'çevre'], cultureTR: 'Doğa, İslam rengi, huzur', cultureDE: 'Çevre, sürdürülebilirlik', bestWith: ['#FFFFFF', '#8B4513', '#FFD700'], avoidWith: ['#FF0000'] },
+  '#FFA500': { emotions: ['enerji', 'sıcaklık', 'yaratıcılık'], industries: ['eğlence', 'eğitim', 'perakende'], cultureTR: 'Canlılık, sıcaklık', cultureDE: 'Sonbahar, uygun fiyat', bestWith: ['#1A1A1A', '#FFFFFF', '#008080'], avoidWith: ['#FF00FF'] },
+  '#800080': { emotions: ['lüks', 'yaratıcılık', 'bilgelik'], industries: ['güzellik', 'eğitim', 'sanat'], cultureTR: 'Asalet, mistisizm', cultureDE: 'Yaratıcılık, spiritüellik', bestWith: ['#FFD700', '#FFFFFF', '#FF1493'], avoidWith: ['#008000'] },
+  '#000000': { emotions: ['güç', 'zarafet', 'gizem'], industries: ['lüks', 'moda', 'teknoloji'], cultureTR: 'Güç, ciddiyet, yas', cultureDE: 'Premium, modern, minimalist', bestWith: ['#FFFFFF', '#FFD700', '#D4AF37'], avoidWith: [] },
+  '#FFC0CB': { emotions: ['romantizm', 'şefkat', 'kadınsılık'], industries: ['kozmetik', 'moda', 'çocuk'], cultureTR: 'Kadınsı, yumuşak', cultureDE: 'Kadınsı, nazik', bestWith: ['#808080', '#FFFFFF', '#FFD700'], avoidWith: ['#FF0000'] },
+  '#808080': { emotions: ['denge', 'nötrlük', 'profesyonellik'], industries: ['kurumsal', 'hukuk', 'finans'], cultureTR: 'Nötr, ciddi', cultureDE: 'Profesyonel, güvenilir', bestWith: ['#0066FF', '#000000', '#FFFFFF'], avoidWith: [] },
+};
+
+async function execAnalyzeDesignPsychology(input: Record<string, unknown>): Promise<unknown> {
+  const designType = String(input.designType ?? '');
+  const colorsRaw = typeof input.colors === 'string' ? input.colors : '';
+  const style = String(input.style ?? '');
+  const targetEmotion = String(input.targetEmotion ?? '');
+  const region = String(input.region ?? 'tr').toLowerCase();
+  const industry = String(input.industry ?? '');
+
+  const colors = colorsRaw.split(',').map((c) => c.trim()).filter(Boolean);
+  const colorAnalysis = colors.map((hex) => {
+    const normalized = hex.toUpperCase();
+    const data = COLOR_PSYCHOLOGY[normalized];
+    if (!data) {
+      // Try approximate matching
+      const r = parseInt(normalized.slice(1, 3), 16);
+      const g = parseInt(normalized.slice(3, 5), 16);
+      const b = parseInt(normalized.slice(5, 7), 16);
+      let closest = 'analiz edilemedi';
+      if (r > 200 && g < 100 && b < 100) closest = 'kırmızı tonu — tutku, aciliyet';
+      else if (r < 100 && g < 100 && b > 200) closest = 'mavi tonu — güven, profesyonellik';
+      else if (r > 200 && g > 200 && b < 50) closest = 'sarı tonu — iyimserlik, enerji';
+      else if (r < 80 && g > 150 && b < 80) closest = 'yeşil tonu — doğa, büyüme';
+      else if (r > 200 && g > 100 && b < 20) closest = 'turuncu tonu — sıcaklık, yaratıcılık';
+      else if (r > 150 && g < 50 && b > 150) closest = 'mor tonu — lüks, yaratıcılık';
+      else if (r < 50 && g < 50 && b < 50) closest = 'siyah — güç, zarafet';
+      else if (r > 200 && g > 200 && b > 200) closest = 'beyaz — temizlik, saflık';
+      return { hex: normalized, match: 'approximate', analysis: closest };
+    }
+    return {
+      hex: normalized,
+      match: 'exact',
+      emotions: data.emotions,
+      industries: data.industries,
+      cultureTR: data.cultureTR,
+      cultureDE: data.cultureDE,
+      bestCombinations: data.bestWith,
+      avoidWith: data.avoidWith.length > 0 ? data.avoidWith : undefined,
+    };
+  });
+
+  // Style psychology
+  const styleAnalysis: Record<string, { emotion: string; audience: string; strengths: string[]; risks: string[] }> = {
+    minimalist: { emotion: 'Sadelik, netlik, güven', audience: 'Premium, eğitimli, 25-45 yaş', strengths: ['Okunabilirlik yüksek', 'Zamansız', 'Profesyonel algı'], risks: ['Fazla soğuk/steril algılanabilir', 'Duygusal bağ kurmak zor'] },
+    bold: { emotion: 'Güç, cesaret, dinamizm', audience: 'Genç, enerjik, 18-35 yaş', strengths: ['Dikkat çekici', 'Akılda kalıcı', 'Enerji verir'], risks: ['Agresif algılanabilir', 'Uzun metinlerde yorucu'] },
+    elegant: { emotion: 'Zarafet, lüks, incelik', audience: 'Varlıklı, 30-55 yaş', strengths: ['Premium algı', 'Güven verir', 'Detay odaklı'], risks: ['Ulaşılmaz algılanabilir', 'Genç kitleye hitap etmez'] },
+    playful: { emotion: 'Neşe, samimiyet, erişilebilirlik', audience: 'Genç, aileler, 15-35 yaş', strengths: ['Sıcak ve davetkar', 'Marka sadakati yüksek', 'Viral potansiyel'], risks: ['Ciddiye alınmayabilir', 'Kurumsal işlerde uygun değil'] },
+    corporate: { emotion: 'Güven, istikrar, otorite', audience: 'Profesyoneller, B2B, 30-60 yaş', strengths: ['Güvenilir', 'Kurumsal imaj', 'Uzun vadeli algı'], risks: ['Sıkıcı algılanabilir', 'Farklılaşmak zor'] },
+    brutalist: { emotion: 'Ham, otantik, cesur', audience: 'Tasarım bilinçli, genç, 20-35 yaş', strengths: ['Son derece ayırt edici', 'Trend/hip', 'Güçlü karakter'], risks: ['Ana akım kitleye hitap etmez', 'Çabuk eskir'] },
+  };
+
+  const styleData = styleAnalysis[style] ?? { emotion: 'Analiz için daha fazla bilgi gerekli', audience: 'Belirtilmedi', strengths: [], risks: [] };
+
+  // Cultural context
+  const culturalContext = region === 'tr'
+    ? { note: 'Türkiye pazarında: Kırmızı (güç, bayrak), mavi (nazar), yeşil (İslam, doğa) güçlü kültürel anlam taşır. Batı tarzı minimalizm genç kitleye hitap eder. Geleneksel motifler ve sıcak renkler Anadolu kitlesinde karşılık bulur.' }
+    : region === 'de'
+    ? { note: 'Almanya pazarında: Minimalizm ve işlevsellik ön planda. Siyah-beyaz-kırmızı güçlü. Yeşil = çevre bilinci (yüksek). Mavi = güven ve teknoloji. Altın/lüks abartı algılanabilir. Tipografi ve grid sistemi çok önemli.' }
+    : { note: 'Global/European context: Temiz tasarım, accessibility, ve kültürel hassasiyet dengesi.' };
+
+  return {
+    designType,
+    industry: industry || undefined,
+    targetEmotion: targetEmotion || undefined,
+    region,
+    colorAnalysis: colorAnalysis.length > 0 ? colorAnalysis : 'Renk belirtilmedi. Analiz için ana renkleri hex koduyla gir (örn. "#FF0000,#0000FF").',
+    styleAnalysis: { style: style || 'belirtilmedi', ...styleData },
+    culturalContext,
+    overallAssessment: targetEmotion
+      ? `Hedeflenen "${targetEmotion}" duygusu — ${styleData.emotion.includes(targetEmotion) ? 'stil seçimi hedefle UYUMLU' : 'stil ve hedef duygu arasında GERİLİM olabilir, gözden geçir.'}`
+      : 'Hedef duygu belirtilmemiş. Daha spesifik analiz için targetEmotion parametresini ekle.',
+    recommendations: [
+      'Renk kontrastı erişilebilirlik için en az 4.5:1 olmalı (WCAG AA)',
+      industry ? `${industry} sektöründe rakiplerden farklılaşmak için beklenmedik bir vurgu rengi düşün.` : 'Sektör belirtirsen rakip analizi de eklerim.',
+      'Tipografi stille uyumlu olmalı: ' + (style === 'elegant' || style === 'luxury' ? 'serif başlık + sans gövde.' : style === 'playful' ? 'yuvarlak display font + sans gövde.' : 'sans-serif ağırlıklı.'),
+    ],
+  };
+}
+
+// ── Flyer Layout Generator ──
+
+// Style presets for flyer design
+const FLYER_STYLE_PRESETS: Record<string, {
+  primaryColor: string; secondaryColor: string; bgColor: string; textColor: string; accentColor: string;
+  headingFont: string; bodyFont: string;
+  layoutPattern: 'centered' | 'split' | 'grid' | 'banner' | 'edge-to-edge';
+  decorativeElements: string[];
+}> = {
+  'modern-minimal': {
+    primaryColor: '#1A1A1A', secondaryColor: '#F5F5F5', bgColor: '#FFFFFF', textColor: '#1A1A1A', accentColor: '#0066FF',
+    headingFont: 'Inter', bodyFont: 'Inter',
+    layoutPattern: 'split',
+    decorativeElements: ['thin-line-divider', 'geometric-accent-dot'],
+  },
+  'elegant-restaurant': {
+    primaryColor: '#1A1A1A', secondaryColor: '#F5F0EB', bgColor: '#FDFBF7', textColor: '#2C2C2C', accentColor: '#C9A84C',
+    headingFont: 'Playfair Display', bodyFont: 'Lora',
+    layoutPattern: 'centered',
+    decorativeElements: ['gold-filigree-corner', 'ornamental-divider', 'elegant-frame'],
+  },
+  'bold-promo': {
+    primaryColor: '#FF4500', secondaryColor: '#1A1A2E', bgColor: '#FFFFFF', textColor: '#1A1A2E', accentColor: '#FFDD00',
+    headingFont: 'Bebas Neue', bodyFont: 'Open Sans',
+    layoutPattern: 'banner',
+    decorativeElements: ['bold-stripe', 'starburst-badge', 'diagonal-banner'],
+  },
+  'vintage-market': {
+    primaryColor: '#8B4513', secondaryColor: '#F5DEB3', bgColor: '#FFF8F0', textColor: '#3C280D', accentColor: '#DAA520',
+    headingFont: 'Abril Fatface', bodyFont: 'Crimson Text',
+    layoutPattern: 'grid',
+    decorativeElements: ['vintage-ornament', 'flourish-divider', 'badge-frame'],
+  },
+  'luxury-boutique': {
+    primaryColor: '#0A0A0A', secondaryColor: '#D4AF37', bgColor: '#FAFAFA', textColor: '#0A0A0A', accentColor: '#800020',
+    headingFont: 'Cormorant Garamond', bodyFont: 'Montserrat',
+    layoutPattern: 'centered',
+    decorativeElements: ['gold-thin-border', 'monogram-lettermark', 'luxury-texture-bg'],
+  },
+  'street-food': {
+    primaryColor: '#FF3366', secondaryColor: '#FFD700', bgColor: '#1A1A2E', textColor: '#FFFFFF', accentColor: '#00D4FF',
+    headingFont: 'Bangers', bodyFont: 'Nunito',
+    layoutPattern: 'edge-to-edge',
+    decorativeElements: ['splash-bg', 'neon-glow-text', 'halftone-pattern'],
+  },
+};
+
+// Layout HTML templates
+function buildFlyerLayoutHTML(config: {
+  description: string;
+  format: string;
+  style: string;
+  businessName?: string;
+  contactInfo?: string;
+  cta?: string;
+  offerText?: string;
+  language?: string;
+  doubleSided?: boolean;
+  layoutPreset: typeof FLYER_STYLE_PRESETS[string];
+  spec: any;
+  palette: any;
+  fonts: any;
+}): { frontHtml: string; backHtml?: string } {
+  const { layoutPreset, spec, palette, fonts, businessName, contactInfo, cta, offerText, description } = config;
+  const lang = config.language ?? 'tr';
+  const isDouble = config.doubleSided === true;
+  const pxW = spec.pixelDimensions?.widthPx ?? 1748;
+  const pxH = spec.pixelDimensions?.heightPx ?? 2480;
+  const isPrint = spec.colorProfile?.includes('CMYK');
+
+  const safeL = spec.safeZone?.mm ? Math.round((spec.safeZone.mm / 25.4) * 300) : 40;
+  const safeR = pxW - safeL;
+  const safeT = safeL;
+  const safeB = pxH - safeL;
+
+  const headline = businessName || (lang === 'tr' ? 'Flyer Başlığı' : lang === 'de' ? 'Flyer Titel' : 'Flyer Title');
+  const subheadline = offerText || (lang === 'tr' ? 'Özel Teklif' : lang === 'de' ? 'Sonderangebot' : 'Special Offer');
+  const ctaText = cta || (lang === 'tr' ? 'Hemen Ara' : lang === 'de' ? 'Jetzt Anrufen' : 'Call Now');
+  const contactText = contactInfo || '';
+  const langDir = config.language === 'ar' ? 'rtl' : 'ltr';
+
+  const headingFont = fonts?.pairings?.[0]?.heading?.font ?? layoutPreset.headingFont;
+  const bodyFont = fonts?.pairings?.[0]?.body?.font ?? layoutPreset.bodyFont;
+
+  const paletteCss = palette?.palette as any[];
+  const primaryHex = paletteCss?.[0]?.hex ?? layoutPreset.primaryColor;
+  const secondaryHex = paletteCss?.[1]?.hex ?? layoutPreset.secondaryColor;
+  const accentHex = paletteCss?.[paletteCss?.length ? paletteCss.length - 1 : 0]?.hex ?? layoutPreset.accentColor;
+
+  const frontHtml = `<!DOCTYPE html>
+<html lang="${lang}" dir="${langDir}">
+<head>
+<meta charset="UTF-8">
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=${headingFont.replace(/ /g, '+')}:wght@400;600;700&family=${bodyFont.replace(/ /g, '+')}:wght@400;600&display=swap');
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    width: ${pxW}px;
+    height: ${pxH}px;
+    overflow: hidden;
+    font-family: '${bodyFont}', sans-serif;
+    background: ${isPrint ? '#FFFFFF' : layoutPreset.bgColor};
+    color: ${layoutPreset.textColor};
+    position: relative;
+  }
+
+  .bleed-area {
+    position: absolute;
+    inset: 0;
+    background: ${primaryHex};
+  }
+
+  .safe-area {
+    position: absolute;
+    inset: ${safeT}px ${pxW - safeR}px ${pxH - safeB}px ${safeL}px;
+    background: ${layoutPreset.bgColor};
+    overflow: hidden;
+  }
+
+  /* Decorative elements */
+  .deco-corner-tl, .deco-corner-tr, .deco-corner-bl, .deco-corner-br {
+    position: absolute;
+    width: 60px;
+    height: 60px;
+    border-color: ${accentHex};
+    border-style: solid;
+    border-width: 2px;
+    opacity: 0.3;
+  }
+  .deco-corner-tl { top: 10px; left: 10px; border-right: none; border-bottom: none; }
+  .deco-corner-tr { top: 10px; right: 10px; border-left: none; border-bottom: none; }
+  .deco-corner-bl { bottom: 10px; left: 10px; border-right: none; border-top: none; }
+  .deco-corner-br { bottom: 10px; right: 10px; border-left: none; border-top: none; }
+
+  .accent-line {
+    position: absolute;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 80px;
+    height: 3px;
+    background: ${accentHex};
+    border-radius: 2px;
+  }
+
+  .accent-dot {
+    width: 8px;
+    height: 8px;
+    background: ${accentHex};
+    border-radius: 50%;
+    display: inline-block;
+  }
+
+  /* Typography */
+  h1 {
+    font-family: '${headingFont}', serif;
+    font-size: 72px;
+    font-weight: 700;
+    line-height: 1.1;
+    color: ${primaryHex};
+  }
+
+  h2 {
+    font-family: '${headingFont}', serif;
+    font-size: 42px;
+    font-weight: 600;
+    color: ${primaryHex};
+  }
+
+  .subheadline {
+    font-size: 28px;
+    font-weight: 400;
+    color: ${accentHex};
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+  }
+
+  .body-text {
+    font-size: 22px;
+    line-height: 1.6;
+    color: ${layoutPreset.textColor};
+  }
+
+  .cta-button {
+    display: inline-block;
+    background: ${accentHex};
+    color: #FFFFFF;
+    padding: 16px 48px;
+    font-size: 24px;
+    font-weight: 700;
+    border-radius: 8px;
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+  }
+
+  .contact-block {
+    font-size: 18px;
+    line-height: 1.8;
+    color: ${layoutPreset.textColor};
+  }
+
+  /* Layout patterns */
+  .layout-centered {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    gap: 32px;
+    height: 100%;
+    padding: 40px;
+  }
+
+  .layout-split {
+    display: flex;
+    height: 100%;
+  }
+  .layout-split .split-left {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    padding: 60px;
+    background: ${secondaryHex};
+  }
+  .layout-split .split-right {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    padding: 60px;
+    gap: 24px;
+  }
+
+  .layout-banner {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+  }
+  .layout-banner .banner-top {
+    background: ${primaryHex};
+    color: #FFFFFF;
+    padding: 40px 60px;
+    text-align: center;
+  }
+  .layout-banner .banner-top h1 { color: #FFFFFF; }
+  .layout-banner .banner-body {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    padding: 40px;
+    gap: 24px;
+  }
+  .layout-banner .banner-bottom {
+    background: ${accentHex};
+    color: #FFFFFF;
+    padding: 30px 60px;
+    text-align: center;
+    font-size: 28px;
+    font-weight: 700;
+  }
+
+  .layout-edge-to-edge {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    background: linear-gradient(135deg, ${primaryHex} 0%, ${secondaryHex} 100%);
+  }
+  .layout-edge-to-edge .content-overlay {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    gap: 28px;
+    color: #FFFFFF;
+    padding: 40px;
+    text-align: center;
+  }
+  .layout-edge-to-edge .content-overlay h1,
+  .layout-edge-to-edge .content-overlay h2 { color: #FFFFFF; }
+
+  /* Offer badge */
+  .offer-badge {
+    position: absolute;
+    top: 40px;
+    right: 40px;
+    background: ${accentHex};
+    color: #FFFFFF;
+    padding: 20px 36px;
+    border-radius: 50%;
+    width: 180px;
+    height: 180px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    font-weight: 700;
+    transform: rotate(15deg);
+    box-shadow: 0 8px 32px rgba(0,0,0,0.15);
+  }
+  .offer-badge .percent { font-size: 42px; line-height: 1; }
+  .offer-badge .label { font-size: 18px; text-transform: uppercase; }
+
+  /* Print marks (only visible in print spec) */
+  .crop-mark { position: absolute; background: #000; }
+  .crop-mark-h { width: 20px; height: 1px; }
+  .crop-mark-v { width: 1px; height: 20px; }
+
+  @media print {
+    body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  }
+</style>
+</head>
+<body>
+  <div class="bleed-area"></div>
+  <div class="safe-area">
+
+    <!-- Decorative corners for elegant/luxury -->
+    ${layoutPreset.layoutPattern === 'centered' ? `
+    <div class="deco-corner-tl"></div>
+    <div class="deco-corner-tr"></div>
+    <div class="deco-corner-bl"></div>
+    <div class="deco-corner-br"></div>
+    ` : ''}
+
+    <!-- Layout: ${layoutPreset.layoutPattern} -->
+    ${layoutPreset.layoutPattern === 'centered' ? `
+    <div class="layout-centered">
+      <div class="accent-line" style="position:static;transform:none;"></div>
+      <h1>${headline}</h1>
+      ${subheadline ? `<div class="subheadline">${subheadline}</div>` : ''}
+      <div class="body-text">${description.slice(0, 120)}</div>
+      ${cta ? `<div class="cta-button">${ctaText}</div>` : ''}
+      ${contactText ? `<div class="contact-block">${contactText.replace(/,/g, '<br>')}</div>` : ''}
+    </div>
+    ` : layoutPreset.layoutPattern === 'split' ? `
+    <div class="layout-split">
+      <div class="split-left">
+        <h1>${headline}</h1>
+        <div class="accent-line" style="position:static;transform:none;margin:24px 0;"></div>
+        ${subheadline ? `<div class="subheadline">${subheadline}</div>` : ''}
+      </div>
+      <div class="split-right">
+        <div class="body-text">${description.slice(0, 150)}</div>
+        ${cta ? `<div class="cta-button">${ctaText}</div>` : ''}
+        ${contactText ? `<div class="contact-block">${contactText.replace(/,/g, '<br>')}</div>` : ''}
+      </div>
+    </div>
+    ` : layoutPreset.layoutPattern === 'banner' ? `
+    <div class="layout-banner">
+      <div class="banner-top">
+        <h1>${headline}</h1>
+      </div>
+      <div class="banner-body">
+        ${subheadline ? `<div class="subheadline">${subheadline}</div>` : ''}
+        <div class="body-text">${description.slice(0, 150)}</div>
+        ${cta ? `<div class="cta-button">${ctaText}</div>` : ''}
+      </div>
+      ${contactText ? `<div class="banner-bottom">${contactText}</div>` : ''}
+    </div>
+    ` : layoutPreset.layoutPattern === 'edge-to-edge' ? `
+    <div class="layout-edge-to-edge">
+      <div class="content-overlay">
+        <h1>${headline}</h1>
+        ${subheadline ? `<h2>${subheadline}</h2>` : ''}
+        <div class="body-text" style="color:rgba(255,255,255,0.9);">${description.slice(0, 150)}</div>
+        ${cta ? `<div class="cta-button" style="background:#FFFFFF;color:${primaryHex};">${ctaText}</div>` : ''}
+        ${contactText ? `<div class="contact-block" style="color:rgba(255,255,255,0.8);">${contactText.replace(/,/g, '<br>')}</div>` : ''}
+      </div>
+    </div>
+    ` : `
+    <div class="layout-centered">
+      <h1>${headline}</h1>
+      ${subheadline ? `<div class="subheadline">${subheadline}</div>` : ''}
+      ${cta ? `<div class="cta-button">${ctaText}</div>` : ''}
+      ${contactText ? `<div class="contact-block">${contactText.replace(/,/g, '<br>')}</div>` : ''}
+    </div>
+    `}
+
+    <!-- Offer badge -->
+    ${offerText ? `
+    <div class="offer-badge">
+      <span class="percent">${offerText.match(/\d+/) ? offerText.match(/\d+/)?.[0] + '%' : 'OFFER'}</span>
+      <span class="label">${offerText.replace(/\d+%?\s*/, '').slice(0, 20)}</span>
+    </div>
+    ` : ''}
+  </div>
+</body>
+</html>`;
+
+  const backHtml = isDouble ? `<!DOCTYPE html>
+<html lang="${lang}" dir="${langDir}">
+<head>
+<meta charset="UTF-8">
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=${headingFont.replace(/ /g, '+')}:wght@400;600;700&family=${bodyFont.replace(/ /g, '+')}:wght@400;600&display=swap');
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    width: ${pxW}px;
+    height: ${pxH}px;
+    overflow: hidden;
+    font-family: '${bodyFont}', sans-serif;
+    background: ${layoutPreset.bgColor};
+    color: ${layoutPreset.textColor};
+  }
+  h2 { font-family: '${headingFont}', serif; font-size: 36px; color: ${primaryHex}; margin-bottom: 20px; }
+  .back-layout { padding: ${safeT + 20}px ${safeL + 20}px; height: 100%; }
+  .services-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; margin-top: 24px; }
+  .service-card { border: 1px solid ${accentHex}33; padding: 20px; border-radius: 8px; }
+  .service-card h3 { font-family: '${headingFont}', serif; font-size: 22px; color: ${primaryHex}; }
+  .contact-section { margin-top: auto; padding-top: 30px; border-top: 2px solid ${accentHex}; font-size: 16px; line-height: 1.8; }
+  @media print { body { -webkit-print-color-adjust: exact; print-color-adjust: exact; } }
+</style>
+</head>
+<body>
+  <div class="back-layout" style="display:flex;flex-direction:column;">
+    <h2>${lang === 'tr' ? 'Hizmetlerimiz' : lang === 'de' ? 'Unsere Leistungen' : 'Our Services'}</h2>
+    <div class="services-grid">
+      <div class="service-card"><h3>${lang === 'tr' ? 'Logo Tasarımı' : lang === 'de' ? 'Logo Design' : 'Logo Design'}</h3><p class="body-text" style="font-size:16px;">${lang === 'tr' ? 'Profesyonel kurumsal kimlik' : 'Professionelle Corporate Identity'}</p></div>
+      <div class="service-card"><h3>${lang === 'tr' ? 'Flyer & Broşür' : lang === 'de' ? 'Flyer & Broschüren' : 'Flyers & Brochures'}</h3><p class="body-text" style="font-size:16px;">${lang === 'tr' ? 'Baskıya hazır tasarımlar' : 'Druckfertige Designs'}</p></div>
+      <div class="service-card"><h3>${lang === 'tr' ? 'Web Tasarım' : lang === 'de' ? 'Webdesign' : 'Web Design'}</h3><p class="body-text" style="font-size:16px;">${lang === 'tr' ? 'Modern responsive siteler' : 'Moderne responsive Websites'}</p></div>
+      <div class="service-card"><h3>${lang === 'tr' ? 'Sosyal Medya' : lang === 'de' ? 'Social Media' : 'Social Media'}</h3><p class="body-text" style="font-size:16px;">${lang === 'tr' ? 'İçerik üretimi ve yönetim' : 'Content-Erstellung & Management'}</p></div>
+    </div>
+    ${contactText ? `<div class="contact-section">${contactText.replace(/,/g, ' | ')}</div>` : ''}
+  </div>
+</body>
+</html>` : undefined;
+
+  return { frontHtml, backHtml };
+}
+
+async function execGenerateFlyer(input: Record<string, unknown>): Promise<unknown> {
+  const description = String(input.description ?? '');
+  const format = String(input.format ?? 'flyer-a5');
+  const style = String(input.style ?? 'modern-minimal');
+  const businessName = typeof input.businessName === 'string' ? input.businessName : undefined;
+  const contactInfo = typeof input.contactInfo === 'string' ? input.contactInfo : undefined;
+  const cta = typeof input.cta === 'string' ? input.cta : undefined;
+  const offerText = typeof input.offerText === 'string' ? input.offerText : undefined;
+  const language = typeof input.language === 'string' ? input.language : 'tr';
+  const doubleSided = input.doubleSided === true;
+
+  // Get print specs
+  const specResult = await execCalculatePrintSpecs({ format, hasBleed: true }) as any;
+  if (specResult.error) return { error: 'Geçersiz format.' };
+
+  // Generate color palette
+  const paletteResult = await execGenerateColorPalette({
+    industry: description.includes('restoran') || description.includes('Restaurant') ? 'restoran'
+      : description.includes('moda') || description.includes('giyim') ? 'moda'
+      : description.includes('teknoloji') || description.includes('yazılım') ? 'teknoloji'
+      : 'restoran',
+    mood: style.includes('elegant') || style.includes('luxury') ? 'lüks'
+      : style.includes('bold') || style.includes('street') ? 'enerjik'
+      : style.includes('vintage') ? 'klasik'
+      : 'modern',
+    count: 5,
+  }) as any;
+
+  // Get font pairing
+  const fontResult = await execSuggestFontPairing({
+    style: style.includes('elegant') || style.includes('luxury') ? 'luxury'
+      : style.includes('vintage') ? 'classic-serif'
+      : style.includes('street') || style.includes('bold') ? 'playful'
+      : 'modern-minimal',
+    usage: 'print',
+  }) as any;
+
+  // Get layout preset
+  const layoutPreset = FLYER_STYLE_PRESETS[style] ?? FLYER_STYLE_PRESETS['modern-minimal']!;
+
+  // Build HTML
+  const { frontHtml, backHtml } = buildFlyerLayoutHTML({
+    description, format, style, businessName, contactInfo, cta, offerText, language, doubleSided,
+    layoutPreset, spec: specResult, palette: paletteResult, fonts: fontResult,
+  });
+
+  // Generate AI image prompts for visuals
+  const imagePrompts = [
+    `Professional commercial photography for print flyer. ${description.slice(0, 100)}. High resolution, well-lit, ${layoutPreset.layoutPattern} composition. Suitable for ${specResult.format} print. 300 DPI CMYK ready.`,
+    `Hero image for restaurant/food flyer. Appetizing food photography, warm tones, shallow depth of field. Professional studio lighting. ${businessName ? `Brand: ${businessName}.` : ''}`,
+    `Background texture or pattern for print design. ${style} style. Subtle, elegant, suitable for ${specResult.format} format. 300 DPI seamless.`,
+  ];
+
+  // Tips for production
+  const productionTips = language === 'tr' ? [
+    'HTML\'i tarayıcıda açıp "Yazdır" → "PDF Olarak Kaydet" ile baskıya hazır PDF al',
+    'PDF\'i CMYK\'ya çevirmek için Acrobat Pro veya online CMYK converter kullan',
+    'Görselleri ayrıca AI (Midjourney/DALL-E) ile üretip HTML\'deki placeholder\'larla değiştir',
+    'Baskı öncesi mutlaka 1:1 ölçekte proof al',
+    'Kesim payı (bleed) alanına dikkat et — kritik içeriği safe zone içinde tut',
+  ] : [
+    'Open HTML in browser → Print → Save as PDF for print-ready output',
+    'Convert PDF to CMYK using Acrobat Pro or online CMYK converter',
+    'Generate images with AI (Midjourney/DALL-E) and replace in HTML',
+    'Always get a 1:1 proof before final print run',
+    'Keep critical content within safe zone — bleed area will be trimmed',
+  ];
+
+  return {
+    format: specResult.format,
+    dimensions: specResult.dimensions,
+    pixelSize: specResult.pixelDimensions,
+    colorProfile: specResult.colorProfile,
+    style,
+    language,
+    layoutPattern: layoutPreset.layoutPattern,
+    colorPalette: paletteResult.palette,
+    fontPairing: fontResult?.pairings?.[0] ?? null,
+    html: {
+      front: frontHtml,
+      ...(backHtml ? { back: backHtml } : {}),
+    },
+    imageGenerationPrompts: imagePrompts,
+    printSpecs: {
+      bleed: specResult.bleed,
+      safeZone: specResult.safeZone,
+      recommendedPaper: specResult.recommendedPaper,
+    },
+    productionTips,
+    designerNotes: language === 'tr'
+      ? `Bu flyer "${style}" stilinde, ${specResult.format} için optimize edildi. HTML doğrudan tarayıcıda açılabilir ve PDF olarak kaydedilebilir. Renkler CMYK baskı için uygundur. Görseller için AI prompt'ları hazır — sırayla üretip HTML'deki placeholder alanlara yerleştir.`
+      : `This flyer is optimized for ${specResult.format} in "${style}" style. HTML can be opened directly in browser and saved as PDF. Colors are CMYK-print suitable. AI image prompts are ready — generate them and place in HTML.`,
+  };
+}
+
 // ── Executor Map ──
 
 const EXECUTORS: Record<string, ToolExecutor> = {
@@ -2091,6 +3136,12 @@ const EXECUTORS: Record<string, ToolExecutor> = {
   schedule_appointment: execScheduleAppointment,
   list_appointments: execListAppointments,
   cancel_appointment: execCancelAppointment,
+  generate_color_palette: execGenerateColorPalette,
+  suggest_font_pairing: execSuggestFontPairing,
+  generate_logo_concepts: execGenerateLogoConcepts,
+  calculate_print_specs: execCalculatePrintSpecs,
+  analyze_design_psychology: execAnalyzeDesignPsychology,
+  generate_flyer: execGenerateFlyer,
 };
 
 export async function executeTool(
