@@ -802,11 +802,11 @@ export const AGENT_TOOLS: AgentTool[] = [
   },
   {
     name: 'generate_flyer',
-    description: 'Text açıklamasından baskıya hazır flyer tasarımı üretir. Tam HTML/CSS layout, CMYK renk paleti, font eşleştirmesi, baskı teknik özellikleri ve AI görsel promptları içerir. A5, A6, DL, kare gibi formatlarda çıktı verir.',
+    description: 'Text açıklamasından baskıya hazır flyer veya çok sayfalı broşür tasarımı üretir. Tam HTML/CSS layout, CMYK renk paleti, font eşleştirmesi, baskı teknik özellikleri ve AI görsel promptları içerir. A5, A6, DL, kare gibi formatlarda; multiPage=true ile katlamalı broşür çıktısı verir.',
     input_schema: {
       type: 'object',
       properties: {
-        description: { type: 'string', description: 'Flyer için text açıklaması: ne için, hangi mesaj, hedef kitle, özel istekler. Örn: "Kebap restoranı için Ramazan menü flyer. Sıcak renkler, geleneksel motifler, iftar vurgusu. A5 çift taraflı. İletişim: 0176 123456, @kebaphaus.frankfurt"' },
+        description: { type: 'string', description: 'Flyer/broşür için text açıklaması: ne için, hangi mesaj, hedef kitle, özel istekler. Örn: "Kebap restoranı için Ramazan menü flyer. Sıcak renkler, geleneksel motifler, iftar vurgusu. A5 çift taraflı. İletişim: 0176 123456, @kebaphaus.frankfurt"' },
         format: { type: 'string', description: 'Flyer formatı: flyer-a5, flyer-a6, brosur-dl, flyer-a4, square-social, story-social. Varsayılan flyer-a5.' },
         style: { type: 'string', description: 'Tasarım stili (örn. modern-minimal, elegant-restaurant, bold-promo, vintage-market, luxury-boutique, street-food). Varsayılan modern-minimal.' },
         businessName: { type: 'string', description: 'İşletme adı' },
@@ -815,6 +815,9 @@ export const AGENT_TOOLS: AgentTool[] = [
         offerText: { type: 'string', description: 'Özel teklif/indirim metni' },
         language: { type: 'string', description: 'Dil (tr, de, en). Varsayılan tr.' },
         doubleSided: { type: 'boolean', description: 'Çift taraflı mı? Varsayılan false (ön yüz).' },
+        multiPage: { type: 'boolean', description: 'Çok sayfalı katlamalı broşür modu. true ise folding parametresi ile katlama tipi belirtilmeli.' },
+        folding: { type: 'string', description: 'Katlamalı broşür katlama tipi: tri-fold (3 katlı, mektup), bi-fold (2 katlı, kitap), z-fold (zigzag), gate-fold (kapı katlı). Varsayılan tri-fold. Sadece multiPage=true iken geçerli.' },
+        pageContent: { type: 'string', description: 'JSON array: her panel/sayfa için içerik açıklaması. Örn: ["Ön kapak — şirket tanıtımı", "Hizmetlerimiz — detaylı liste", "İletişim ve referanslar"]. Broşür panellerine otomatik dağıtılır.' },
       },
       required: ['description'],
     },
@@ -3087,6 +3090,12 @@ async function execGenerateFlyer(input: Record<string, unknown>): Promise<unknow
   const offerText = typeof input.offerText === 'string' ? input.offerText : undefined;
   const language = typeof input.language === 'string' ? input.language : 'tr';
   const doubleSided = input.doubleSided === true;
+  const multiPage = input.multiPage === true;
+  const folding = (typeof input.folding === 'string' && ['tri-fold', 'bi-fold', 'z-fold', 'gate-fold'].includes(input.folding)) ? input.folding : 'tri-fold';
+  let pageContent: string[] = [];
+  if (typeof input.pageContent === 'string' && input.pageContent.trim()) {
+    try { pageContent = JSON.parse(input.pageContent); } catch { /* keep empty */ }
+  }
 
   // Extract QR content from contact info or description
   let qrContent = '';
@@ -3146,37 +3155,74 @@ async function execGenerateFlyer(input: Record<string, unknown>): Promise<unknow
   const layoutPreset = FLYER_STYLE_PRESETS[style] ?? FLYER_STYLE_PRESETS['modern-minimal']!;
 
   // Build HTML
-  const { frontHtml, backHtml } = buildFlyerLayoutHTML({
-    description, format, style, businessName, contactInfo, cta, offerText, language, doubleSided,
-    qrContent: qrContent || undefined,
-    layoutPreset, spec: specResult, palette: paletteResult, fonts: fontResult,
-  });
+  let frontHtml: string;
+  let backHtml: string | undefined;
+  let brochurePages: string[] | undefined;
+
+  if (multiPage) {
+    const brochureResult = buildBrochureLayoutHTML({
+      description, format, style, businessName, contactInfo, cta, offerText, language,
+      pageContent, folding,
+      qrContent: qrContent || undefined,
+      layoutPreset, spec: specResult, palette: paletteResult, fonts: fontResult,
+    });
+    frontHtml = brochureResult.frontHtml;
+    brochurePages = brochureResult.pages;
+  } else {
+    const flyerResult = buildFlyerLayoutHTML({
+      description, format, style, businessName, contactInfo, cta, offerText, language, doubleSided,
+      qrContent: qrContent || undefined,
+      layoutPreset, spec: specResult, palette: paletteResult, fonts: fontResult,
+    });
+    frontHtml = flyerResult.frontHtml;
+    backHtml = flyerResult.backHtml;
+  }
 
   const qrSVG = qrContent ? generateQRCodeSVG(qrContent, 160) : '';
 
   // Generate AI image prompts for visuals
-  const imagePrompts = [
-    `Professional commercial photography for print flyer. ${description.slice(0, 100)}. High resolution, well-lit, ${layoutPreset.layoutPattern} composition. Suitable for ${specResult.format} print. 300 DPI CMYK ready.`,
-    `Hero product/food/lifestyle image matching "${style}" design style. ${businessName ? `Brand: ${businessName}.` : ''} Professional studio lighting, high detail, commercial photography quality.`,
-    `Background texture or pattern for print design. ${style} style. Subtle, elegant, suitable for ${specResult.format} format. 300 DPI seamless.`,
-  ];
+  const imagePrompts = multiPage
+    ? [
+        `Professional commercial photography for print brochure. ${description.slice(0, 100)}. High resolution, well-lit, ${folding} folding layout. Suitable for ${specResult.format} print. 300 DPI CMYK ready.`,
+        `Hero product/food/lifestyle image matching "${style}" design style. ${businessName ? `Brand: ${businessName}.` : ''} Professional studio lighting, high detail, commercial photography quality.`,
+        `Background texture or pattern for print design. ${style} style. Subtle, elegant, suitable for ${specResult.format} format. 300 DPI seamless.`,
+      ]
+    : [
+        `Professional commercial photography for print flyer. ${description.slice(0, 100)}. High resolution, well-lit, ${layoutPreset.layoutPattern} composition. Suitable for ${specResult.format} print. 300 DPI CMYK ready.`,
+        `Hero product/food/lifestyle image matching "${style}" design style. ${businessName ? `Brand: ${businessName}.` : ''} Professional studio lighting, high detail, commercial photography quality.`,
+        `Background texture or pattern for print design. ${style} style. Subtle, elegant, suitable for ${specResult.format} format. 300 DPI seamless.`,
+      ];
 
   // Tips for production
-  const productionTips = language === 'tr' ? [
-    'HTML\'i tarayıcıda açıp "Yazdır" → "PDF Olarak Kaydet" ile baskıya hazır PDF al',
-    'Vercel Blob preview link\'ini tarayıcıda açıp anında önizleme yap',
-    'PDF\'i CMYK\'ya çevirmek için Acrobat Pro veya online CMYK converter kullan',
-    'Görselleri ayrıca AI (Midjourney/DALL-E) ile üretip HTML\'deki placeholder\'larla değiştir',
-    'Baskı öncesi mutlaka 1:1 ölçekte proof al',
-    'Kesim payı (bleed) alanına dikkat et — kritik içeriği safe zone içinde tut',
-  ] : [
-    'Open HTML in browser → Print → Save as PDF for print-ready output',
-    'Use Vercel Blob preview link for instant visual preview',
-    'Convert PDF to CMYK using Acrobat Pro or online CMYK converter',
-    'Generate images with AI (Midjourney/DALL-E) and replace in HTML',
-    'Always get a 1:1 proof before final print run',
-    'Keep critical content within safe zone — bleed area will be trimmed',
-  ];
+  const productionTips = multiPage
+    ? (language === 'tr' ? [
+        `${FOLDING_CONFIGS[folding]?.name ?? 'Katlamalı'} broşür — ${FOLDING_CONFIGS[folding]?.panels ?? 3} panelli. Katlama çizgileri HTML\'de gösterilir.`,
+        'Her sayfayı tarayıcıda açıp "Yazdır" → "PDF Olarak Kaydet" ile baskıya hazır PDF al',
+        'Çift taraflı baskıda sayfa sıralamasına dikkat et — outer/inner HTML\'ler sırayla basılmalı',
+        'Katlamalı broşürlerde panel genişlikleri milimetrik ayarlanmıştır — baskıda ölçeklendirme yapmayın',
+        'Baskı öncesi mutlaka 1:1 ölçekte kağıt mock-up ile katlama provası yapın',
+      ] : [
+        `${FOLDING_CONFIGS[folding]?.name ?? 'Folded'} brochure — ${FOLDING_CONFIGS[folding]?.panels ?? 3} panels. Fold marks shown in HTML.`,
+        'Open each page in browser → Print → Save as PDF for print-ready output',
+        'For double-sided printing, ensure outer/inner HTML pages are printed in correct order',
+        'Panel widths are millimeter-precise — do not scale during printing',
+        'Always create a 1:1 paper mock-up to verify folding before final production',
+      ])
+    : (language === 'tr' ? [
+        'HTML\'i tarayıcıda açıp "Yazdır" → "PDF Olarak Kaydet" ile baskıya hazır PDF al',
+        'Vercel Blob preview link\'ini tarayıcıda açıp anında önizleme yap',
+        'PDF\'i CMYK\'ya çevirmek için Acrobat Pro veya online CMYK converter kullan',
+        'Görselleri ayrıca AI (Midjourney/DALL-E) ile üretip HTML\'deki placeholder\'larla değiştir',
+        'Baskı öncesi mutlaka 1:1 ölçekte proof al',
+        'Kesim payı (bleed) alanına dikkat et — kritik içeriği safe zone içinde tut',
+      ] : [
+        'Open HTML in browser → Print → Save as PDF for print-ready output',
+        'Use Vercel Blob preview link for instant visual preview',
+        'Convert PDF to CMYK using Acrobat Pro or online CMYK converter',
+        'Generate images with AI (Midjourney/DALL-E) and replace in HTML',
+        'Always get a 1:1 proof before final print run',
+        'Keep critical content within safe zone — bleed area will be trimmed',
+      ]);
 
   // Try Vercel Blob upload for instant preview
   let previewUrl: string | null = null;
@@ -3202,7 +3248,42 @@ async function execGenerateFlyer(input: Record<string, unknown>): Promise<unknow
     // Preview upload is optional — silently fail
   }
 
-  const result: any = {
+  const result: any = multiPage ? {
+    type: 'brochure',
+    format: specResult.format,
+    dimensions: specResult.dimensions,
+    pixelSize: specResult.pixelDimensions,
+    colorProfile: specResult.colorProfile,
+    style,
+    language,
+    folding: { type: folding, config: FOLDING_CONFIGS[folding] },
+    colorPalette: paletteResult.palette,
+    fontPairing: fontResult?.pairings?.[0] ?? null,
+    pageCount: brochurePages?.length ?? 2,
+    html: {
+      outer: frontHtml,
+      ...(brochurePages && brochurePages.length > 1 ? { inner: brochurePages[1] } : {}),
+      ...(brochurePages && brochurePages.length > 2 ? { extraPages: brochurePages.slice(2) } : {}),
+    },
+    imageGenerationPrompts: imagePrompts,
+    printSpecs: {
+      bleed: specResult.bleed,
+      safeZone: specResult.safeZone,
+      recommendedPaper: specResult.recommendedPaper,
+    },
+    productionTips,
+    previewUrl,
+    ...(qrContent ? {
+      qrCode: {
+        content: qrContent,
+        svg: qrSVG,
+        note: 'QR kod arka kapakta otomatik gösterilir.',
+      },
+    } : {}),
+    designerNotes: language === 'tr'
+      ? `${FOLDING_CONFIGS[folding]?.name ?? 'Katlamalı'} broşür — ${FOLDING_CONFIGS[folding]?.panels ?? 3} panelli, ${brochurePages?.length ?? 2} sayfa. "${style}" stilinde, ${specResult.format} için optimize edildi. Katlama çizgileri HTML içinde işaretlidir. ${previewUrl ? `Önizleme: ${previewUrl}` : 'HTML doğrudan tarayıcıda açılabilir.'}`
+      : `${FOLDING_CONFIGS[folding]?.name ?? 'Folded'} brochure — ${FOLDING_CONFIGS[folding]?.panels ?? 3} panels, ${brochurePages?.length ?? 2} pages. Optimized for ${specResult.format} in "${style}" style. Fold marks shown in HTML. ${previewUrl ? `Preview: ${previewUrl}` : 'HTML can be opened directly in browser.'}`,
+  } : {
     format: specResult.format,
     dimensions: specResult.dimensions,
     pixelSize: specResult.pixelDimensions,
@@ -3251,12 +3332,14 @@ async function execGenerateFlyer(input: Record<string, unknown>): Promise<unknow
           },
           body: JSON.stringify({
             task_type: 'render_flyer_pdf',
-            title: `Flyer PDF: ${businessName ?? description.slice(0, 40)}`,
+            title: `${multiPage ? 'Brochure' : 'Flyer'} PDF: ${businessName ?? description.slice(0, 40)}`,
             payload: {
               html: frontHtml,
+              ...(brochurePages ? { extraPages: brochurePages.slice(1) } : {}),
               format: specResult.format,
               style,
               businessName: businessName ?? '',
+              multiPage,
             },
             priority: 5,
           }),
@@ -3269,6 +3352,260 @@ async function execGenerateFlyer(input: Record<string, unknown>): Promise<unknow
   }
 
   return result;
+}
+
+// ── Brochure Multi-Page Layout ──
+
+const FOLDING_CONFIGS: Record<string, { name: string; panels: number; ratios: number[]; panelLabels: string[]; foldMarks: number[] }> = {
+  'tri-fold': {
+    name: 'Üç Katlı (Letter Fold)',
+    panels: 3,
+    ratios: [0.33, 0.34, 0.33],
+    panelLabels: ['Ön Kapak (Sağ)', 'Arka Kapak (Orta)', 'İç Kapak (Sol)'],
+    foldMarks: [33, 67],
+  },
+  'bi-fold': {
+    name: 'İki Katlı (Book Fold)',
+    panels: 2,
+    ratios: [0.5, 0.5],
+    panelLabels: ['Ön Kapak (Sağ)', 'Arka Kapak (Sol)'],
+    foldMarks: [50],
+  },
+  'z-fold': {
+    name: 'Z Katlı (Zigzag)',
+    panels: 3,
+    ratios: [1 / 3, 1 / 3, 1 / 3],
+    panelLabels: ['Ön Panel', 'Orta Panel', 'Arka Panel'],
+    foldMarks: [33, 67],
+  },
+  'gate-fold': {
+    name: 'Kapı Katlı (Gate Fold)',
+    panels: 3,
+    ratios: [0.25, 0.50, 0.25],
+    panelLabels: ['Sol Kanat', 'Orta (Açılış)', 'Sağ Kanat'],
+    foldMarks: [25, 75],
+  },
+};
+
+function buildBrochureLayoutHTML(config: {
+  description: string;
+  format: string;
+  style: string;
+  businessName?: string;
+  contactInfo?: string;
+  cta?: string;
+  offerText?: string;
+  language?: string;
+  pageContent?: string[];
+  folding: string;
+  qrContent?: string;
+  layoutPreset: typeof FLYER_STYLE_PRESETS[string];
+  spec: any;
+  palette: any;
+  fonts: any;
+}): { frontHtml: string; pages?: string[] } {
+  const { layoutPreset, spec, palette, fonts, businessName, contactInfo, cta, offerText, description, folding } = config;
+  const lang = config.language ?? 'tr';
+  const pageContent = config.pageContent ?? [];
+  const qrContent = config.qrContent ?? '';
+  const foldConfig = (FOLDING_CONFIGS[folding] ?? FOLDING_CONFIGS['tri-fold'])!;
+  const { panels, ratios, panelLabels, foldMarks } = foldConfig;
+
+  const pxW = spec.pixelDimensions?.widthPx ?? 3508;
+  const pxH = spec.pixelDimensions?.heightPx ?? 2480;
+  const safeL = spec.safeZone?.mm ? Math.round((spec.safeZone.mm / 25.4) * 300) : 40;
+  const safeT = safeL;
+  const safeB = pxH - safeL;
+
+  const headingFont = fonts?.pairings?.[0]?.heading?.font ?? layoutPreset.headingFont;
+  const bodyFont = fonts?.pairings?.[0]?.body?.font ?? layoutPreset.bodyFont;
+  const paletteCss = palette?.palette as any[];
+  const primaryHex = paletteCss?.[0]?.hex ?? layoutPreset.primaryColor;
+  const accentHex = paletteCss?.[paletteCss?.length ? paletteCss.length - 1 : 0]?.hex ?? layoutPreset.accentColor;
+
+  const headline = businessName || (lang === 'tr' ? 'Broşür' : lang === 'de' ? 'Broschüre' : 'Brochure');
+  const contactText = contactInfo || '';
+  const ctaText = cta || (lang === 'tr' ? 'Hemen Ulaşın' : lang === 'de' ? 'Jetzt Kontaktieren' : 'Contact Now');
+
+  // Panel widths in px
+  const contentW = pxW - safeL * 2;
+  const panelWidths = ratios.map((r: number) => Math.round(contentW * r));
+  const panelGap = 16;
+
+  // Page break helper: first side (outer), second side (inner)
+  function buildSide(side: 'outer' | 'inner', pageNum: number, pageDesc?: string): string {
+    // outer = panels that face out when folded (panel 3, 1, etc.)
+    // inner = panels that face in when folded
+
+    const panelsHtml = panels === 3
+      ? (side === 'outer'
+          ? [buildPanel(2, pageDesc ?? (lang === 'tr' ? `Sayfa ${pageNum} — Arka Kapak` : `Page ${pageNum} — Back Cover`), true),
+             buildPanel(0, headline, false),
+             buildPanel(1, pageDesc ?? contactText, false, true)]
+          : [buildPanel(1, pageDesc ?? '', false),
+             buildPanel(2, pageDesc ?? '', false),
+             buildPanel(0, pageDesc ?? (lang === 'tr' ? `Sayfa ${pageNum}` : `Page ${pageNum}`), false)])
+      : panels === 2
+      ? (side === 'outer'
+          ? [buildPanel(1, pageDesc ?? contactText, true),
+             buildPanel(0, headline, false)]
+          : [buildPanel(0, pageDesc ?? '', false),
+             buildPanel(1, pageDesc ?? '', false)])
+      : [buildPanel(0, pageDesc ?? '', false)];
+
+    return `<!DOCTYPE html>
+<html lang="${lang}">
+<head>
+<meta charset="UTF-8">
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=${headingFont.replace(/ /g, '+')}:wght@400;600;700&family=${bodyFont.replace(/ /g, '+')}:wght@400;600&display=swap');
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    width: ${pxW}px; height: ${pxH}px; overflow: hidden;
+    font-family: '${bodyFont}', sans-serif;
+    background: #FFFFFF; color: ${layoutPreset.textColor};
+  }
+  @page { size: ${spec.dimensions?.widthMm ?? 297}mm ${spec.dimensions?.heightMm ?? 210}mm; margin: 0; }
+  @media print { body { -webkit-print-color-adjust: exact; print-color-adjust: exact; } }
+
+  .page {
+    width: ${pxW}px; height: ${pxH}px; display: flex;
+    padding: ${safeT}px ${safeL}px ${pxH - safeB}px ${safeL}px;
+    gap: ${panelGap}px; position: relative;
+  }
+
+  .panel {
+    position: relative; overflow: hidden;
+    border-radius: 4px;
+  }
+
+  .fold-mark {
+    position: absolute; top: 0; bottom: 0;
+    width: 1px; border-left: 1px dashed ${accentHex}33;
+    pointer-events: none; z-index: 10;
+  }
+
+  .panel-header {
+    font-family: '${headingFont}', ${layoutPreset.headingFont.includes('Display') || layoutPreset.headingFont.includes('Playfair') ? 'serif' : 'sans-serif'};
+    font-size: 32px; font-weight: 700; color: ${primaryHex};
+    margin-bottom: 16px; line-height: 1.2;
+  }
+
+  .panel-body {
+    font-size: 15px; line-height: 1.6; opacity: 0.85;
+  }
+
+  .panel-footer {
+    position: absolute; bottom: 0; left: 0; right: 0;
+    font-size: 12px; opacity: 0.5; text-align: center;
+    padding: 8px;
+  }
+
+  .cta-box {
+    display: inline-block; background: ${accentHex}; color: #FFFFFF;
+    padding: 10px 24px; border-radius: 6px; font-weight: 700;
+    font-size: 16px; margin-top: 16px;
+  }
+
+  .deco-bar {
+    width: 50px; height: 4px; background: ${accentHex};
+    border-radius: 2px; margin-bottom: 16px;
+  }
+
+  .contact-line { font-size: 13px; margin-top: 8px; opacity: 0.7; }
+</style>
+</head>
+<body>
+<div class="page">
+  ${foldMarks.map((fm: number) => `<div class="fold-mark" style="left:${safeL + Math.round(contentW * fm / 100)}px;"></div>`).join('')}
+  ${panelsHtml.map((p, i) => `<div class="panel" style="flex:0 0 ${panelWidths[i]}px;">${p}</div>`).join('')}
+</div>
+</body>
+</html>`;
+  }
+
+  function buildPanel(index: number, title: string, isBackCover: boolean, isContactPanel?: boolean): string {
+    const label = panelLabels[index] ?? '';
+    const w = panelWidths[index] ?? panelWidths[0];
+    const innerPad = Math.round(safeL * 0.6);
+
+    if (isBackCover) {
+      return `<div style="padding:${innerPad}px;height:100%;display:flex;flex-direction:column;background:${layoutPreset.primaryColor}08;">
+        <div class="panel-header" style="font-size:24px;">${title || headline}</div>
+        <div class="deco-bar"></div>
+        ${contactText ? contactText.split(',').map((c) => `<div class="contact-line">${c.trim()}</div>`).join('') : ''}
+        ${qrContent ? `<div style="margin-top:auto;text-align:center;">${generateQRCodeSVG(qrContent, 100)}<div style="font-size:10px;opacity:0.5;margin-top:4px;">${lang === 'tr' ? 'Tarayın' : 'Scan'}</div></div>` : ''}
+        <div class="panel-footer">${label}</div>
+      </div>`;
+    }
+
+    if (isContactPanel) {
+      return `<div style="padding:${innerPad}px;height:100%;display:flex;flex-direction:column;justify-content:center;text-align:center;">
+        ${contactText ? `<div style="font-size:18px;font-weight:700;font-family:'${headingFont}',serif;color:${primaryHex};margin-bottom:12px;">${lang === 'tr' ? 'İletişim' : lang === 'de' ? 'Kontakt' : 'Contact'}</div>` : ''}
+        ${contactText ? contactText.split(',').map((c) => `<div style="font-size:14px;margin-top:6px;opacity:0.8;">${c.trim()}</div>`).join('') : ''}
+        ${ctaText ? `<div class="cta-box">${ctaText}</div>` : ''}
+        <div class="panel-footer">${label}</div>
+      </div>`;
+    }
+
+    // Content panel
+    const contentDesc = pageContent[index] ?? (index === 0 ? description : '');
+    return `<div style="padding:${innerPad}px;height:100%;display:flex;flex-direction:column;">
+      <div class="panel-header">${title}</div>
+      <div class="deco-bar"></div>
+      <div class="panel-body">${contentDesc || (lang === 'tr' ? 'Detaylı bilgi ve fiyat teklifi için iletişime geçin.' : 'Contact us for detailed information and pricing.')}</div>
+      ${index === 0 && ctaText ? `<div class="cta-box">${ctaText}</div>` : ''}
+      ${offerText && index === 0 ? `<div style="margin-top:12px;font-size:18px;font-weight:700;color:${accentHex};font-family:'${headingFont}',serif;">${offerText}</div>` : ''}
+      <div class="panel-footer">${label}</div>
+    </div>`;
+  }
+
+  // Build outer and inner sides
+  const outerHtml = buildSide('outer', 1, pageContent[0]);
+  const innerHtml = buildSide('inner', 1, pageContent[1]);
+
+  // Handle multi-page: if pageContent has more than 3 entries, create additional pages
+  const extraPages: string[] = [];
+  if (pageContent.length > 3) {
+    for (let p = 3; p < pageContent.length; p++) {
+      extraPages.push(`<!DOCTYPE html>
+<html lang="${lang}">
+<head>
+<meta charset="UTF-8">
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=${headingFont.replace(/ /g, '+')}:wght@400;600;700&family=${bodyFont.replace(/ /g, '+')}:wght@400;600&display=swap');
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    width: ${pxW}px; height: ${pxH}px; overflow: hidden;
+    font-family: '${bodyFont}', sans-serif;
+    background: #FFFFFF; color: ${layoutPreset.textColor};
+  }
+  @page { size: ${spec.dimensions?.widthMm ?? 297}mm ${spec.dimensions?.heightMm ?? 210}mm; margin: 0; }
+  @media print { body { -webkit-print-color-adjust: exact; print-color-adjust: exact; } }
+  .content-area {
+    padding: ${safeT}px ${safeL}px ${pxH - safeB}px ${safeL}px;
+    height: 100%; display: flex; flex-direction: column;
+  }
+  h2 {
+    font-family: '${headingFont}', ${layoutPreset.headingFont.includes('Display') || layoutPreset.headingFont.includes('Playfair') ? 'serif' : 'sans-serif'};
+    font-size: 32px; color: ${primaryHex}; margin-bottom: 16px;
+  }
+  .deco-bar { width: 50px; height: 4px; background: ${accentHex}; border-radius: 2px; margin-bottom: 24px; }
+  .body-text { font-size: 15px; line-height: 1.8; opacity: 0.85; }
+</style>
+</head>
+<body>
+<div class="content-area">
+  <h2>${pageContent[p] ?? ''}</h2>
+  <div class="deco-bar"></div>
+  <div class="body-text">${pageContent[p] ?? ''}</div>
+</div>
+</body>
+</html>`);
+    }
+  }
+
+  return { frontHtml: outerHtml, pages: [outerHtml, innerHtml, ...extraPages] };
 }
 
 // ── Menu Layout Generator ──
