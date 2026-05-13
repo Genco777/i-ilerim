@@ -376,6 +376,26 @@ export const AGENT_TOOLS: AgentTool[] = [
     description: 'Bekleyen tüm görevleri listeler.',
     input_schema: { type: 'object', properties: {}, required: [] },
   },
+
+  // ── Market Intelligence ──
+  {
+    name: 'web_research',
+    description:
+      'Web araştırması yapar. Rhein-Main bölgesinde yeni işletmeler, rakip analizi, pazar trendleri için kullan. Sonuçları analiz edip özetler.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        query: { type: 'string', description: 'Araştırma konusu (örn. "Frankfurt yeni açılan restoranlar", "grafik tasarım fiyatları 2026")' },
+        location: { type: 'string', description: 'Opsiyonel: konum filtresi (örn. "Frankfurt", "Rhein-Main")' },
+      },
+      required: ['query'],
+    },
+  },
+  {
+    name: 'scan_market',
+    description: 'Pazar taraması yapar: rakip durumu, iç fırsatlar, trend analizi. Haftalık strateji için kullan.',
+    input_schema: { type: 'object', properties: {}, required: [] },
+  },
 ];
 
 // ── Tool Executors ──
@@ -1019,6 +1039,80 @@ async function execListTasks(): Promise<unknown> {
   return { count: tasks.length, tasks };
 }
 
+async function execWebResearch(input: Record<string, unknown>): Promise<unknown> {
+  const query = String(input.query ?? '');
+  if (!query) return { error: 'query gerekli.' };
+  const location = typeof input.location === 'string' ? input.location : 'Rhein-Main';
+
+  try {
+    const searchUrl = `https://lite.duckduckgo.com/lite/?q=${encodeURIComponent(`${query} ${location}`)}`;
+    const response = await fetch(searchUrl, {
+      signal: AbortSignal.timeout(12000),
+      headers: { 'User-Agent': 'FlyFroth-MarketResearch/1.0' },
+    });
+
+    if (!response.ok) {
+      return {
+        query,
+        location,
+        results: [],
+        note: 'Web aramasi basarisiz oldu.',
+        suggestion: `${query} hakkinda Google\'da arama yapin.`,
+      };
+    }
+
+    const html = await response.text();
+    const linkPattern = /<a[^>]*href="([^"]*)"[^>]*>([^<]*)<\/a>/gi;
+    const results: Array<{ title: string; url: string }> = [];
+    let match: RegExpExecArray | null;
+
+    while ((match = linkPattern.exec(html)) !== null) {
+      const url = match[1] ?? '';
+      const title = match[2] ?? '';
+      if (url.startsWith('//') || url.includes('duckduckgo.com')) continue;
+      results.push({ title: title.trim(), url: url.startsWith('http') ? url : `https:${url}` });
+    }
+
+    return {
+      query,
+      location,
+      resultCount: results.length,
+      results: results.slice(0, 10),
+      note: 'Otomatik web aramasi sonuclari.',
+    };
+  } catch {
+    return { query, location, results: [], note: 'Web aramasi zaman asimina ugradi.' };
+  }
+}
+
+async function execScanMarket(): Promise<unknown> {
+  const { checkCompetitors } = await import('@/lib/market/competitor-monitor');
+  const { scanInternalOpportunities, detectMarketTrends } = await import('@/lib/market/opportunity-scanner');
+
+  const [competitors, opportunities, trends] = await Promise.all([
+    checkCompetitors(),
+    scanInternalOpportunities(),
+    detectMarketTrends(),
+  ]);
+
+  return {
+    competitors: competitors.map((c) => ({ name: c.name, city: c.city, status: c.status })),
+    opportunities: opportunities.map((o) => ({
+      title: o.title,
+      description: o.description,
+      potentialValue: o.potentialValue,
+      actionItems: o.actionItems,
+    })),
+    trends: trends.map((t) => ({
+      category: t.category,
+      trend: t.trend,
+      evidence: t.evidence,
+      recommendedAction: t.recommendedAction,
+    })),
+    scannedAt: new Date().toISOString(),
+  };
+}
+
 // ── Executor Map ──
 
 const EXECUTORS: Record<string, ToolExecutor> = {
@@ -1055,6 +1149,8 @@ const EXECUTORS: Record<string, ToolExecutor> = {
   send_follow_up: execSendFollowUp,
   create_task: execCreateTask,
   list_tasks: execListTasks,
+  web_research: execWebResearch,
+  scan_market: execScanMarket,
 };
 
 export async function executeTool(
