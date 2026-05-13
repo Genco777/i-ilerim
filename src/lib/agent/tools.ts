@@ -438,6 +438,47 @@ export const AGENT_TOOLS: AgentTool[] = [
       required: [],
     },
   },
+
+  // ── Invoice & Payment Automation ──
+  {
+    name: 'send_invoice_reminder',
+    description: 'Ödenmemiş bir fatura için hatırlatma maili gönderir.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        invoiceId: { type: 'string', description: 'Fatura IDsi' },
+        tone: { type: 'string', description: "'gentle' (ilk hatırlatma), 'firm' (ikinci), 'urgent' (son). Varsayılan: gentle" },
+      },
+      required: ['invoiceId'],
+    },
+  },
+  {
+    name: 'batch_generate_invoices',
+    description: 'Toplu fatura oluşturur. "Geçen ayki tüm logo işleri için fatura kes" gibi.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        filter: { type: 'string', description: 'Filtre: "all" (tümü), "monthly" (bu ay), "overdue" (gecikmiş)' },
+        type: { type: 'string', description: "'rechnung', 'angebot', 'teilrechnung', 'schlussrechnung'" },
+      },
+      required: ['filter'],
+    },
+  },
+  {
+    name: 'get_revenue_forecast',
+    description: 'Aylık ciro tahmini: mevcut işler + geçmiş trend + sezonsallık bazlı.',
+    input_schema: { type: 'object', properties: {}, required: [] },
+  },
+  {
+    name: 'get_service_profitability',
+    description: 'Hangi hizmetin daha karlı olduğunu analiz eder: logo, flyer, web, sosyal medya.',
+    input_schema: { type: 'object', properties: {}, required: [] },
+  },
+  {
+    name: 'get_customer_segments',
+    description: 'Müşteri segmentlerini analiz eder: VIP, düzenli, tek seferlik, riskli.',
+    input_schema: { type: 'object', properties: {}, required: [] },
+  },
 ];
 
 // ── Tool Executors ──
@@ -1237,11 +1278,120 @@ async function execGetCampaignPerformance(input: Record<string, unknown>): Promi
       total: `${(perf.revenue.total / 100).toFixed(2)}€`,
     },
     summary: [
-      `${perf.posts.published} gönderi yayınlandı`,
-      `${perf.email.campaigns} email kampanyası`,
+      `${perf.posts.published} gonderi yayinlandi`,
+      `${perf.email.campaigns} email kampanyasi`,
       `${perf.ads.active} aktif reklam`,
       `${(perf.revenue.total / 100).toFixed(2)}€ ciro (${perf.revenue.invoiceCount} fatura)`,
     ].join(' // '),
+  };
+}
+
+async function execSendInvoiceReminder(input: Record<string, unknown>): Promise<unknown> {
+  const { getInvoice } = await import('@/lib/db/queries/invoices');
+  const { sendMail } = await import('@/lib/mail/smtp');
+  const { wrapMailHtml } = await import('@/lib/email/mail-html');
+
+  const inv = await getInvoice(String(input.invoiceId ?? ''));
+  if (!inv) return { error: 'Fatura bulunamadi.' };
+
+  const tone = typeof input.tone === 'string' ? input.tone : 'gentle';
+  const recipient = inv.recipient as Record<string, string> | null;
+  const name = recipient?.name ?? 'Kunde';
+  const email = recipient?.email ?? '';
+  const total = `${((inv.total_cents ?? 0) / 100).toFixed(2)}€`;
+
+  if (!email) return { error: 'Faturada email bulunamadi.' };
+
+  const subjects: Record<string, string> = {
+    gentle: `Erinnerung: Rechnung ${inv.number} — Fly & Froth`,
+    firm: `2. Mahnung: Rechnung ${inv.number} — Fly & Froth`,
+    urgent: `Letzte Mahnung: Rechnung ${inv.number} — Fly & Froth`,
+  };
+
+  const bodies: Record<string, string> = {
+    gentle: `Hallo ${name},\n\nich moechte freundlich an die Rechnung ${inv.number} ueber ${total} erinnern.\n\nFalls die Zahlung bereits erfolgt ist, betrachten Sie diese E-Mail als gegenstandslos.\n\nMit freundlichen Gruessen\nMehmet Genco\nFly & Froth Design`,
+    firm: `Hallo ${name},\n\nleider ist die Rechnung ${inv.number} ueber ${total} weiterhin offen. Bitte ueberweisen Sie den Betrag innerhalb der naechsten 7 Tage.\n\nBei Fragen stehe ich gerne zur Verfuegung.\n\nMit freundlichen Gruessen\nMehmet Genco\nFly & Froth Design`,
+    urgent: `Hallo ${name},\n\ndies ist die letzte Mahnung fuer die Rechnung ${inv.number} ueber ${total}. Bitte ueberweisen Sie den Betrag umgehend, sonst muss ich rechtliche Schritte einleiten.\n\nMit freundlichen Gruessen\nMehmet Genco\nFly & Froth Design`,
+  };
+
+  const subject = subjects[tone] ?? subjects.gentle!;
+  const body = bodies[tone] ?? bodies.gentle!;
+
+  const result = await sendMail({ to: email, subject: subject!, body: body!, html: wrapMailHtml({ subject: subject!, bodyText: body! }) });
+
+  return {
+    success: true,
+    messageId: result.messageId,
+    invoiceId: inv.id,
+    invoiceNumber: inv.number,
+    to: email,
+    tone,
+  };
+}
+
+async function execBatchGenerateInvoices(input: Record<string, unknown>): Promise<unknown> {
+  const filter = String(input.filter ?? 'all');
+
+  return {
+    note: `Toplu fatura olusturma (${filter}) — bu islem su anda desteklenmiyor. Her fatura ayri ayri /fatura komutu ile olusturulmalidir.`,
+    suggestion: 'Tek tek fatura olusturmak icin /fatura komutunu kullanin.',
+  };
+}
+
+async function execGetRevenueForecast(): Promise<unknown> {
+  const { forecastMonthlyRevenue } = await import('@/lib/analytics/forecasting');
+  const forecast = await forecastMonthlyRevenue();
+
+  return {
+    conservative: `${(forecast.conservative / 100).toFixed(0)}€`,
+    expected: `${(forecast.expected / 100).toFixed(0)}€`,
+    optimistic: `${(forecast.optimistic / 100).toFixed(0)}€`,
+    confidence: `${(forecast.confidence * 100).toFixed(0)}%`,
+    drivers: forecast.drivers,
+    risks: forecast.risks,
+    monthlyTrend: forecast.monthlyTrend.map((m) => ({
+      month: m.month,
+      revenue: `${(m.revenue / 100).toFixed(0)}€`,
+      invoices: m.invoices,
+    })),
+    summary: `Bu ay beklenen: ${(forecast.expected / 100).toFixed(0)}€ (min: ${(forecast.conservative / 100).toFixed(0)}€, max: ${(forecast.optimistic / 100).toFixed(0)}€)`,
+  };
+}
+
+async function execGetServiceProfitability(): Promise<unknown> {
+  const { analyzeServiceProfitability } = await import('@/lib/analytics/forecasting');
+  const services = await analyzeServiceProfitability();
+
+  return {
+    services: services.map((s) => ({
+      category: s.category,
+      invoiceCount: s.invoiceCount,
+      totalRevenue: `${(s.totalRevenue / 100).toFixed(2)}€`,
+      avgInvoice: `${(s.avgInvoice / 100).toFixed(2)}€`,
+      pctOfTotal: `${s.pctOfTotal}%`,
+    })),
+    mostProfitable: services[0]?.category ?? 'Veri yok',
+    recommendation: services[0]
+      ? `${services[0].category} en kârli hizmet (${services[0].pctOfTotal}% ciro). Bu alana odaklan.`
+      : 'Yeterli veri yok.',
+  };
+}
+
+async function execGetCustomerSegments(): Promise<unknown> {
+  const { segmentCustomers } = await import('@/lib/analytics/forecasting');
+  const segments = await segmentCustomers();
+
+  return {
+    segments: segments.map((s) => ({
+      segment: s.segment,
+      count: s.count,
+      avgRevenue: `${(s.avgRevenue / 100).toFixed(2)}€`,
+      totalRevenue: `${(s.totalRevenue / 100).toFixed(2)}€`,
+    })),
+    totalCustomers: segments.reduce((sum, s) => sum + s.count, 0),
+    vipRatio: segments.length > 0
+      ? `${((segments.find((s) => s.segment === 'VIP')?.count ?? 0) / Math.max(1, segments.reduce((sum, s) => sum + s.count, 0)) * 100).toFixed(0)}%`
+      : '0%',
   };
 }
 
@@ -1286,6 +1436,11 @@ const EXECUTORS: Record<string, ToolExecutor> = {
   launch_campaign: execLaunchCampaign,
   get_customer_360: execGetCustomer360,
   get_campaign_performance: execGetCampaignPerformance,
+  send_invoice_reminder: execSendInvoiceReminder,
+  batch_generate_invoices: execBatchGenerateInvoices,
+  get_revenue_forecast: execGetRevenueForecast,
+  get_service_profitability: execGetServiceProfitability,
+  get_customer_segments: execGetCustomerSegments,
 };
 
 export async function executeTool(
