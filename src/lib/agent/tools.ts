@@ -539,10 +539,32 @@ export const AGENT_TOOLS: AgentTool[] = [
       type: 'object',
       properties: {
         title: { type: 'string', description: 'Blog başlığı' },
-        content: { type: 'string', description: 'Blog içeriği (Markdown)' },
-        excerpt: { type: 'string', description: 'Özet (1-2 cümle)' },
+        body: { type: 'string', description: 'Blog içeriği' },
+        slug: { type: 'string', description: 'URL slug (bos birakilirsa otomatik)' },
+        excerpt: { type: 'string', description: 'Ozet (1-2 cumle)' },
+        cover_url: { type: 'string', description: 'Kapak gorseli URL' },
+        tags: { type: 'array', items: { type: 'string' }, description: 'Etiketler' },
+        publish: { type: 'boolean', description: 'Hemen yayinlansin mi?' },
       },
-      required: ['title', 'content'],
+      required: ['title', 'body'],
+    },
+  },
+
+  // ── Video ──
+  {
+    name: 'generate_video',
+    description: 'HyperFrames ile sosyal medya videosu (Reel, TikTok, Shorts) kompozisyonu olusturur. Video 1080x1920 dikey formatta, HTML tabanli render edilir.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        headline: { type: 'string', description: 'Video basligi (buyuk yazi)' },
+        subheadline: { type: 'string', description: 'Alt baslik (opsiyonel)' },
+        cta: { type: 'string', description: 'Cagri metni (varsayilan: fly-froth.com)' },
+        duration_seconds: { type: 'number', description: 'Saniye (varsayilan: 10)' },
+        primary_color: { type: 'string', description: 'Ana renk (hex, varsayilan: #6366f1)' },
+        image_url: { type: 'string', description: 'Arka plan veya urun gorseli URL (opsiyonel)' },
+      },
+      required: ['headline'],
     },
   },
 
@@ -1604,6 +1626,46 @@ async function execUploadImage(input: Record<string, unknown>): Promise<unknown>
   };
 }
 
+async function execGenerateVideo(input: Record<string, unknown>): Promise<unknown> {
+  const headline = typeof input.headline === 'string' ? input.headline : null;
+  if (!headline) return { error: 'headline gerekli' };
+
+  const { generateSocialMediaComposition, saveComposition } = await import('@/lib/video/hyperframes');
+  const html = generateSocialMediaComposition({
+    headline,
+    subheadline: typeof input.subheadline === 'string' ? input.subheadline : undefined,
+    cta: typeof input.cta === 'string' ? input.cta : undefined,
+    primaryColor: typeof input.primary_color === 'string' ? input.primary_color : undefined,
+    durationSeconds: typeof input.duration_seconds === 'number' ? input.duration_seconds : 10,
+    imageUrl: typeof input.image_url === 'string' ? input.image_url : undefined,
+  });
+
+  const comp = await saveComposition({
+    title: headline,
+    description: `${headline} — ${new Date().toLocaleDateString('de-DE')}`,
+    html,
+    durationSeconds: (typeof input.duration_seconds === 'number' ? input.duration_seconds : 10),
+  });
+
+  return {
+    ok: true,
+    composition: {
+      id: comp.id,
+      title: comp.title,
+      durationSeconds: comp.durationSeconds,
+      format: comp.format,
+      status: comp.status,
+    },
+    message: `"${headline}" videosu hazir. Render icin: npx hyperframes render compositions/${comp.id}/index.html -o output/${comp.id}.mp4`,
+    nextSteps: [
+      'Video kompozisyonu olusturuldu.',
+      'Render islemi local makinede yapilir (ffmpeg + puppeteer gerekli).',
+      'Render sonrasi MP4 Vercel Blob uzerine yuklenebilir.',
+      'Instagram Reel / TikTok / YouTube Shorts formatinda (1080x1920).',
+    ],
+  };
+}
+
 async function execCheckAvailability(input: Record<string, unknown>): Promise<unknown> {
   const date = typeof input.date === 'string' ? input.date : new Date().toISOString().slice(0, 10);
   const { listEvents, findFreeSlots } = await import('@/lib/calendar/google');
@@ -1723,6 +1785,7 @@ const EXECUTORS: Record<string, ToolExecutor> = {
   update_contact_info: execUpdateContactInfo,
   publish_blog_post: execPublishBlogPost,
   upload_image: execUploadImage,
+  generate_video: execGenerateVideo,
   check_availability: execCheckAvailability,
   schedule_appointment: execScheduleAppointment,
   list_appointments: execListAppointments,
