@@ -6,6 +6,7 @@ import type {
   ToolUseBlock,
 } from './types';
 import { MAX_TOOL_TURNS, MAX_CONTEXT_MESSAGES, THROTTLE_EDIT_MS } from './types';
+import { runSwarmTurn } from './swarm';
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! });
 
@@ -108,14 +109,29 @@ export async function runAgentTurn(
     session.messages.shift();
   }
 
-  const systemPrompt = await buildSystemPrompt();
-
   // Send or reuse thinking message
   let msgId = thinkMessageId ?? 0;
   if (!msgId) {
     const sent = await sendMessage({ chatId, text: '🤔 Düşünüyorum...' });
     msgId = sent.message_id;
   }
+
+  // Swarm routing: try to delegate to specialized sub-agent first
+  const swarmResult = await runSwarmTurn(userText);
+  if (swarmResult.swarmed && swarmResult.reply) {
+    await editMessageText({
+      chatId,
+      messageId: msgId,
+      text: swarmResult.reply,
+    }).catch(() => {});
+    session.messages.push({
+      role: 'assistant',
+      content: [{ type: 'text', text: swarmResult.reply }],
+    });
+    return;
+  }
+
+  const systemPrompt = await buildSystemPrompt();
 
   let turnCount = 0;
   let finalText = '';
