@@ -9,6 +9,14 @@
     {
       "path": "/api/cron/generate-weekly-plan",
       "schedule": "0 7 * * 0"
+    },
+    {
+      "path": "/api/cron/agent-watchdog?secret=080084ec9089202b8d409dc4e1c5672aea675a581133c994a63e86f6e31868a1",
+      "schedule": "*/15 * * * *"
+    },
+    {
+      "path": "/api/cron/agent-eod-report?secret=080084ec9089202b8d409dc4e1c5672aea675a581133c994a63e86f6e31868a1",
+      "schedule": "0 17 * * *"
     }
   ]
 }

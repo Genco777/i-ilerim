@@ -202,6 +202,7 @@ import {
 import { getAdsPreferences } from '@/lib/db/queries/ads-preferences';
 import type { AdsCampaignType } from '@/lib/db/queries/ads-campaigns'; // used in Task 15
 import { runAgentTurn, clearAgentSession } from '@/lib/agent';
+import { notifyKleinanzeigenReply, notifyPostPublished } from '@/lib/agent/notifications';
 
 // In-memory session for manual text editing (post caption)
 const textEditSessions = new Map<number, string>(); // chatId -> postId
@@ -451,6 +452,7 @@ async function handleKzSend(chatId: number, messageId: number, threadId: string)
       final_reply: thread.draft_reply,
       sent_at: new Date(),
     });
+    notifyKleinanzeigenReply(thread.id, thread.buyer_name ?? '');
     await sendMessage({
       chatId,
       text: [
@@ -882,6 +884,8 @@ async function handleApprove(
     const result = isStory
       ? await publishStory(postId)
       : await publishPost(postId);
+
+    notifyPostPublished(postId, isStory ? 'story' : 'post');
 
     const lines: string[] = ['✅ Yayınlandı!', ''];
 
