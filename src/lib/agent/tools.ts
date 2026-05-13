@@ -396,6 +396,48 @@ export const AGENT_TOOLS: AgentTool[] = [
     description: 'Pazar taraması yapar: rakip durumu, iç fırsatlar, trend analizi. Haftalık strateji için kullan.',
     input_schema: { type: 'object', properties: {}, required: [] },
   },
+
+  // ── Cross-Channel Marketing ──
+  {
+    name: 'launch_campaign',
+    description:
+      'Çok kanallı kampanya başlatır: Instagram, Facebook, email, Google Ads, Kleinanzeigen. Tek komutla tüm kanallara içerik dağıtır.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        name: { type: 'string', description: 'Kampanya adı (örn. "Bahar Indirimi 2026")' },
+        topic: { type: 'string', description: 'Kampanya konusu / başlığı' },
+        text: { type: 'string', description: 'Gönderi / email metni' },
+        channels: { type: 'string', description: "Virgülle ayrılmış kanallar: 'instagram,facebook,email,google_ads,kleinanzeigen'" },
+        emailListId: { type: 'string', description: 'Opsiyonel: Brevo email listesi IDsi' },
+        adBudgetCents: { type: 'number', description: 'Opsiyonel: Google Ads günlük bütçe (cent)' },
+      },
+      required: ['name', 'topic', 'text', 'channels'],
+    },
+  },
+  {
+    name: 'get_customer_360',
+    description:
+      'Bir müşterinin tüm etkileşimlerini tek görünümde toplar: faturalar, sosyal medya mesajları, Kleinanzeigen threadleri. 360° müşteri profili.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        identifier: { type: 'string', description: 'Müşteri emaili veya adı' },
+      },
+      required: ['identifier'],
+    },
+  },
+  {
+    name: 'get_campaign_performance',
+    description: 'Son 30 günlük çapraz kanal performans özeti: post, email, ads, ciro.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        days: { type: 'number', description: 'Kaç günlük? Varsayılan 30.' },
+      },
+      required: [],
+    },
+  },
 ];
 
 // ── Tool Executors ──
@@ -1113,6 +1155,96 @@ async function execScanMarket(): Promise<unknown> {
   };
 }
 
+async function execLaunchCampaign(input: Record<string, unknown>): Promise<unknown> {
+  const { launchCrossChannelCampaign } = await import('@/lib/marketing/cross-channel');
+  const channelsStr = String(input.channels ?? '');
+  const channels = channelsStr.split(',').map((c) => c.trim()).filter(Boolean);
+
+  if (channels.length === 0) return { error: 'channels gerekli. Örn: "instagram,facebook,email"' };
+
+  const campaign = await launchCrossChannelCampaign({
+    name: String(input.name ?? ''),
+    topic: String(input.topic ?? ''),
+    text: String(input.text ?? ''),
+    channels,
+    emailListId: typeof input.emailListId === 'string' ? input.emailListId : undefined,
+    adBudgetCents: typeof input.adBudgetCents === 'number' ? input.adBudgetCents : undefined,
+  });
+
+  return {
+    campaignId: campaign.id,
+    name: campaign.name,
+    status: campaign.status,
+    channels: campaign.channels,
+    results: campaign.results.map((r) => ({
+      channel: r.channel,
+      status: r.status,
+      details: r.details,
+    })),
+  };
+}
+
+async function execGetCustomer360(input: Record<string, unknown>): Promise<unknown> {
+  const { getCustomer360 } = await import('@/lib/db/queries/customer-360');
+  const identifier = String(input.identifier ?? '');
+  if (!identifier) return { error: 'identifier gerekli (email veya isim).' };
+
+  const customer = await getCustomer360(identifier);
+  if (!customer) return { error: `"${identifier}" için müşteri bulunamadı.` };
+
+  return {
+    name: customer.name,
+    company: customer.company,
+    email: customer.email,
+    phone: customer.phone,
+    source: customer.source,
+    status: customer.status,
+    totalRevenue: `${(customer.totalRevenue / 100).toFixed(2)}€`,
+    invoiceCount: customer.invoiceCount,
+    firstContact: customer.firstContact,
+    lastContact: customer.lastContact,
+    recentInvoices: customer.invoices.slice(0, 5).map((i) => ({
+      number: i.number,
+      type: i.type,
+      status: i.status,
+      total: `${(i.totalCents / 100).toFixed(2)}€`,
+      date: i.date,
+    })),
+    recentInteractions: customer.interactions.slice(0, 10).map((ix) => ({
+      type: ix.type,
+      date: ix.date,
+      details: ix.details,
+    })),
+  };
+}
+
+async function execGetCampaignPerformance(input: Record<string, unknown>): Promise<unknown> {
+  const { getCampaignPerformance } = await import('@/lib/marketing/cross-channel');
+  const days = typeof input.days === 'number' ? input.days : 30;
+
+  const perf = await getCampaignPerformance(days);
+
+  return {
+    period: `Son ${days} gün`,
+    posts: perf.posts,
+    email: perf.email,
+    ads: {
+      active: perf.ads.active,
+      totalDailyBudget: `${(perf.ads.totalDailyBudget / 100).toFixed(2)}€`,
+    },
+    revenue: {
+      invoiceCount: perf.revenue.invoiceCount,
+      total: `${(perf.revenue.total / 100).toFixed(2)}€`,
+    },
+    summary: [
+      `${perf.posts.published} gönderi yayınlandı`,
+      `${perf.email.campaigns} email kampanyası`,
+      `${perf.ads.active} aktif reklam`,
+      `${(perf.revenue.total / 100).toFixed(2)}€ ciro (${perf.revenue.invoiceCount} fatura)`,
+    ].join(' // '),
+  };
+}
+
 // ── Executor Map ──
 
 const EXECUTORS: Record<string, ToolExecutor> = {
@@ -1151,6 +1283,9 @@ const EXECUTORS: Record<string, ToolExecutor> = {
   list_tasks: execListTasks,
   web_research: execWebResearch,
   scan_market: execScanMarket,
+  launch_campaign: execLaunchCampaign,
+  get_customer_360: execGetCustomer360,
+  get_campaign_performance: execGetCampaignPerformance,
 };
 
 export async function executeTool(
