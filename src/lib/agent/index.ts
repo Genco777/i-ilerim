@@ -7,6 +7,7 @@ import type {
 } from './types';
 import { MAX_TOOL_TURNS, MAX_CONTEXT_MESSAGES, THROTTLE_EDIT_MS } from './types';
 import { runSwarmTurn } from './swarm';
+import { buildMemoryContext, extractAndStoreMemories } from './memory';
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! });
 
@@ -55,6 +56,9 @@ Hilf ihm durch: bessere Kundenkommunikation, mehr Sichtbarkeit, intelligentere A
 
 BUSINESS-KONTEXT (live von fly-froth.com):
 ${businessProfile}
+
+HAFIZA (son 7 günde öğrenilen önemli bilgiler):
+${await buildMemoryContext()}
 
 KRITISCHE REGELN:
 1. Wenn Mehmet dich bittet etwas zu tun (z.B. "erstell eine Rechnung", "schick eine Mail", "check die inbox"), dann TUE ES SOFORT mit den verfügbaren Tools. Frage NICHT ob du es tun sollst.
@@ -248,6 +252,13 @@ export async function runAgentTurn(
         messageId: msgId,
         text: '⚠️ Çok fazla araç çalıştırıldı. Lütfen daha spesifik bir istek yap.',
       }).catch(() => {});
+    }
+
+    // Learn from conversation
+    if (finalText) {
+      extractAndStoreMemories(userText, finalText).catch((e) =>
+        console.error('[memory] extraction error:', e),
+      );
     }
   } catch (err) {
     console.error('[agent] error:', err);

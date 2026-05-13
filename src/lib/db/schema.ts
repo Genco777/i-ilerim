@@ -673,6 +673,27 @@ export const chatConversations = pgTable(
   }),
 );
 
+// Agent memory — persistent learning and facts
+export const agentMemories = pgTable(
+  'agent_memories',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    category: text('category').notNull(), // 'customer', 'preference', 'lesson', 'insight', 'fact'
+    key: text('key').notNull().unique(), // örn. 'customer_X_budget_preference'
+    value: jsonb('value').notNull(), // flexible data
+    importance: integer('importance').notNull().default(5), // 1-10
+    last_accessed: timestamp('last_accessed', { withTimezone: true }).notNull().defaultNow(),
+    access_count: integer('access_count').notNull().default(0),
+    created_at: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updated_at: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    categoryIdx: index('mem_category_idx').on(t.category),
+    importanceIdx: index('mem_importance_idx').on(t.importance),
+    accessedIdx: index('mem_accessed_idx').on(t.last_accessed),
+  }),
+);
+
 export const chatMessages = pgTable(
   'chat_messages',
   {
