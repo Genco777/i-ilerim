@@ -282,6 +282,100 @@ export const AGENT_TOOLS: AgentTool[] = [
       'Veritabanı özeti: toplam fatura sayısı, müşteri sayısı, gönderi sayısı, Kleinanzeigen thread sayısı. İstatistik için kullan.',
     input_schema: { type: 'object', properties: {}, required: [] },
   },
+
+  // ── Workflows ──
+  {
+    name: 'run_workflow',
+    description:
+      'Çok adımlı bir iş akışı başlatır. Mevcut akışlar: new_client_onboarding (yeni müşteri karşılama), invoice_collection (fatura takip zinciri), post_campaign (çok kanallı kampanya), lead_qualification (lead değerlendirme).',
+    input_schema: {
+      type: 'object',
+      properties: {
+        name: { type: 'string', description: 'Workflow adı: new_client_onboarding, invoice_collection, post_campaign, lead_qualification' },
+        context: { type: 'string', description: 'Opsiyonel: workflow için bağlam bilgisi (JSON string)' },
+      },
+      required: ['name'],
+    },
+  },
+  {
+    name: 'get_workflow_status',
+    description: 'Başlatılmış bir workflow\'un durumunu sorgular.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        runId: { type: 'string', description: 'Workflow run IDsi' },
+      },
+      required: ['runId'],
+    },
+  },
+  {
+    name: 'cancel_workflow',
+    description: 'Çalışan bir workflow\'u iptal eder.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        runId: { type: 'string', description: 'İptal edilecek workflow run IDsi' },
+      },
+      required: ['runId'],
+    },
+  },
+
+  // ── Auto-Reply Intelligence ──
+  {
+    name: 'qualify_lead',
+    description: 'Gelen bir mesajı analiz eder ve lead sıcaklığını (hot/warm/cold) değerlendirir. Önerilen aksiyonu belirtir.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        messageText: { type: 'string', description: 'Analiz edilecek mesaj metni' },
+        senderName: { type: 'string', description: 'Gönderenin adı (opsiyonel)' },
+      },
+      required: ['messageText'],
+    },
+  },
+  {
+    name: 'auto_handle_inquiry',
+    description:
+      'Müşteri sorusunu analiz eder, lead puanlar, uygunsa otomatik yanıt taslağı oluşturur. Sıcak lead ise angebot önerir, soğuk ise Mehmet\'e sorar.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        messageId: { type: 'string', description: 'Yanıtlanacak mesajın IDsi (incoming_messages tablosu)' },
+      },
+      required: ['messageId'],
+    },
+  },
+  {
+    name: 'send_follow_up',
+    description: 'Belirli bir müşteriye takip maili gönderir.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        customerEmail: { type: 'string', description: 'Müşteri email adresi' },
+        customerName: { type: 'string', description: 'Müşteri adı' },
+        context: { type: 'string', description: 'Takip nedeni (örn. "Angebot 3 gün önce gönderildi, dönüş yok")' },
+      },
+      required: ['customerEmail', 'context'],
+    },
+  },
+  {
+    name: 'create_task',
+    description: 'Yapılacaklar listesine yeni bir görev ekler. Takip, hatırlatma, deadline için kullan.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        description: { type: 'string', description: 'Görev açıklaması' },
+        deadline: { type: 'string', description: 'Son tarih (ISO formatında, opsiyonel). Örn. "2026-05-15"' },
+        priority: { type: 'string', description: "'high', 'medium', 'low'. Varsayılan: medium" },
+      },
+      required: ['description'],
+    },
+  },
+  {
+    name: 'list_tasks',
+    description: 'Bekleyen tüm görevleri listeler.',
+    input_schema: { type: 'object', properties: {}, required: [] },
+  },
 ];
 
 // ── Tool Executors ──
@@ -791,6 +885,140 @@ async function execGetDatabaseSummary(): Promise<unknown> {
   };
 }
 
+async function execRunWorkflow(input: Record<string, unknown>): Promise<unknown> {
+  const { startWorkflow, WORKFLOWS } = await import('@/lib/agent/workflows');
+  const name = String(input.name ?? '');
+  if (!WORKFLOWS[name]) {
+    return { error: `Bilinmeyen workflow: ${name}. Mevcut: ${Object.keys(WORKFLOWS).join(', ')}` };
+  }
+  let context: Record<string, unknown> | undefined;
+  if (typeof input.context === 'string' && input.context) {
+    try { context = JSON.parse(input.context); } catch { context = { raw: input.context }; }
+  }
+  const run = startWorkflow(name, context);
+  const step = run.steps[0];
+  if (step) step.status = 'running';
+  return {
+    runId: run.id,
+    workflow: run.workflowName,
+    status: run.status,
+    totalSteps: run.totalSteps,
+    currentStep: step ? { index: step.index, tool: step.tool, purpose: step.purpose } : null,
+    message: step ? `"${name}" workflow'u başlatıldı. İlk adım: ${step.tool} — ${step.purpose}` : `"${name}" workflow'u başlatıldı.`,
+  };
+}
+
+async function execGetWorkflowStatus(input: Record<string, unknown>): Promise<unknown> {
+  const { getWorkflowRun } = await import('@/lib/agent/workflows');
+  const run = getWorkflowRun(String(input.runId ?? ''));
+  if (!run) return { error: 'Workflow bulunamadı.' };
+  return {
+    runId: run.id,
+    workflow: run.workflowName,
+    status: run.status,
+    currentStep: run.currentStep,
+    totalSteps: run.totalSteps,
+    startedAt: run.startedAt,
+    completedAt: run.completedAt,
+    steps: run.steps.map((s) => ({
+      tool: s.tool,
+      purpose: s.purpose,
+      status: s.status,
+      error: s.error,
+    })),
+  };
+}
+
+async function execCancelWorkflow(input: Record<string, unknown>): Promise<unknown> {
+  const { cancelWorkflow } = await import('@/lib/agent/workflows');
+  const ok = cancelWorkflow(String(input.runId ?? ''));
+  return { success: ok, message: ok ? 'Workflow iptal edildi.' : 'Workflow bulunamadı veya zaten tamamlanmış.' };
+}
+
+async function execQualifyLead(input: Record<string, unknown>): Promise<unknown> {
+  const { qualifyLead } = await import('@/lib/agent/workflows');
+  return qualifyLead(
+    String(input.messageText ?? ''),
+    typeof input.senderName === 'string' ? input.senderName : undefined,
+  );
+}
+
+async function execAutoHandleInquiry(input: Record<string, unknown>): Promise<unknown> {
+  const { getIncomingMessage, updateIncomingMessage } = await import('@/lib/db/queries/messages');
+  const { qualifyLead } = await import('@/lib/agent/workflows');
+  const { getBrandKit } = await import('@/lib/db/queries/brand-kit');
+  const { generateReply } = await import('@/lib/ai/reply');
+
+  const msgId = String(input.messageId ?? '');
+  const msg = await getIncomingMessage(msgId);
+  if (!msg) return { error: 'Mesaj bulunamadı.' };
+
+  const text = msg.message_text ?? '';
+  const sender = msg.sender_name ?? '';
+
+  const lead = await qualifyLead(text, sender);
+  const brandKit = await getBrandKit();
+
+  const result: Record<string, unknown> = {
+    messageId: msg.id,
+    senderName: sender,
+    platform: msg.platform,
+    leadQualification: lead,
+  };
+
+  if (lead.score === 'cold') {
+    result.action = 'skip';
+    result.note = 'Soğuk lead — otomatik yanıt önerilmez. Mehmet manuel karar versin.';
+    return result;
+  }
+
+  const reply = await generateReply(
+    { sender_name: sender, message_text: text, platform: msg.platform ?? 'ig_comment' },
+    brandKit,
+  );
+
+  await updateIncomingMessage(msg.id, { draft_reply: reply, status: 'drafting' });
+
+  result.action = lead.score === 'hot' ? 'draft_and_suggest_angebot' : 'draft_reply';
+  result.draftReply = reply;
+  result.recommendation = lead.score === 'hot'
+    ? 'Sıcak lead — angebot oluşturmayı teklif et.'
+    : 'Ilık lead — bilgilendirici yanıt ver, takip et.';
+
+  return result;
+}
+
+async function execSendFollowUp(input: Record<string, unknown>): Promise<unknown> {
+  const { sendMail } = await import('@/lib/mail/smtp');
+  const { wrapMailHtml } = await import('@/lib/email/mail-html');
+  const to = String(input.customerEmail ?? '');
+  const customerName = typeof input.customerName === 'string' ? input.customerName : '';
+  const context = String(input.context ?? '');
+  if (!to || !context) return { error: 'customerEmail ve context gerekli.' };
+
+  const greeting = customerName ? `Hallo ${customerName}` : 'Hallo';
+  const subject = `Follow-Up: Fly & Froth — ${context.slice(0, 60)}`;
+  const body = `${greeting},\n\n${context}\n\nBei Fragen stehe ich gerne zur Verfügung.\n\nMit freundlichen Grüßen\nMehmet Genco\nFly & Froth Design`;
+
+  const result = await sendMail({ to, subject, body, html: wrapMailHtml({ subject, bodyText: body }) });
+  return { success: true, messageId: result.messageId, to, subject };
+}
+
+async function execCreateTask(input: Record<string, unknown>): Promise<unknown> {
+  const { createTask } = await import('@/lib/agent/workflows');
+  return createTask(
+    String(input.description ?? ''),
+    typeof input.deadline === 'string' ? input.deadline : undefined,
+    typeof input.priority === 'string' ? input.priority : undefined,
+  );
+}
+
+async function execListTasks(): Promise<unknown> {
+  const { listTasks } = await import('@/lib/agent/workflows');
+  const tasks = listTasks();
+  return { count: tasks.length, tasks };
+}
+
 // ── Executor Map ──
 
 const EXECUTORS: Record<string, ToolExecutor> = {
@@ -819,6 +1047,14 @@ const EXECUTORS: Record<string, ToolExecutor> = {
   generate_svg: execGenerateSvg,
   get_system_status: execGetSystemStatus,
   get_database_summary: execGetDatabaseSummary,
+  run_workflow: execRunWorkflow,
+  get_workflow_status: execGetWorkflowStatus,
+  cancel_workflow: execCancelWorkflow,
+  qualify_lead: execQualifyLead,
+  auto_handle_inquiry: execAutoHandleInquiry,
+  send_follow_up: execSendFollowUp,
+  create_task: execCreateTask,
+  list_tasks: execListTasks,
 };
 
 export async function executeTool(
