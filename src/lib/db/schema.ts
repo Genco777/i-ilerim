@@ -763,3 +763,35 @@ export const blogPosts = pgTable(
     slugIdx: index('blog_slug_idx').on(t.slug),
   }),
 );
+
+// ───── Agent Task Queue (Local Bridge: Vercel <-> Local Claude) ─────
+export const taskStatusEnum = pgEnum('agent_task_status', [
+  'pending',
+  'claimed',
+  'running',
+  'completed',
+  'failed',
+]);
+
+export const agentTasks = pgTable(
+  'agent_tasks',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    task_type: text('task_type').notNull(), // 'video_analysis', 'render_video', 'design_critique', 'file_process', 'general'
+    title: text('title').notNull(),
+    payload: jsonb('payload').default({}), // task-specific data
+    status: taskStatusEnum('status').notNull().default('pending'),
+    priority: integer('priority').default(5), // 1-10, higher = more urgent
+    claimed_by: text('claimed_by'), // machine identifier
+    claimed_at: timestamp('claimed_at', { withTimezone: true }),
+    result: jsonb('result'), // output data on completion
+    error: text('error'),
+    created_at: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    completed_at: timestamp('completed_at', { withTimezone: true }),
+  },
+  (t) => ({
+    statusIdx: index('task_status_idx').on(t.status),
+    typeIdx: index('task_type_idx').on(t.task_type),
+    pendingPriorityIdx: index('task_pending_priority_idx').on(t.priority.desc()),
+  }),
+);

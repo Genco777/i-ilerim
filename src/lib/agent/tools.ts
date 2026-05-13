@@ -568,6 +568,113 @@ export const AGENT_TOOLS: AgentTool[] = [
     },
   },
 
+  // ── Local Bridge ──
+  {
+    name: 'delegate_to_local',
+    description: 'Agir bir islemi (video render, buyuk dosya isleme, ffmpeg) local makineye havale eder. Local agent worker scripti bu gorevi alir, isler ve sonucu dondurur.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        task_type: { type: 'string', description: 'Gorev tipi: render_video, video_analysis, file_process, general' },
+        title: { type: 'string', description: 'Gorev basligi' },
+        payload: { type: 'object', description: 'Gorev verisi (ornek: { compDir: "compositions/vid_xxx" })' },
+        priority: { type: 'number', description: 'Oncelik 1-10 (varsayilan: 5)' },
+      },
+      required: ['task_type', 'title', 'payload'],
+    },
+  },
+
+  // ── Video Analysis ──
+  {
+    name: 'analyze_video',
+    description: 'Gonderilen videoyu AI ile analiz eder. Video frame\'lerine ve ses transkriptine bakarak icerik, kalite, pazarlama etkisi hakkinda yorum yapar. Rakip analizi veya kendi videolarinin degerlendirmesi icin kullanilir.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        video_url: { type: 'string', description: 'Video URL (Telegram uzerinden gonderilen video)' },
+        analysis_type: { type: 'string', description: 'Analiz tipi: competitor, self_review, content_audit' },
+        focus_areas: { type: 'array', items: { type: 'string' }, description: 'Odak alanlari: visuals, messaging, pacing, branding, call_to_action' },
+      },
+      required: ['video_url'],
+    },
+  },
+
+  // ── Design Critic ──
+  {
+    name: 'design_critique',
+    description: 'Bir tasarimi (logo, flyer, web sitesi) profesyonel acidan elestirir. Kompozisyon, renk, tipografi, mesaj, hedef kitle uyumu gibi kriterlerde puanlama yapar.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        image_url: { type: 'string', description: 'Degerlendirilecek gorselin URLsi' },
+        design_type: { type: 'string', description: 'Tasarim tipi: logo, flyer, website, banner, branding' },
+        context: { type: 'string', description: 'Ek baglam: hedef kitle, amac, sektor (opsiyonel)' },
+      },
+      required: ['image_url', 'design_type'],
+    },
+  },
+
+  // ── Design Brief Extractor ──
+  {
+    name: 'extract_design_brief',
+    description: 'Musteri mesajlarindan veya konusma gecmisinden yapilandirilmis tasarim briefi cikarir. Hedef kitle, renk tercihleri, rakip ornekleri, butce, zaman gibi bilgileri yapilandirir.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        conversation_text: { type: 'string', description: 'Musteri konusmasi veya mesajlari' },
+        customer_name: { type: 'string', description: 'Musteri adi (opsiyonel)' },
+      },
+      required: ['conversation_text'],
+    },
+  },
+
+  // ── Multi-language Marketing ──
+  {
+    name: 'translate_content',
+    description: 'Icerigi TR/DE/EN/AR dillerine cevirir ve her dilin kulturune uygun sekilde yerellestirir. Sosyal medya postlari, web sitesi icerigi, reklam metinleri icin kullanilir.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        text: { type: 'string', description: 'Cevrilecek metin' },
+        target_languages: { type: 'array', items: { type: 'string' }, description: 'Hedef diller: tr, de, en, ar' },
+        content_type: { type: 'string', description: 'Icerik tipi: social_post, ad_copy, website, email, contract' },
+        tone: { type: 'string', description: 'Ton: professional, casual, friendly, luxury, urgent' },
+      },
+      required: ['text', 'target_languages'],
+    },
+  },
+
+  // ── AI Mockup Generator ──
+  {
+    name: 'generate_mockup',
+    description: 'Bir tasarimi gercek dunya urunlerinde gosteren AI mockup olusturur. Logo kahve kupasinda, flyer elde, web sitesi ekranda gibi. Musteri sunumlari icin idealdir.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        design_description: { type: 'string', description: 'Tasarimin aciklamasi (ornek: minimalist yesil agac logolu logo)' },
+        mockup_type: { type: 'string', description: 'Mockup tipi: coffee_cup, tshirt, billboard, phone_screen, business_card, storefront' },
+        style: { type: 'string', description: 'Stil: realistic, minimal, lifestyle, dark_mood' },
+      },
+      required: ['design_description', 'mockup_type'],
+    },
+  },
+
+  // ── Smart Contract Generator ──
+  {
+    name: 'generate_contract',
+    description: 'Tasarim isleri icin akilli sozlesme/AGB/teklif mektubu olusturur. Almanya yasal cercevesine uygun, musterinin projesine ozellestirilmis.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        contract_type: { type: 'string', description: 'Sozlesme tipi: design_agreement, agb, angebot_brief, revision_policy, nda' },
+        client_name: { type: 'string', description: 'Musteri adi/sirket' },
+        project_details: { type: 'string', description: 'Proje detaylari (kapsam, fiyat, sure)' },
+        language: { type: 'string', description: 'Dil: de (varsayilan), en, tr' },
+      },
+      required: ['contract_type', 'client_name', 'project_details'],
+    },
+  },
+
   // ── Calendar ──
   {
     name: 'check_availability',
@@ -1666,6 +1773,193 @@ async function execGenerateVideo(input: Record<string, unknown>): Promise<unknow
   };
 }
 
+async function execDelegateToLocal(input: Record<string, unknown>): Promise<unknown> {
+  const taskType = typeof input.task_type === 'string' ? input.task_type : null;
+  const title = typeof input.title === 'string' ? input.title : null;
+  if (!taskType || !title) return { error: 'task_type ve title gerekli' };
+
+  const { createTask, waitForTask } = await import('@/lib/db/queries/agent-tasks');
+  const { id } = await createTask({
+    task_type: taskType,
+    title,
+    payload: (input.payload as Record<string, unknown>) ?? {},
+    priority: typeof input.priority === 'number' ? input.priority : 5,
+  });
+
+  return {
+    ok: true,
+    taskId: id,
+    message: `Gorev "${title}" local worker'a havale edildi. ID: ${id}`,
+    nextSteps: [
+      'Local agent worker bu gorevi otomatik alip isleyecek.',
+      `Sonucu sorgulamak icin: GET /api/agent/tasks?action=result&taskId=${id}`,
+      'Islem suresi gorev tipine gore 10sn - 5dk arasi degisir.',
+    ],
+  };
+}
+
+async function execAnalyzeVideo(input: Record<string, unknown>): Promise<unknown> {
+  const videoUrl = typeof input.video_url === 'string' ? input.video_url : null;
+  if (!videoUrl) return { error: 'video_url gerekli' };
+
+  const analysisType = (typeof input.analysis_type === 'string' ? input.analysis_type : 'self_review') as string;
+  const focusAreas = Array.isArray(input.focus_areas) ? (input.focus_areas as string[]) : ['visuals', 'messaging', 'branding'];
+
+  // Delegate to local for frame extraction + transcription
+  const { createTask } = await import('@/lib/db/queries/agent-tasks');
+  await createTask({
+    task_type: 'video_analysis',
+    title: `Video Analysis: ${analysisType}`,
+    payload: { videoUrl, analysisType, focusAreas },
+    priority: 7,
+  });
+
+  return {
+    ok: true,
+    analysisType,
+    focusAreas,
+    message: `Video analizi baslatildi (${analysisType}). Local worker frame'leri cikarip Claude Vision ile analiz edecek.`,
+    note: 'Video once ffmpeg ile frame ve sese ayrilir, sonra Claude Vision frame+transkript uzerinden analiz yapar.',
+  };
+}
+
+async function execDesignCritique(input: Record<string, unknown>): Promise<unknown> {
+  const imageUrl = typeof input.image_url === 'string' ? input.image_url : null;
+  const designType = typeof input.design_type === 'string' ? input.design_type : 'logo';
+  if (!imageUrl) return { error: 'image_url gerekli' };
+
+  const context = typeof input.context === 'string' ? input.context : '';
+
+  return {
+    instruction: 'Claude Vision ile tasarim elestirisi yap. Asagidaki kriterlere gore puanla (1-10):',
+    criteria: [
+      'Kompozisyon ve denge',
+      'Renk uyumu ve anlami',
+      'Tipografi ve okunurluk',
+      'Mesaj netligi ve iletisim gucu',
+      'Hedef kitleye uygunluk',
+      'Ozgunluk ve akilda kalicilik',
+      'Profesyonel gorunum',
+    ],
+    designType,
+    imageUrl,
+    context,
+    format: 'Her kriter icin puan + 1 cumle yorum. Sonunda genel degerlendirme ve 3 iyilestirme onerisi.',
+  };
+}
+
+async function execExtractDesignBrief(input: Record<string, unknown>): Promise<unknown> {
+  const conversationText = typeof input.conversation_text === 'string' ? input.conversation_text : null;
+  if (!conversationText) return { error: 'conversation_text gerekli' };
+  const customerName = typeof input.customer_name === 'string' ? input.customer_name : 'Musteri';
+
+  return {
+    instruction: 'Bu konusma gecmisinden yapilandirilmis bir tasarim briefi cikar.',
+    customerName,
+    sections: {
+      projectType: 'Ne tur bir tasarim isteniyor? (logo, flyer, web...)',
+      targetAudience: 'Hedef kitle kim? (sektor, yas, konum...)',
+      stylePreferences: 'Stil tercihleri neler? (minimal, modern, klasik...)',
+      colorPreferences: 'Renk tercihleri veya kacinilmasi gereken renkler?',
+      competitors: 'Referans alinan rakipler veya ornekler?',
+      deliverables: 'Teslim edilmesi gereken dosyalar/formats?',
+      budget: 'Butce bilgisi var mi?',
+      deadline: 'Teslim zamani ne zaman?',
+      missingInfo: 'Hangi kritik bilgiler eksik, sorulmali?',
+    },
+    conversation: conversationText.slice(0, 8000),
+  };
+}
+
+async function execTranslateContent(input: Record<string, unknown>): Promise<unknown> {
+  const text = typeof input.text === 'string' ? input.text : null;
+  if (!text) return { error: 'text gerekli' };
+
+  const targetLanguages = (Array.isArray(input.target_languages) ? input.target_languages : ['de', 'en']) as string[];
+  const contentType = (typeof input.content_type === 'string' ? input.content_type : 'social_post') as string;
+  const tone = (typeof input.tone === 'string' ? input.tone : 'professional') as string;
+
+  return {
+    instruction: `Bu metni ${targetLanguages.join(', ')} dillerine cevir ve her dilin kulturune uygun sekilde yerellestir.`,
+    originalText: text,
+    targetLanguages,
+    contentType,
+    tone,
+    requirements: {
+      de: 'Almanca: resmi ve profesyonel, Almanya is kulturu normlarina uygun.',
+      en: 'Ingilizce: uluslararasi, dogal ve akici.',
+      tr: 'Turkce: samimi ama profesyonel, Turk is kulturu.',
+      ar: 'Arapca: kultur olarak uygun, gerekiyorsa saga hizali.',
+    },
+    note: 'Her dil icin ayri ayri ceviriyi json formatinda dondur: { "de": "...", "en": "...", ... }',
+  };
+}
+
+async function execGenerateMockup(input: Record<string, unknown>): Promise<unknown> {
+  const designDescription = typeof input.design_description === 'string' ? input.design_description : null;
+  if (!designDescription) return { error: 'design_description gerekli' };
+
+  const mockupType = (typeof input.mockup_type === 'string' ? input.mockup_type : 'business_card') as string;
+  const style = (typeof input.style === 'string' ? input.style : 'realistic') as string;
+
+  return {
+    instruction: 'Bu tasarim icin bir AI mockup gorseli olustur. generate_image toolunu kullan.',
+    prompt: `Professional product mockup, ${style} style: ${designDescription}. Shown on a ${mockupType.replace(/_/g, ' ')}. Clean background, studio lighting, high resolution, photorealistic. No text overlays on the product shot itself.`,
+    mockupType,
+    style,
+    designDescription,
+    tool: 'Bu islem icin generate_image cagirilacak. generate_image mevcut degilse, kullaniciya mockup icin harici bir arac (Placeit, Smartmockups) oner.',
+  };
+}
+
+async function execGenerateContract(input: Record<string, unknown>): Promise<unknown> {
+  const contractType = typeof input.contract_type === 'string' ? input.contract_type : 'design_agreement';
+  const clientName = typeof input.client_name === 'string' ? input.client_name : null;
+  if (!clientName) return { error: 'client_name gerekli' };
+
+  const projectDetails = typeof input.project_details === 'string' ? input.project_details : '';
+  const language = typeof input.language === 'string' ? input.language : 'de';
+
+  const templates: Record<string, string> = {
+    design_agreement: 'Tasarim Hizmet Sozlesmesi (Design Service Agreement)',
+    agb: 'Genel Islem Kosullari (AGB / Terms and Conditions)',
+    angebot_brief: 'Teklif Mektubu (Angebot / Proposal Letter)',
+    revision_policy: 'Revizyon Politikasi (Revision Policy)',
+    nda: 'Gizlilik Sozlesmesi (NDA / Confidentiality Agreement)',
+  };
+
+  return {
+    instruction: `${templates[contractType] ?? contractType} olustur. Dil: ${language === 'de' ? 'Almanca' : language === 'tr' ? 'Turkce' : 'Ingilizce'}.`,
+    clientName,
+    projectDetails,
+    contractType,
+    language,
+    legalRequirements: language === 'de' ? [
+      'Alman hukukuna (BGB) uygun olmali',
+      'Widerrufsrecht (cayma hakki) icermeli',
+      'DSGVO uyumlu kisisel veri maddesi',
+      'Impressum bilgileri: Fly & Froth, Roderveg 19, 61184 Karben',
+    ] : [
+      'Standard contract terms',
+      'Intellectual property clause',
+      'Payment terms and schedule',
+      'Revision policy and scope',
+    ],
+    sections: [
+      '1. Taraflar (Parties)',
+      '2. Sozlesme Konusu (Scope of Work)',
+      '3. Teslim Zamani (Timeline)',
+      '4. Ucret ve Odeme (Payment)',
+      '5. Revizyon Hakki (Revisions)',
+      '6. Fikri Mulkiyet (Intellectual Property)',
+      '7. Cayma Hakki (Right of Withdrawal)',
+      '8. Gizlilik (Confidentiality)',
+      '9. Yururluk ve Fesih (Term and Termination)',
+      '10. Uygulanacak Hukuk (Governing Law)',
+    ],
+  };
+}
+
 async function execCheckAvailability(input: Record<string, unknown>): Promise<unknown> {
   const date = typeof input.date === 'string' ? input.date : new Date().toISOString().slice(0, 10);
   const { listEvents, findFreeSlots } = await import('@/lib/calendar/google');
@@ -1786,6 +2080,13 @@ const EXECUTORS: Record<string, ToolExecutor> = {
   publish_blog_post: execPublishBlogPost,
   upload_image: execUploadImage,
   generate_video: execGenerateVideo,
+  delegate_to_local: execDelegateToLocal,
+  analyze_video: execAnalyzeVideo,
+  design_critique: execDesignCritique,
+  extract_design_brief: execExtractDesignBrief,
+  translate_content: execTranslateContent,
+  generate_mockup: execGenerateMockup,
+  generate_contract: execGenerateContract,
   check_availability: execCheckAvailability,
   schedule_appointment: execScheduleAppointment,
   list_appointments: execListAppointments,
