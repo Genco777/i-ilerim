@@ -1,6 +1,6 @@
 import Anthropic from '@anthropic-ai/sdk';
 import type { SwarmAgent } from './agents';
-import { ALL_AGENTS } from './agents';
+import { ALL_AGENTS, AGENT_GROUPS, getAgentsByGroup } from './agents';
 import { AGENT_TOOLS, executeTool } from './tools';
 import type { AgentTool, ToolUseBlock, MessageParam } from './types';
 
@@ -113,9 +113,20 @@ async function runSubAgentTurn(
   };
 }
 
+// Detect explicit group mention: "a grubu", "grup a", "b'ye sor", "b grubundan" etc.
+// Only matches standalone letters a/b (not part of words)
+function detectGroup(lower: string): 'A' | 'B' | null {
+  // Check for group A mention
+  if (/\bgrup[ -]?a\b|\ba[ -]?grubu\b|\ba[ -]?grubuna\b|\ba[ -]?grubundan\b|\ba[ -]?grubuyla\b/i.test(lower)) return 'A';
+  // Check for group B mention
+  if (/\bgrup[ -]?b\b|\bb[ -]?grubu\b|\bb[ -]?grubuna\b|\bb[ -]?grubundan\b|\bb[ -]?grubuyla\b/i.test(lower)) return 'B';
+  return null;
+}
+
 // Orkestratör: kullanıcı mesajını analiz eder, uygun alt-ajana yönlendirir
-export function routeToAgent(userMessage: string): { agent: SwarmAgent; confidence: number; reason: string } {
+export function routeToAgent(userMessage: string): { agent: SwarmAgent; confidence: number; reason: string; group?: 'A' | 'B' } {
   const lower = userMessage.toLowerCase();
+  const explicitGroup = detectGroup(lower);
 
   // Satış sinyalleri
   const salesKeywords = ['preis', 'angebot', 'kosten', 'rechnung', 'kaufen', 'bestellen', 'auftrag',
@@ -178,7 +189,7 @@ export function routeToAgent(userMessage: string): { agent: SwarmAgent; confiden
   const luxuryMarketingMatches = luxuryMarketingKeywords.filter((k) => lower.includes(k));
   const luxuryMarketingScore = luxuryMarketingMatches.length / Math.max(1, luxuryMarketingKeywords.length);
 
-  const scores: Array<{ agent: SwarmAgent; score: number; reason: string }> = [
+  let scores: Array<{ agent: SwarmAgent; score: number; reason: string }> = [
     { agent: ALL_AGENTS.sales_agent!, score: salesScore, reason: `Satış sinyali: ${salesMatches.join(', ') || 'genel'}` },
     { agent: ALL_AGENTS.social_agent!, score: socialScore, reason: `Sosyal medya sinyali: ${socialMatches.join(', ') || 'genel'}` },
     { agent: ALL_AGENTS.design_agent!, score: designScore, reason: `Tasarım sinyali: ${designMatches.join(', ') || 'genel'}` },
@@ -189,15 +200,26 @@ export function routeToAgent(userMessage: string): { agent: SwarmAgent; confiden
     { agent: ALL_AGENTS.luxury_marketing_director!, score: luxuryMarketingScore, reason: `Lüks pazarlama: ${luxuryMarketingMatches.join(', ') || 'genel'}` },
   ];
 
+  // Group filter: when user says "a grubu" or "b grubu", only that group's agents
+  if (explicitGroup) {
+    const groupAgents = new Set(AGENT_GROUPS[explicitGroup].agents);
+    scores = scores.filter((s) => groupAgents.has(s.agent.name));
+  }
+
   scores.sort((a, b) => b.score - a.score);
   const best = scores[0]!;
 
   if (best.score < 0.05) {
+    if (explicitGroup) {
+      // Group explicitly asked but no strong signal — return top agent from that group anyway
+      const groupInfo = AGENT_GROUPS[explicitGroup];
+      return { agent: scores[0]?.agent ?? getAgentsByGroup(explicitGroup)[0]!, confidence: 0.05, reason: `${groupInfo.emoji} ${groupInfo.name} grubu istegi — en yakin uzman yonlendirildi`, group: explicitGroup };
+    }
     // No strong signal — let main agent handle directly (faster, better for general chat)
     return { agent: ALL_AGENTS.sales_agent!, confidence: 0, reason: 'Genel sohbet — ana ajan yanıtlasın' };
   }
 
-  return { agent: best.agent, confidence: best.score, reason: best.reason };
+  return { agent: best.agent, confidence: best.score, reason: best.reason, group: explicitGroup ?? undefined };
 }
 
 // Ana delegasyon fonksiyonu
@@ -240,8 +262,10 @@ export async function runSwarmTurn(
 
   const result = await delegateToAgent(route.agent.name, userMessage);
 
+  const groupLabel = route.group ? ` │ ${AGENT_GROUPS[route.group].emoji} Grup ${route.group}` : '';
+
   return {
-    reply: `*[${route.agent.emoji} ${route.agent.role}]*\n\n${result.result}`,
+    reply: `*[${route.agent.emoji} ${route.agent.role}${groupLabel}]*\n\n${result.result}`,
     delegatedTo: route.agent.name,
     toolCalls: result.toolCalls,
     swarmed: true,

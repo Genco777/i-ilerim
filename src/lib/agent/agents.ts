@@ -2,6 +2,7 @@ export interface SwarmAgent {
   name: string;
   emoji: string;
   role: string;
+  group: 'A' | 'B';
   systemPrompt: string;
   tools: string[];
   model: 'claude-sonnet-4-6';
@@ -15,6 +16,7 @@ export const SALES_AGENT: SwarmAgent = {
   name: 'sales_agent',
   emoji: '💰',
   role: 'Satış ve Müşteri İlişkileri',
+  group: 'A',
   systemPrompt: [
     'Sen Fly & Froth\'un Satış Ajanısın. Görevin:',
     '- Lead\'leri nitele (hot/warm/cold)',
@@ -57,6 +59,7 @@ export const SOCIAL_AGENT: SwarmAgent = {
   name: 'social_agent',
   emoji: '📱',
   role: 'Sosyal Medya ve İçerik',
+  group: 'A',
   systemPrompt: [
     'Sen Fly & Froth\'un Sosyal Medya Ajanısın. Görevin:',
     '- İçerik planını yönet',
@@ -98,6 +101,7 @@ export const DESIGN_AGENT: SwarmAgent = {
   name: 'design_agent',
   emoji: '🎨',
   role: 'Tasarım ve Kreatif',
+  group: 'A',
   systemPrompt: [
     'Sen Fly & Froth\'un Tasarım Ajanısın. Görevin:',
     '- Tasarım brief\'lerini analiz et',
@@ -131,6 +135,7 @@ export const FINANCE_AGENT: SwarmAgent = {
   name: 'finance_agent',
   emoji: '📊',
   role: 'Finans ve Raporlama',
+  group: 'A',
   systemPrompt: [
     'Sen Fly & Froth\'un Finans Ajanısın. Görevin:',
     '- Fatura ve ödeme durumunu takip et',
@@ -172,6 +177,7 @@ export const LUXURY_MARKET_RESEARCHER: SwarmAgent = {
   name: 'luxury_market_researcher',
   emoji: '🔍',
   role: 'Lüks Marka Pazar Araştırmacısı',
+  group: 'B',
   systemPrompt: [
     'Sen Fly & Froth Luxury Division\'ın Pazar Araştırma Uzmanısın. Görevin:',
     '- Lüks segmentte pazar trendlerini ve fırsatları analiz et',
@@ -211,6 +217,7 @@ export const LUXURY_BUYER: SwarmAgent = {
   name: 'luxury_buyer',
   emoji: '🛍️',
   role: 'Lüks Satın Alma Uzmanı',
+  group: 'B',
   systemPrompt: [
     'Sen Fly & Froth Luxury Division\'ın Satın Alma Direktörüsün. Görevin:',
     '- Tedarikçi araştırması ve değerlendirmesi yap',
@@ -252,6 +259,7 @@ export const LUXURY_SHOPIFY_DIRECTOR: SwarmAgent = {
   name: 'luxury_shopify_director',
   emoji: '🛒',
   role: 'Shopify E-Ticaret Direktörü',
+  group: 'B',
   systemPrompt: [
     'Sen Fly & Froth Luxury Division\'ın Shopify E-Ticaret Direktörüsün. Görevin:',
     '- Shopify mağaza stratejisi ve mimarisini planla',
@@ -297,6 +305,7 @@ export const LUXURY_MARKETING_DIRECTOR: SwarmAgent = {
   name: 'luxury_marketing_director',
   emoji: '✨',
   role: 'Lüks Marka Pazarlama Direktörü',
+  group: 'B',
   systemPrompt: [
     'Sen Fly & Froth Luxury Division\'ın Pazarlama Direktörüsün. Görevin:',
     '- Lüks marka stratejisi ve konumlandırma geliştir',
@@ -353,4 +362,23 @@ export const ALL_AGENTS: Record<string, SwarmAgent> = {
 
 export function getAgentTools(name: string): string[] {
   return ALL_AGENTS[name]?.tools ?? [];
+}
+
+export const AGENT_GROUPS: Record<'A' | 'B', { name: string; emoji: string; agents: string[] }> = {
+  A: {
+    name: 'Genel — Tasarım & İşletme',
+    emoji: '🎯',
+    agents: ['sales_agent', 'social_agent', 'design_agent', 'finance_agent'],
+  },
+  B: {
+    name: 'Lüks E-Ticaret',
+    emoji: '💎',
+    agents: ['luxury_market_researcher', 'luxury_buyer', 'luxury_shopify_director', 'luxury_marketing_director'],
+  },
+};
+
+export function getAgentsByGroup(group: 'A' | 'B'): SwarmAgent[] {
+  return AGENT_GROUPS[group].agents
+    .map((name) => ALL_AGENTS[name])
+    .filter((a): a is SwarmAgent => a !== undefined);
 }
