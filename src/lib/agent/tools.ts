@@ -818,6 +818,7 @@ export const AGENT_TOOLS: AgentTool[] = [
         multiPage: { type: 'boolean', description: 'Çok sayfalı katlamalı broşür modu. true ise folding parametresi ile katlama tipi belirtilmeli.' },
         folding: { type: 'string', description: 'Katlamalı broşür katlama tipi: tri-fold (3 katlı, mektup), bi-fold (2 katlı, kitap), z-fold (zigzag), gate-fold (kapı katlı). Varsayılan tri-fold. Sadece multiPage=true iken geçerli.' },
         pageContent: { type: 'string', description: 'JSON array: her panel/sayfa için içerik açıklaması. Örn: ["Ön kapak — şirket tanıtımı", "Hizmetlerimiz — detaylı liste", "İletişim ve referanslar"]. Broşür panellerine otomatik dağıtılır.' },
+        autoGenerateImages: { type: 'boolean', description: 'AI ile görselleri otomatik üretip HTML\'e göm. Max 3 görsel paralel üretilir. Vercel Blob\'a yüklenir. Varsayılan false.' },
       },
       required: ['description'],
     },
@@ -835,11 +836,85 @@ export const AGENT_TOOLS: AgentTool[] = [
         contactInfo: { type: 'string', description: 'İletişim bilgileri (tel, adres, web, sosyal medya)' },
         language: { type: 'string', description: 'Dil (tr, de, en). Varsayılan tr.' },
         specialNote: { type: 'string', description: 'Özel not (örn. "Tüm fiyatlara KDV dahildir", "Alkollü içecekler 18+")' },
+        autoGenerateImages: { type: 'boolean', description: 'AI ile yemek/içecek görsellerini otomatik üretip menüye göm. Max 3 görsel paralel üretilir. Varsayılan false.' },
       },
       required: ['businessName'],
     },
   },
 ];
+
+// ── AI Image Auto-Generation & Embedding ──
+
+async function autoGenerateAndEmbedImages(
+  imagePrompts: string[],
+  html: string,
+  maxImages: number = 3,
+): Promise<{ html: string; images: Array<{ prompt: string; blobUrl: string | null; error?: string }> }> {
+  const prompts = imagePrompts.slice(0, Math.min(maxImages, 3));
+  const { generateImage } = await import('@/lib/ai/image');
+
+  // Generate all images in parallel
+  const results = await Promise.allSettled(
+    prompts.map(async (prompt) => {
+      const result = await generateImage(prompt, { aspectRatio: '1:1' });
+      return { prompt, buffer: result.buffer, provider: result.provider };
+    }),
+  );
+
+  const images: Array<{ prompt: string; blobUrl: string | null; error?: string }> = [];
+
+  // Upload to Vercel Blob and build <img> tags
+  const blobToken = process.env.BLOB_READ_WRITE_TOKEN;
+  const imgTags: string[] = [];
+
+  for (const r of results) {
+    if (r.status === 'fulfilled') {
+      const { prompt, buffer } = r.value;
+      let blobUrl: string | null = null;
+
+      if (blobToken) {
+        try {
+          const filename = `images/ai-gen-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.png`;
+          const blobRes = await fetch(`https://blob.vercel-storage.com/${filename}`, {
+            method: 'PUT',
+            headers: {
+              Authorization: `Bearer ${blobToken}`,
+              'Content-Type': 'image/png',
+              'X-Content-Type-Options': 'nosniff',
+              'X-Cache-Control-Max-Age': '31536000',
+            },
+            body: new Uint8Array(buffer),
+          });
+          if (blobRes.ok) {
+            const blobData = await blobRes.json() as { url?: string };
+            blobUrl = blobData.url ?? null;
+          }
+        } catch { /* blob upload optional */ }
+      }
+
+      images.push({ prompt, blobUrl, error: blobUrl ? undefined : 'Blob upload failed — buffer available' });
+      if (blobUrl) {
+        imgTags.push(`<img src="${blobUrl}" alt="${prompt.slice(0, 80)}" style="width:100%;max-width:400px;border-radius:8px;margin:8px 0;object-fit:cover;" loading="lazy" />`);
+      }
+    } else {
+      images.push({ prompt: prompts[results.indexOf(r)] ?? '', blobUrl: null, error: r.reason?.message ?? 'Generation failed' });
+    }
+  }
+
+  // Embed images into HTML — insert after <body> or after first container
+  let modifiedHtml = html;
+  if (imgTags.length > 0) {
+    const imgStrip = `\n<!-- AI Generated Images -->\n<div style="display:flex;flex-wrap:wrap;gap:12px;justify-content:center;padding:8px 0;">\n${imgTags.join('\n')}\n</div>\n`;
+    // Insert after <body> tag or at the start of content
+    if (modifiedHtml.includes('<body>')) {
+      modifiedHtml = modifiedHtml.replace('<body>', `<body>\n${imgStrip}`);
+    } else {
+      modifiedHtml = imgStrip + modifiedHtml;
+    }
+  }
+
+  return { html: modifiedHtml, images };
+}
 
 // ── Tool Executors ──
 
@@ -3091,6 +3166,7 @@ async function execGenerateFlyer(input: Record<string, unknown>): Promise<unknow
   const language = typeof input.language === 'string' ? input.language : 'tr';
   const doubleSided = input.doubleSided === true;
   const multiPage = input.multiPage === true;
+  const autoGenImages = input.autoGenerateImages === true;
   const folding = (typeof input.folding === 'string' && ['tri-fold', 'bi-fold', 'z-fold', 'gate-fold'].includes(input.folding)) ? input.folding : 'tri-fold';
   let pageContent: string[] = [];
   if (typeof input.pageContent === 'string' && input.pageContent.trim()) {
@@ -3224,6 +3300,18 @@ async function execGenerateFlyer(input: Record<string, unknown>): Promise<unknow
         'Keep critical content within safe zone — bleed area will be trimmed',
       ]);
 
+  // Auto-generate and embed AI images if requested
+  let autoGeneratedImages: Array<{ prompt: string; blobUrl: string | null; error?: string }> | undefined;
+  if (autoGenImages && imagePrompts.length > 0) {
+    try {
+      const result = await autoGenerateAndEmbedImages(imagePrompts, frontHtml, 3);
+      frontHtml = result.html;
+      autoGeneratedImages = result.images;
+    } catch (err: any) {
+      autoGeneratedImages = [{ prompt: imagePrompts[0] ?? '', blobUrl: null, error: err.message ?? 'Auto-generation failed' }];
+    }
+  }
+
   // Try Vercel Blob upload for instant preview
   let previewUrl: string | null = null;
   try {
@@ -3280,6 +3368,7 @@ async function execGenerateFlyer(input: Record<string, unknown>): Promise<unknow
         note: 'QR kod arka kapakta otomatik gösterilir.',
       },
     } : {}),
+    autoGeneratedImages,
     designerNotes: language === 'tr'
       ? `${FOLDING_CONFIGS[folding]?.name ?? 'Katlamalı'} broşür — ${FOLDING_CONFIGS[folding]?.panels ?? 3} panelli, ${brochurePages?.length ?? 2} sayfa. "${style}" stilinde, ${specResult.format} için optimize edildi. Katlama çizgileri HTML içinde işaretlidir. ${previewUrl ? `Önizleme: ${previewUrl}` : 'HTML doğrudan tarayıcıda açılabilir.'}`
       : `${FOLDING_CONFIGS[folding]?.name ?? 'Folded'} brochure — ${FOLDING_CONFIGS[folding]?.panels ?? 3} panels, ${brochurePages?.length ?? 2} pages. Optimized for ${specResult.format} in "${style}" style. Fold marks shown in HTML. ${previewUrl ? `Preview: ${previewUrl}` : 'HTML can be opened directly in browser.'}`,
@@ -3312,6 +3401,7 @@ async function execGenerateFlyer(input: Record<string, unknown>): Promise<unknow
         note: 'QR kod flyer\'ın sağ alt köşesine otomatik eklenir.',
       },
     } : {}),
+    autoGeneratedImages,
     designerNotes: language === 'tr'
       ? `Bu flyer "${style}" stilinde, ${specResult.format} için optimize edildi. ${previewUrl ? `Önizleme: ${previewUrl}` : 'HTML doğrudan tarayıcıda açılabilir.'} Renkler CMYK baskı için uygundur. Görseller için AI prompt'ları hazır.`
       : `Flyer optimized for ${specResult.format} in "${style}" style. ${previewUrl ? `Preview: ${previewUrl}` : 'HTML can be opened directly in browser.'} Colors are CMYK-print suitable. AI image prompts ready.`,
@@ -3814,6 +3904,7 @@ async function execGenerateMenu(input: Record<string, unknown>): Promise<unknown
   const language = typeof input.language === 'string' ? input.language : 'tr';
   const contactInfo = typeof input.contactInfo === 'string' ? input.contactInfo : undefined;
   const specialNote = typeof input.specialNote === 'string' ? input.specialNote : undefined;
+  const autoGenImages = input.autoGenerateImages === true;
 
   // Parse categories from JSON string
   let categories: Array<{ name: string; items: Array<{ name: string; description?: string; price: string; badges?: string[] }> }> = [];
@@ -3879,6 +3970,19 @@ async function execGenerateMenu(input: Record<string, unknown>): Promise<unknown
     `Decorative culinary elements flat lay. Herbs, spices, fresh ingredients arranged elegantly. Overhead shot, natural light, ${style} aesthetic.`,
   ];
 
+  // Auto-generate and embed AI images if requested
+  let autoGeneratedImages: Array<{ prompt: string; blobUrl: string | null; error?: string }> | undefined;
+  let embedHtml = html;
+  if (autoGenImages) {
+    try {
+      const result = await autoGenerateAndEmbedImages(imagePrompts, html, 3);
+      embedHtml = result.html;
+      autoGeneratedImages = result.images;
+    } catch (err: any) {
+      autoGeneratedImages = [{ prompt: imagePrompts[0] ?? '', blobUrl: null, error: err.message ?? 'Auto-generation failed' }];
+    }
+  }
+
   // Try Vercel Blob upload
   let previewUrl: string | null = null;
   try {
@@ -3888,7 +3992,7 @@ async function execGenerateMenu(input: Record<string, unknown>): Promise<unknown
       const blobRes = await fetch(`https://blob.vercel-storage.com/${filename}`, {
         method: 'PUT',
         headers: { Authorization: `Bearer ${blobToken}`, 'Content-Type': 'text/html', 'X-Content-Type-Options': 'nosniff' },
-        body: html,
+        body: embedHtml,
       });
       if (blobRes.ok) {
         const blobData = await blobRes.json() as { url?: string };
@@ -3909,7 +4013,7 @@ async function execGenerateMenu(input: Record<string, unknown>): Promise<unknown
           body: JSON.stringify({
             task_type: 'render_flyer_pdf',
             title: `Menu PDF: ${businessName}`,
-            payload: { html, format: format.startsWith('a4') ? 'flyer-a5' : 'flyer-a5', style, businessName },
+            payload: { html: embedHtml, format: format.startsWith('a4') ? 'flyer-a5' : 'flyer-a5', style, businessName },
             priority: 5,
           }),
         });
@@ -3941,9 +4045,10 @@ async function execGenerateMenu(input: Record<string, unknown>): Promise<unknown
     totalItems: categories.reduce((sum, c) => sum + c.items.length, 0),
     colorPalette: paletteResult.palette,
     fontPairing: fontResult?.pairings?.[0] ?? null,
-    html,
+    html: embedHtml,
     previewUrl,
     pdfTaskQueued,
+    autoGeneratedImages,
     imageGenerationPrompts: imagePrompts,
     printSpecs: { bleedMm: fmt.bleedMm, safeMm: fmt.safeMm, dpi: fmt.dpi, profile: 'CMYK / ISO Coated v2' },
     productionTips,
