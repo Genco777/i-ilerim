@@ -858,6 +858,67 @@ export const AGENT_TOOLS: AgentTool[] = [
       required: ['designHtml'],
     },
   },
+
+  // ── Agency-Level Design Intelligence ──
+  {
+    name: 'analyze_reference_design',
+    description: 'Referans bir tasarim gorselini Claude Vision ile analiz eder. Renk paleti, font tahmini, layout grid tipi, element rolleri (headline, CTA, logo, badge, QR vb.), gorsel hiyerarsi ve generate_flyer icin hazir parametreler cikarir.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        design_type: { type: 'string', description: 'Tasarim tipi: flyer, menu, poster, banner, business_card, social_post, brochure' },
+        focus_areas: { type: 'string', description: 'JSON array: odaklanilacak alanlar. Orn: ["colors","typography","layout","elements"]. Bos birakilirsa tumu analiz edilir.' },
+        purpose: { type: 'string', description: 'Analiz amaci: "recreate" (benzerini uret), "critique" (elestir), "extract_brief" (brief cikar). Varsayilan recreate.' },
+      },
+      required: [],
+    },
+  },
+  {
+    name: 'generate_moodboard',
+    description: 'Tasarim brief veya konsept metninden profesyonel moodboard HTMLi olusturur. Renk swatchlari, font eslesmeleri (Google Fonts CDN ile canli), stil anahtar kelimeleri, AI gorsel promptlari ve CSS/doku onerileri icerir.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        concept: { type: 'string', description: 'Konsept/brief metni. Orn: "luks restoran, altin detayli, koyu arka plan, elegant" veya "modern fitness gym, neon vurgular, dinamik, genclere yonelik"' },
+        format: { type: 'string', description: 'Moodboard formati: grid (izgara), horizontal_scroll (yatay kaydirma), magazine_spread (dergi sayfasi). Varsayilan grid.' },
+        includeImagePrompts: { type: 'boolean', description: 'AI gorsel promptlari eklensin mi? Varsayilan true.' },
+        language: { type: 'string', description: 'Dil (tr, de, en). Varsayilan tr.' },
+      },
+      required: ['concept'],
+    },
+  },
+  {
+    name: 'check_brand_consistency',
+    description: 'Uretilen tasarim HTMLini marka kiti ile karsilastirarak tutarlilik puani verir. Logo, renk, font, ton ve layout alanlarinda 0-10 puanlama yapar. Server-side hesaplama yapar.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        designHtml: { type: 'string', description: 'Degerlendirilecek tasarimin HTMLi (generate_flyer, generate_menu vb. ciktisindan)' },
+        designType: { type: 'string', description: 'Tasarim tipi: flyer, menu, logo, social_post, brochure' },
+        brandName: { type: 'string', description: 'Marka adi (opsiyonel, varsayilan Fly & Froth)' },
+        checkAreas: { type: 'string', description: 'JSON array: kontrol edilecek alanlar. Orn: ["logo","color","font","tone","layout"]. Bos birakilirsa tumu kontrol edilir.' },
+      },
+      required: ['designHtml'],
+    },
+  },
+  {
+    name: 'manage_design_approval',
+    description: 'Tasarim onay akisi yonetimi. Durum makinesi: draft → pending_review → approved / needs_revision. Tasarimlari musterilere sunmak ve revizyon dongusunu yonetmek icin kullanilir.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        action: { type: 'string', description: 'Islem: create, submit, approve, request_revision, list, get' },
+        approvalId: { type: 'string', description: 'Onay kaydi IDsi (submit, approve, request_revision, get icin gerekli)' },
+        clientName: { type: 'string', description: 'Musteri adi (create icin gerekli)' },
+        designType: { type: 'string', description: 'Tasarim tipi: flyer, menu, logo, social_post, brochure (create icin)' },
+        designHtml: { type: 'string', description: 'Tasarim HTMLi (create/submit icin opsiyonel)' },
+        brandName: { type: 'string', description: 'Marka adi (create icin opsiyonel)' },
+        note: { type: 'string', description: 'Not veya revizyon aciklamasi (opsiyonel)' },
+        filterStatus: { type: 'string', description: 'Duruma gore filtrele (list icin): draft, pending_review, approved, needs_revision' },
+      },
+      required: ['action'],
+    },
+  },
 ];
 
 // ── AI Image Auto-Generation & Embedding ──
@@ -4384,6 +4445,600 @@ async function execPreparePrintOrder(input: Record<string, unknown>): Promise<un
   };
 }
 
+// ── Agency-Level Design Intelligence Executors ──
+
+/** Euclidean color distance in RGB space — lower = closer match */
+function colorDistance(hex1: string, hex2: string): number {
+  const parse = (h: string) => {
+    const clean = h.replace('#', '');
+    return {
+      r: parseInt(clean.slice(0, 2), 16),
+      g: parseInt(clean.slice(2, 4), 16),
+      b: parseInt(clean.slice(4, 6), 16),
+    };
+  };
+  const c1 = parse(hex1);
+  const c2 = parse(hex2);
+  return Math.sqrt((c1.r - c2.r) ** 2 + (c1.g - c2.g) ** 2 + (c1.b - c2.b) ** 2);
+}
+
+/** Check if a hex color appears (approximately) in a CSS/HTML string */
+function colorInDesign(hex: string, html: string, threshold: number = 60): boolean {
+  // Find all hex colors in the HTML
+  const hexes = html.match(/#[0-9a-fA-F]{6}/g) ?? [];
+  const unique = [...new Set(hexes.map((h) => h.toUpperCase()))];
+  return unique.some((h) => colorDistance(hex, h) <= threshold);
+}
+
+/** Detect font category from HTML style text */
+function fontCategoryInDesign(html: string): { hasSerif: boolean; hasSans: boolean; hasDisplay: boolean; hasMono: boolean } {
+  const lower = html.toLowerCase();
+  const hasSerif = /serif|playfair|times|garamond|bodoni|didot|baskerville|caslon|merriweather|libre\s*baskerville/i.test(lower);
+  const hasSans = /sans|helvetica|arial|inter|roboto|montserrat|poppins|raleway|open\s*sans|lato/i.test(lower);
+  const hasDisplay = /display|decorative|script|cursive|pacifico|lobster|great\s*vibes|dancing\s*script|brush|handwritten/i.test(lower);
+  const hasMono = /mono|courier|consolas|source\s*code|jetbrains/i.test(lower);
+  return { hasSerif, hasSans, hasDisplay, hasMono };
+}
+
+async function execAnalyzeReferenceDesign(input: Record<string, unknown>): Promise<unknown> {
+  const designType = typeof input.design_type === 'string' ? input.design_type : 'flyer';
+  const purpose = typeof input.purpose === 'string' ? input.purpose : 'recreate';
+  let focusAreas: string[] = ['colors', 'typography', 'layout', 'elements', 'hierarchy'];
+  if (typeof input.focus_areas === 'string') {
+    try { focusAreas = JSON.parse(input.focus_areas); } catch { /* keep defaults */ }
+  }
+
+  const colorPrompt = focusAreas.includes('colors')
+    ? `\nCOLOR PALETTE:\n- Her rengin hex kodunu, CSS degisken adini, rolunu (primary/secondary/accent/background/text/highlight), yaklasik kullanim yuzdesini ve CMYK karsiligini belirt.\n- Format: { "hex": "#XXX", "role": "primary", "usagePct": 40, "cmyk": [0,0,0,100] }`
+    : '';
+
+  const fontPrompt = focusAreas.includes('typography')
+    ? `\nFONT TAHMINI:\n- Baslik ve govde metni icin font kategorisi (serif/sans-serif/display/handwritten/monospace).\n- Agirlik (light/regular/medium/bold/black).\n- En yakin Google Font\'u oner.\n- Format: { "role": "heading", "category": "sans-serif", "weight": "bold", "closestGoogleFont": "Montserrat" }`
+    : '';
+
+  const layoutPrompt = focusAreas.includes('layout')
+    ? `\nLAYOUT GRID:\n- Layout tipi: centered, asymmetric, grid, split, full_bleed, axial.\n- Sayfa bolgelerini tanimla (top, center, bottom, left, right).\n- Margin/padding hissi (tight, comfortable, spacious).`
+    : '';
+
+  const elementsPrompt = focusAreas.includes('elements')
+    ? `\nELEMENTS:\n- Gorseldeki her elementi rolune gore siniflandir: headline, subheadline, body, cta, hero_image, logo, badge, qr_code, contact, price, decor, section.\n- Her element icin: rolu, yaklasik konumu (top-left, center, bottom-right vb.), baskinlik derecesi (dominant/secondary/tertiary).\n- Format: { "role": "headline", "position": "top-center", "dominance": "dominant" }`
+    : '';
+
+  const hierarchyPrompt = focusAreas.includes('hierarchy')
+    ? `\nVISUAL HIERARCHY:\n- Dominant element (ilk bakista goze carpan).\n- Secondary element (ikinci sirada dikkat ceken).\n- Tertiary element (ucuncu sirada).\n- Okuma akisi yonu (top-to-bottom, left-to-right, center-out, z-pattern, f-pattern).`
+    : '';
+
+  const flyerParamsPrompt = purpose === 'recreate'
+    ? `\nFLYER PARAMETERS (generate_flyer icin):\nBu tasarimi yeniden uretmek icin gereken tum parametreleri cikar:\n- "style": modern-minimal, elegant-restaurant, bold-promo, vintage-market, luxury-boutique, street-food\`\n- "mood": modern, luks, klasik, enerjik, vintage, koyu, aydinlik, sakin\`\n- "colors": { "primary": "#XXX", "secondary": "#XXX", "accent": "#XXX", "background": "#XXX", "text": "#XXX" }\n- "fontStyle": modern-minimal, luxury, classic-serif, tech, playful\`\n- "layoutDescription": Kisa bir layout aciklamasi (ornegin: "centered layout with banner header and contact footer, decorative corners")`
+    : '';
+
+  return {
+    instruction: `Yukaridaki referans gorselini ${designType} olarak analiz et. Amac: ${purpose}.`,
+    designType,
+    purpose,
+    focusAreas,
+    analysisSections: {
+      colorPalette: focusAreas.includes('colors') ? 'Renk paleti analizi — hex kodlari, rolleri, kullanim yuzdeleri, yaklasik CMYK degerleri.' : undefined,
+      fontEstimate: focusAreas.includes('typography') ? 'Font tahmini — heading/body kategorileri, agirliklar, en yakin Google Font.' : undefined,
+      layoutGrid: focusAreas.includes('layout') ? 'Layout grid analizi — layout tipi, sayfa bolgeleri, margin/padding hissi.' : undefined,
+      visualHierarchy: focusAreas.includes('hierarchy') ? 'Gorsel hiyerarsi — dominant/secondary/tertiary elementler, okuma akisi.' : undefined,
+      elements: focusAreas.includes('elements') ? 'Element listesi — her elementin rolu, konumu, baskinlik derecesi.' : undefined,
+      flyerParams: purpose === 'recreate' ? 'generate_flyer icin hazir parametreler — style, mood, colors, fontStyle, layoutDescription.' : undefined,
+    },
+    outputFormat: {
+      instruction: 'Sonucu JSON olarak dondur. Her alani ayri bir JSON keyi olarak ver.',
+      schema: `{\n  "colorPalette": [...]${colorPrompt}\n  "fontEstimate": [...]${fontPrompt}\n  "layoutGrid": {...}${layoutPrompt}\n  "visualHierarchy": {...}${hierarchyPrompt}\n  "elements": [...]${elementsPrompt}\n  "flyerParams": {...}${flyerParamsPrompt}\n}`,
+    },
+  };
+}
+
+async function execGenerateMoodboard(input: Record<string, unknown>): Promise<unknown> {
+  const concept = String(input.concept ?? '');
+  if (!concept) return { error: 'concept gerekli (tasarim brief veya konsept metni).' };
+  const format = String(input.format ?? 'grid');
+  const includeImagePrompts = input.includeImagePrompts !== false;
+  const lang = String(input.language ?? 'tr');
+
+  const colorNames: Record<string, Record<string, string>> = {
+    tr: { warm: 'Sicak Bej', gold: 'Altin Sarisi', dark: 'Koyu Lacivert', red: 'Canli Kirmizi', green: 'Zeytin Yesili', pink: 'Pudra Pembe', blue: 'Gok Mavisi', purple: 'Mor', orange: 'Turuncu', teal: 'Turkuaz', gray: 'Gri', white: 'Beyaz', black: 'Siyah' },
+    de: { warm: 'Warmes Beige', gold: 'Goldgelb', dark: 'Dunkelblau', red: 'Kraftiges Rot', green: 'Olivgrun', pink: 'Puderrosa', blue: 'Himmelblau', purple: 'Lila', orange: 'Orange', teal: 'Turkis', gray: 'Grau', white: 'Weiss', black: 'Schwarz' },
+    en: { warm: 'Warm Beige', gold: 'Golden Yellow', dark: 'Deep Navy', red: 'Vibrant Red', green: 'Olive Green', pink: 'Blush Pink', blue: 'Sky Blue', purple: 'Purple', orange: 'Orange', teal: 'Teal', gray: 'Gray', white: 'White', black: 'Black' },
+  };
+  const c: Record<string, string> = colorNames[lang] ?? colorNames.tr!;
+
+  const labels: Record<string, Record<string, string>> = {
+    tr: { title: 'Moodboard', concept: 'Konsept', colors: 'Renk Paleti', fonts: 'Font Eslesmeleri', heading: 'Baslik', body: 'Govde', styleKeywords: 'Stil Anahtar Kelimeleri', imagePrompts: 'AI Gorsel Promptlari', textureTips: 'Doku & CSS Onerileri', generatedFor: 'icin olusturuldu' },
+    de: { title: 'Moodboard', concept: 'Konzept', colors: 'Farbpalette', fonts: 'Schriftkombinationen', heading: 'Uberschrift', body: 'Fließtext', styleKeywords: 'Stichworter', imagePrompts: 'KI-Bild-Prompts', textureTips: 'Textur & CSS-Empfehlungen', generatedFor: 'erstellt fur' },
+    en: { title: 'Moodboard', concept: 'Concept', colors: 'Color Palette', fonts: 'Font Pairings', heading: 'Heading', body: 'Body', styleKeywords: 'Style Keywords', imagePrompts: 'AI Image Prompts', textureTips: 'Texture & CSS Tips', generatedFor: 'generated for' },
+  };
+  const l: Record<string, string> = labels[lang] ?? labels.tr!;
+
+  // Determine grid layout CSS based on format
+  const isHorizontal = format === 'horizontal_scroll';
+  const isMagazine = format === 'magazine_spread';
+
+  const html = `<!DOCTYPE html>
+<html lang="${lang}">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>${l.title} — ${concept.slice(0, 60)}</title>
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;600;700&family=Inter:wght@300;400;500;600&family=Cormorant+Garamond:wght@400;600;700&display=swap" rel="stylesheet">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: 'Inter', system-ui, sans-serif;
+    background: #0D1117;
+    color: #E6EDF3;
+    min-height: 100vh;
+    padding: 40px;
+  }
+  .moodboard {
+    max-width: 1200px;
+    margin: 0 auto;
+    ${isHorizontal ? 'display: flex; gap: 32px; overflow-x: auto; padding-bottom: 20px; scroll-snap-type: x mandatory;' : ''}
+    ${isMagazine ? 'display: grid; grid-template-columns: 2fr 1fr 1fr; grid-template-rows: auto auto auto; gap: 24px;' : 'display: flex; flex-direction: column; gap: 40px;'}
+  }
+  .moodboard-header {
+    ${isMagazine ? 'grid-column: 1 / -1;' : ''}
+    ${isHorizontal ? 'min-width: 320px; scroll-snap-align: start;' : ''}
+    text-align: center;
+    padding: 40px 20px;
+  }
+  .moodboard-header h1 {
+    font-family: 'Playfair Display', serif;
+    font-size: ${isMagazine ? '48px' : '36px'};
+    font-weight: 700;
+    color: #FFFFFF;
+    letter-spacing: -0.01em;
+  }
+  .moodboard-header .concept-label {
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: #8B949E;
+    margin-top: 8px;
+  }
+  .moodboard-header .concept-text {
+    font-size: 16px;
+    color: #C9D1D9;
+    margin-top: 4px;
+    font-style: italic;
+  }
+  .section {
+    background: #161B22;
+    border: 1px solid #30363D;
+    border-radius: 12px;
+    padding: 28px;
+    ${isHorizontal ? 'min-width: 360px; scroll-snap-align: start;' : ''}
+  }
+  .section-title {
+    font-family: 'Playfair Display', serif;
+    font-size: 18px;
+    font-weight: 600;
+    color: #FFFFFF;
+    margin-bottom: 16px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid #21262D;
+  }
+  .swatches {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+  }
+  .swatch {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+  }
+  .swatch-circle {
+    width: 64px;
+    height: 64px;
+    border-radius: 50%;
+    border: 2px solid #30363D;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+  }
+  .swatch-label {
+    font-size: 10px;
+    color: #8B949E;
+    text-align: center;
+    max-width: 80px;
+    line-height: 1.3;
+  }
+  .swatch-hex {
+    font-family: monospace;
+    font-size: 10px;
+    color: #C9D1D9;
+  }
+  .swatch-css {
+    font-family: monospace;
+    font-size: 9px;
+    color: #58A6FF;
+  }
+  .font-pair {
+    padding: 16px;
+    background: #0D1117;
+    border-radius: 8px;
+    margin-bottom: 12px;
+  }
+  .font-pair-heading {
+    font-family: 'Playfair Display', serif;
+    font-size: 28px;
+    font-weight: 700;
+    color: #FFFFFF;
+    margin-bottom: 4px;
+  }
+  .font-pair-body {
+    font-family: 'Inter', sans-serif;
+    font-size: 14px;
+    color: #8B949E;
+    line-height: 1.5;
+  }
+  .font-pair-label {
+    font-size: 9px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: #58A6FF;
+    margin-top: 8px;
+  }
+  .keywords {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .keyword-badge {
+    display: inline-block;
+    padding: 6px 14px;
+    background: #21262D;
+    border: 1px solid #30363D;
+    border-radius: 20px;
+    font-size: 12px;
+    color: #C9D1D9;
+    font-weight: 500;
+  }
+  .prompt-item {
+    padding: 12px 16px;
+    background: #0D1117;
+    border-radius: 8px;
+    margin-bottom: 8px;
+    font-size: 13px;
+    color: #C9D1D9;
+    font-style: italic;
+    border-left: 3px solid #58A6FF;
+  }
+  .texture-item {
+    padding: 10px 16px;
+    background: #0D1117;
+    border-radius: 8px;
+    margin-bottom: 8px;
+    font-size: 12px;
+    color: #8B949E;
+    border-left: 3px solid #3FB950;
+  }
+  .texture-item code {
+    font-family: monospace;
+    background: #21262D;
+    padding: 2px 6px;
+    border-radius: 3px;
+    font-size: 11px;
+    color: #58A6FF;
+  }
+  .moodboard-footer {
+    ${isMagazine ? 'grid-column: 1 / -1;' : ''}
+    ${isHorizontal ? 'min-width: 200px; scroll-snap-align: start;' : ''}
+    text-align: center;
+    padding: 20px;
+    font-size: 10px;
+    color: #484F58;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+  }
+  @media print {
+    body { background: #FFFFFF; color: #0D1117; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    .section { border-color: #D0D7DE; background: #F6F8FA; }
+    .section-title { color: #0D1117; border-color: #D0D7DE; }
+    .font-pair-heading { color: #0D1117; }
+    .keyword-badge { background: #F6F8FA; border-color: #D0D7DE; color: #24292F; }
+  }
+</style>
+</head>
+<body>
+<div class="moodboard">
+  <div class="moodboard-header">
+    <h1>${l.title}</h1>
+    <div class="concept-label">${l.concept}</div>
+    <div class="concept-text">"${concept.slice(0, 200)}"</div>
+  </div>
+
+  <!-- COLOR SWATCHES (placeholder — Claude fills real values) -->
+  <div class="section">
+    <div class="section-title">${l.colors}</div>
+    <div class="swatches">
+      <div class="swatch"><div class="swatch-circle" style="background:#1A1A2E"></div><div class="swatch-label">${c.dark}</div><div class="swatch-hex">#1A1A2E</div><div class="swatch-css">--color-primary</div></div>
+      <div class="swatch"><div class="swatch-circle" style="background:#D4A43A"></div><div class="swatch-label">${c.gold}</div><div class="swatch-hex">#D4A43A</div><div class="swatch-css">--color-accent</div></div>
+      <div class="swatch"><div class="swatch-circle" style="background:#F5F0E8"></div><div class="swatch-label">${c.warm}</div><div class="swatch-hex">#F5F0E8</div><div class="swatch-css">--color-bg</div></div>
+      <div class="swatch"><div class="swatch-circle" style="background:#E85D3A"></div><div class="swatch-label">${c.red}</div><div class="swatch-hex">#E85D3A</div><div class="swatch-css">--color-cta</div></div>
+      <div class="swatch"><div class="swatch-circle" style="background:#2D5016"></div><div class="swatch-label">${c.green}</div><div class="swatch-hex">#2D5016</div><div class="swatch-css">--color-text</div></div>
+      <div class="swatch"><div class="swatch-circle" style="background:#E8D5C4"></div><div class="swatch-label">${c.pink}</div><div class="swatch-hex">#E8D5C4</div><div class="swatch-css">--color-highlight</div></div>
+    </div>
+  </div>
+
+  <!-- FONT PAIRINGS (placeholder — Claude fills real values) -->
+  <div class="section">
+    <div class="section-title">${l.fonts}</div>
+    <div class="font-pair">
+      <div class="font-pair-heading">${l.heading} — Playfair Display</div>
+      <div class="font-pair-body">${l.body} — Inter / Regular 400, Line 1.6</div>
+      <div class="font-pair-label">Google Fonts • Serif + Sans-serif</div>
+    </div>
+    <div class="font-pair">
+      <div class="font-pair-heading" style="font-family:'Cormorant Garamond',serif">Alt Baslik — Cormorant Garamond</div>
+      <div class="font-pair-body">Vurgulu metinler icin alternatif eslesme</div>
+      <div class="font-pair-label">Google Fonts • Display Serif</div>
+    </div>
+  </div>
+
+  <!-- STYLE KEYWORDS (placeholder — Claude fills real values) -->
+  <div class="section">
+    <div class="section-title">${l.styleKeywords}</div>
+    <div class="keywords">
+      <span class="keyword-badge">elegant</span>
+      <span class="keyword-badge">warm</span>
+      <span class="keyword-badge">premium</span>
+      <span class="keyword-badge">textured</span>
+      <span class="keyword-badge">gold-accent</span>
+      <span class="keyword-badge">dark-bg</span>
+      <span class="keyword-badge">typographic</span>
+      <span class="keyword-badge">minimalist</span>
+      <span class="keyword-badge">sophisticated</span>
+      <span class="keyword-badge">high-contrast</span>
+    </div>
+  </div>
+
+  <!-- AI IMAGE PROMPTS (placeholder — Claude fills real values) -->
+  ${includeImagePrompts ? `
+  <div class="section">
+    <div class="section-title">${l.imagePrompts}</div>
+    <div class="prompt-item">Luxurious restaurant interior with warm golden lighting, dark wood tables, elegant tableware — photorealistic, 8K, cinematic lighting, shot on Sony A7III</div>
+    <div class="prompt-item">Close-up of artisan dish with gold leaf garnish on dark slate plate, steam rising — food photography, Michelin star, soft bokeh background</div>
+    <div class="prompt-item">Abstract gold geometric pattern on dark navy background, liquid metal texture, luxury brand identity — 3D render, Octane, elegant minimal</div>
+  </div>
+  ` : ''}
+
+  <!-- TEXTURE & CSS TIPS (placeholder — Claude fills real values) -->
+  <div class="section">
+    <div class="section-title">${l.textureTips}</div>
+    <div class="texture-item"><code>background: linear-gradient(135deg, #1A1A2E 0%, #16213E 100%)</code> — koyu gecis, premium his</div>
+    <div class="texture-item"><code>box-shadow: 0 8px 32px rgba(0,0,0,0.3), 0 0 0 1px rgba(212,164,58,0.2)</code> — altin ince cerceve</div>
+    <div class="texture-item"><code>border-image: linear-gradient(135deg, #D4A43A, #C9A96E) 1</code> — degrade altin border</div>
+  </div>
+
+  <div class="moodboard-footer">
+    ${l.title} ${l.generatedFor}: ${concept.slice(0, 80)}
+  </div>
+</div>
+</body>
+</html>`;
+
+  return {
+    moodboardHtml: html,
+    concept,
+    format,
+    instructions: 'Claude, bu sablon HTMLdeki placeholder degerlerini (renk swatchlari, font eslesmeleri, stil anahtar kelimeleri, AI promptlari, doku onerileri) KONSEPTE UYGUN GERCEK degerlerle degistir. HTML yapisini koru, sadece icerigi ozellestir. Moodboardu daha da guzellestir — daha iyi renkler, daha isabetli fontlar, daha yaratici promptlar ekle.',
+  };
+}
+
+async function execCheckBrandConsistency(input: Record<string, unknown>): Promise<unknown> {
+  const designHtml = typeof input.designHtml === 'string' ? input.designHtml : '';
+  if (!designHtml) return { error: 'designHtml gerekli.' };
+  const designType = typeof input.designType === 'string' ? input.designType : 'flyer';
+  const brandName = typeof input.brandName === 'string' ? input.brandName : 'Fly & Froth';
+  let checkAreas = ['logo', 'color', 'font', 'tone', 'layout'];
+  if (typeof input.checkAreas === 'string') {
+    try { checkAreas = JSON.parse(input.checkAreas); } catch { /* keep defaults */ }
+  }
+
+  // Load brand kit
+  const { getBrandKit } = await import('@/lib/db/queries/brand-kit');
+  const bk = await getBrandKit();
+  const brandColors: string[] = bk?.brand_colors ?? ['#050912', '#d4a43a'];
+  const negativeWords: string[] = bk?.negative_words ?? [];
+  const toneGuide: string = bk?.text_tone_guide ?? '';
+
+  const results: Record<string, { score: number; maxScore: number; details: string[]; violations: string[] }> = {};
+  const lowerHtml = designHtml.toLowerCase();
+
+  // Logo check
+  if (checkAreas.includes('logo')) {
+    const hasLogoImg = /logo/i.test(designHtml) && /<img[^>]*logo/i.test(designHtml);
+    const hasLogoRole = /data-role="logo"/.test(designHtml) || /data-role='logo'/.test(designHtml);
+    const hasLogoUrl = /logo_url|logoUrl|logourl/i.test(designHtml);
+    const score = (hasLogoImg ? 3 : 0) + (hasLogoRole ? 4 : 0) + (hasLogoUrl ? 3 : 0);
+    results.logo = {
+      score, maxScore: 10,
+      details: [
+        hasLogoImg ? 'Logo goruntusu mevcut' : 'Logo goruntusu EKSIK',
+        hasLogoRole ? 'data-role="logo" ile isaretlenmis' : 'data-role="logo" isareti EKSIK',
+        hasLogoUrl ? 'Logo URLsi belirtilmis' : 'Logo URLsi EKSIK',
+      ],
+      violations: [],
+    };
+    if (!hasLogoImg && !hasLogoUrl) results.logo.violations.push('Tasarimda logo bulunmuyor.');
+  }
+
+  // Color check
+  if (checkAreas.includes('color')) {
+    const hexesInDesign = designHtml.match(/#[0-9a-fA-F]{6}/g) ?? [];
+    const uniqueHexes = [...new Set(hexesInDesign.map((h) => h.toUpperCase()))];
+
+    const matches: string[] = [];
+    const misses: string[] = [];
+    for (const bc of brandColors) {
+      if (colorInDesign(bc, designHtml, 60)) {
+        matches.push(bc);
+      } else {
+        misses.push(bc);
+      }
+    }
+    const score = Math.min(10, Math.round((matches.length / Math.max(brandColors.length, 1)) * 10));
+    results.color = {
+      score, maxScore: 10,
+      details: [
+        `Marka renkleri: ${brandColors.join(', ')}`,
+        `Tasarimda bulunan: ${matches.length > 0 ? matches.join(', ') : 'HICBIRI'}`,
+        `Bulunamayan: ${misses.length > 0 ? misses.join(', ') : 'YOK'}`,
+        `Tasarimdaki tum renkler (${uniqueHexes.length}): ${uniqueHexes.slice(0, 15).join(', ')}`,
+      ],
+      violations: [],
+    };
+    if (misses.length > 0) results.color.violations.push(`Marka renkleri tasarimda yeterince kullanilmamis: ${misses.join(', ')}`);
+  }
+
+  // Font check
+  if (checkAreas.includes('font')) {
+    const fonts = fontCategoryInDesign(designHtml);
+    const toneLower = toneGuide.toLowerCase();
+    const prefersSerif = /serif|playfair|garamond|classic|elegant|traditional/i.test(toneLower);
+    const prefersSans = /sans|modern|clean|minimal/i.test(toneLower);
+
+    let fontScore = 5;
+    const fontDetails: string[] = [];
+    if (prefersSerif && fonts.hasSerif) { fontScore += 3; fontDetails.push('Serif font tercih edilmis (marka tonuyla uyumlu)'); }
+    else if (prefersSerif && !fonts.hasSerif) { fontScore -= 2; fontDetails.push('Serif font EKSIK (marka tonu serif tercih ediyor)'); }
+    if (prefersSans && fonts.hasSans) { fontScore += 3; fontDetails.push('Sans-serif font tercih edilmis (marka tonuyla uyumlu)'); }
+    if (fonts.hasDisplay) { fontDetails.push('Display/dekoratif font kullanimi var — dikkatli kullanilmali'); }
+    fontScore = Math.max(0, Math.min(10, fontScore));
+
+    results.font = {
+      score: fontScore, maxScore: 10,
+      details: [
+        `Serif: ${fonts.hasSerif ? 'EVET' : 'HAYIR'}, Sans-serif: ${fonts.hasSans ? 'EVET' : 'HAYIR'}`,
+        `Display/dekoratif: ${fonts.hasDisplay ? 'EVET' : 'HAYIR'}, Mono: ${fonts.hasMono ? 'EVET' : 'HAYIR'}`,
+        ...fontDetails,
+      ],
+      violations: [],
+    };
+    if (fontScore < 5) results.font.violations.push('Font kategorisi marka tonuyla uyumlu olmayabilir.');
+  }
+
+  // Tone check
+  if (checkAreas.includes('tone')) {
+    const violations: string[] = [];
+    for (const word of negativeWords) {
+      if (lowerHtml.includes(word.toLowerCase())) {
+        violations.push(`Negatif kelime kullanilmis: "${word}"`);
+      }
+    }
+    const score = violations.length === 0 ? 10 : Math.max(0, 10 - violations.length * 3);
+    results.tone = {
+      score, maxScore: 10,
+      details: violations.length === 0 ? ['Negatif kelime bulunamadi.'] : violations,
+      violations,
+    };
+  }
+
+  // Layout check
+  if (checkAreas.includes('layout')) {
+    const hasHeadline = /data-role="headline"/.test(designHtml) || /<h1/i.test(designHtml);
+    const hasSubheadline = /data-role="subheadline"/.test(designHtml) || /<h2/i.test(designHtml);
+    const hasBody = /data-role="body"/.test(designHtml) || /<p[ >]/i.test(designHtml);
+    const hasCTA = /data-role="call-to-action"/.test(designHtml) || /cta/i.test(designHtml);
+    const hasSections = /data-role="section"/.test(designHtml) || /<section/i.test(designHtml);
+    const layoutScore = (hasHeadline ? 3 : 0) + (hasSubheadline ? 2 : 0) + (hasBody ? 2 : 0) + (hasCTA ? 2 : 0) + (hasSections ? 1 : 0);
+    results.layout = {
+      score: layoutScore, maxScore: 10,
+      details: [
+        hasHeadline ? 'Baslik mevcut' : 'Baslik EKSIK',
+        hasSubheadline ? 'Alt baslik mevcut' : 'Alt baslik EKSIK',
+        hasBody ? 'Govde metni mevcut' : 'Govde metni EKSIK',
+        hasCTA ? 'CTA elementi mevcut' : 'CTA elementi EKSIK',
+        hasSections ? 'Section yapisi mevcut' : 'Section yapisi EKSIK',
+      ],
+      violations: [],
+    };
+    if (!hasCTA) results.layout.violations.push('Call-to-action elementi eksik.');
+    if (!hasHeadline) results.layout.violations.push('Baslik (h1 veya data-role="headline") eksik.');
+  }
+
+  const totalScore = Object.values(results).reduce((s, r) => s + r.score, 0);
+  const maxScore = Object.values(results).reduce((s, r) => s + r.maxScore, 0);
+  const percentage = Math.round((totalScore / maxScore) * 100);
+
+  return {
+    brandName,
+    designType,
+    checkedAt: new Date().toISOString(),
+    overallScore: totalScore,
+    maxScore,
+    percentage,
+    verdict: percentage >= 80 ? 'TUTARLI — Marka standartlarina buyuk olcude uygun.'
+      : percentage >= 60 ? 'KISMEN TUTARLI — Bazi alanlarda iyilestirme gerekli.'
+        : 'TUTARSIZ — Marka kitinden onemli sapmalar var.',
+    areas: results,
+    totalViolations: Object.values(results).reduce((s, r) => s + r.violations.length, 0),
+  };
+}
+
+async function execManageDesignApproval(input: Record<string, unknown>): Promise<unknown> {
+  const action = String(input.action ?? 'list');
+  const { createApproval, updateApprovalStatus, getApproval, listApprovals } = await import('@/lib/agent/workflows');
+
+  switch (action) {
+    case 'create': {
+      const clientName = String(input.clientName ?? '');
+      if (!clientName) return { error: 'clientName gerekli (action=create).' };
+      const designType = (String(input.designType ?? 'flyer')) as 'flyer' | 'menu' | 'logo' | 'social_post' | 'brochure';
+      const designHtml = typeof input.designHtml === 'string' ? input.designHtml : undefined;
+      const brandName = typeof input.brandName === 'string' ? input.brandName : undefined;
+      const notes = typeof input.note === 'string' ? [input.note] : [];
+      const record = createApproval({ clientName, designType, designHtml, brandName, notes });
+      return { created: true, approval: record };
+    }
+    case 'submit': {
+      const id = String(input.approvalId ?? '');
+      if (!id) return { error: 'approvalId gerekli (action=submit).' };
+      const note = typeof input.note === 'string' ? input.note : 'Tasarim incelemeye gonderildi.';
+      const designHtml = typeof input.designHtml === 'string' ? input.designHtml : undefined;
+      const updated = updateApprovalStatus(id, 'pending_review', note, designHtml);
+      if (!updated) return { error: `Onay kaydi bulunamadi: ${id}` };
+      return { submitted: true, approval: updated };
+    }
+    case 'approve': {
+      const id = String(input.approvalId ?? '');
+      if (!id) return { error: 'approvalId gerekli (action=approve).' };
+      const note = typeof input.note === 'string' ? input.note : 'Tasarim onaylandi.';
+      const updated = updateApprovalStatus(id, 'approved', note);
+      if (!updated) return { error: `Onay kaydi bulunamadi: ${id}` };
+      return { approved: true, approval: updated };
+    }
+    case 'request_revision': {
+      const id = String(input.approvalId ?? '');
+      if (!id) return { error: 'approvalId gerekli (action=request_revision).' };
+      const note = typeof input.note === 'string' ? input.note : 'Revizyon gerekli.';
+      const updated = updateApprovalStatus(id, 'needs_revision', note);
+      if (!updated) return { error: `Onay kaydi bulunamadi: ${id}` };
+      return { revisionRequested: true, approval: updated };
+    }
+    case 'get': {
+      const id = String(input.approvalId ?? '');
+      if (!id) return { error: 'approvalId gerekli (action=get).' };
+      const record = getApproval(id);
+      if (!record) return { error: `Onay kaydi bulunamadi: ${id}` };
+      return { approval: record };
+    }
+    case 'list': {
+      const filterStatus = typeof input.filterStatus === 'string'
+        ? input.filterStatus as 'draft' | 'pending_review' | 'approved' | 'needs_revision'
+        : undefined;
+      const records = listApprovals(filterStatus ? { status: filterStatus } : undefined);
+      return { count: records.length, approvals: records };
+    }
+    default:
+      return { error: `Bilinmeyen action: ${action}. Gecerli: create, submit, approve, request_revision, list, get.` };
+  }
+}
+
 // ── Executor Map ──
 
 const EXECUTORS: Record<string, ToolExecutor> = {
@@ -4455,6 +5110,10 @@ const EXECUTORS: Record<string, ToolExecutor> = {
   generate_flyer: execGenerateFlyer,
   generate_menu: execGenerateMenu,
   prepare_print_order: execPreparePrintOrder,
+  analyze_reference_design: execAnalyzeReferenceDesign,
+  generate_moodboard: execGenerateMoodboard,
+  check_brand_consistency: execCheckBrandConsistency,
+  manage_design_approval: execManageDesignApproval,
 };
 
 export async function executeTool(
