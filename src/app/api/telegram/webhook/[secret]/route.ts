@@ -205,6 +205,10 @@ import type { AdsCampaignType } from '@/lib/db/queries/ads-campaigns'; // used i
 import { runAgentTurn, clearAgentSession } from '@/lib/agent';
 import { notifyKleinanzeigenReply, notifyPostPublished } from '@/lib/agent/notifications';
 
+export const dynamic = 'force-dynamic';
+export const runtime = 'nodejs';
+export const maxDuration = 60;
+
 // In-memory session for manual text editing (post caption)
 const textEditSessions = new Map<number, string>(); // chatId -> postId
 const planEditSessions = new Map<number, string>(); // chatId -> planId

@@ -14,6 +14,9 @@ const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! });
 // In-memory sessions (lost on restart, but DB has message history)
 const sessions = new Map<number, { conversationId: string; messages: MessageParam[] }>();
 
+// Serialization lock: prevent back-to-back messages from racing on the same session
+const turnLocks = new Map<number, Promise<void>>();
+
 function getOrCreateSession(chatId: number): {
   conversationId: string;
   messages: MessageParam[];
@@ -89,9 +92,20 @@ export async function runAgentTurn(
   thinkMessageId?: number,
   imageBase64?: { data: string; media_type: string },
 ): Promise<void> {
-  const session = getOrCreateSession(chatId);
+  // Wait for any previous turn on this chat to complete (back-to-back message safety)
+  const previous = turnLocks.get(chatId);
+  if (previous) await previous;
 
-  // Build user content blocks
+  let resolveLock: () => void;
+  const lock = new Promise<void>((r) => { resolveLock = r; });
+  turnLocks.set(chatId, lock);
+
+  let msgId = thinkMessageId ?? 0;
+
+  try {
+    const session = getOrCreateSession(chatId);
+
+    // Build user content blocks
   const userContent: Anthropic.Messages.ContentBlockParam[] = [];
   if (imageBase64) {
     userContent.push({
@@ -114,7 +128,6 @@ export async function runAgentTurn(
   }
 
   // Send or reuse thinking message
-  let msgId = thinkMessageId ?? 0;
   if (!msgId) {
     const sent = await sendMessage({ chatId, text: '🤔 Düşünüyorum...' });
     msgId = sent.message_id;
@@ -140,8 +153,7 @@ export async function runAgentTurn(
   let turnCount = 0;
   let finalText = '';
 
-  try {
-    while (turnCount < MAX_TOOL_TURNS) {
+  while (turnCount < MAX_TOOL_TURNS) {
       const currentMessages: MessageParam[] = [
         ...session.messages.slice(-MAX_CONTEXT_MESSAGES),
       ];
@@ -270,6 +282,9 @@ export async function runAgentTurn(
     } catch {
       await sendMessage({ chatId, text: errorText }).catch(() => {});
     }
+  } finally {
+    resolveLock!();
+    turnLocks.delete(chatId);
   }
 }
 

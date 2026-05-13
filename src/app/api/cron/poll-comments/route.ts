@@ -14,6 +14,7 @@ import { failedJobs, incomingMessages } from '@/lib/db/schema';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
+export const maxDuration = 60;
 
 function unauthorized(): NextResponse {
   return new NextResponse('Unauthorized', { status: 401 });

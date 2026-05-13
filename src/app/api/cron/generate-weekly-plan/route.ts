@@ -4,6 +4,7 @@ import { sendMessage } from '@/lib/telegram/bot';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
+export const maxDuration = 120;
 
 function adminUserIds(): number[] {
   const raw = process.env.ALLOWED_TELEGRAM_USER_IDS;

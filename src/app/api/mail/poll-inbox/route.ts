@@ -8,6 +8,7 @@ import { isKleinanzeigenSender, handleKleinanzeigenMail } from '@/lib/kleinanzei
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
+export const maxDuration = 60;
 
 interface FolderStat {
   fetched: number;

@@ -44,7 +44,7 @@ export interface AgentSession {
   status: 'idle' | 'running';
 }
 
-export const MAX_TOOL_TURNS = 5;
-export const MAX_CONTEXT_MESSAGES = 20;
+export const MAX_TOOL_TURNS = 8;
+export const MAX_CONTEXT_MESSAGES = 30;
 export const SESSION_IDLE_HOURS = 2;
-export const THROTTLE_EDIT_MS = 800;
+export const THROTTLE_EDIT_MS = 500;

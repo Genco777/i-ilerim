@@ -9,7 +9,7 @@ import { notifyAdmins } from '@/lib/agent/notifications';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
-export const maxDuration = 60;
+export const maxDuration = 120;
 
 function unauthorized(): NextResponse {
   return new NextResponse('Unauthorized', { status: 401 });
