@@ -819,6 +819,23 @@ export const AGENT_TOOLS: AgentTool[] = [
       required: ['description'],
     },
   },
+  {
+    name: 'generate_menu',
+    description: 'Restoran/kafe için baskıya hazır menü kartı üretir. Kategoriler, ürünler, fiyatlar, badge\'ler (vegan, glütensiz vb.), QR kod ve tam HTML/CSS layout içerir.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        businessName: { type: 'string', description: 'İşletme adı (örn. "Kebap Haus Frankfurt")' },
+        style: { type: 'string', description: 'Menü stili: elegant-fine-dining, casual-bistro, street-food-menu. Varsayılan casual-bistro.' },
+        format: { type: 'string', description: 'Menü formatı: a4-portrait, a4-landscape-fold, dl-tri-fold. Varsayılan a4-portrait.' },
+        categories: { type: 'string', description: 'JSON: kategori listesi. Her kategori: name, items[{name, description?, price, badges?[]}]. Örn: [{"name":"İçecekler","items":[{"name":"Ayran","price":"2,50€"},{"name":"Çay","description":"Demlik","price":"3€"}]}]' },
+        contactInfo: { type: 'string', description: 'İletişim bilgileri (tel, adres, web, sosyal medya)' },
+        language: { type: 'string', description: 'Dil (tr, de, en). Varsayılan tr.' },
+        specialNote: { type: 'string', description: 'Özel not (örn. "Tüm fiyatlara KDV dahildir", "Alkollü içecekler 18+")' },
+      },
+      required: ['businessName'],
+    },
+  },
 ];
 
 // ── Tool Executors ──
@@ -3254,6 +3271,348 @@ async function execGenerateFlyer(input: Record<string, unknown>): Promise<unknow
   return result;
 }
 
+// ── Menu Layout Generator ──
+
+const MENU_STYLE_PRESETS: Record<string, {
+  primaryColor: string; secondaryColor: string; bgColor: string; textColor: string; accentColor: string;
+  headingFont: string; bodyFont: string; priceFont: string;
+  badgeColors: Record<string, { bg: string; text: string }>;
+  layoutType: 'single-column' | 'two-column' | 'grid-cards' | 'elegant-list';
+  decorativeStyle: 'gold-lines' | 'chalkboard' | 'neon-glow' | 'rustic-frames' | 'clean-rule';
+}> = {
+  'elegant-fine-dining': {
+    primaryColor: '#1A1A1A', secondaryColor: '#FDFBF7', bgColor: '#FDFBF7', textColor: '#2C2C2C', accentColor: '#C9A84C',
+    headingFont: 'Playfair Display', bodyFont: 'Lora', priceFont: 'Playfair Display',
+    badgeColors: {
+      'şef önerisi': { bg: '#C9A84C', text: '#FFFFFF' },
+      'vegan': { bg: '#2D5016', text: '#FFFFFF' },
+      'glütensiz': { bg: '#D4A0A0', text: '#2C1810' },
+      'acılı': { bg: '#CC3333', text: '#FFFFFF' },
+      'yeni': { bg: '#1A1A1A', text: '#C9A84C' },
+    },
+    layoutType: 'elegant-list',
+    decorativeStyle: 'gold-lines',
+  },
+  'casual-bistro': {
+    primaryColor: '#2C1810', secondaryColor: '#FFF8F0', bgColor: '#FFFDF9', textColor: '#2C1810', accentColor: '#8B4513',
+    headingFont: 'Amatic SC', bodyFont: 'Nunito', priceFont: 'Nunito',
+    badgeColors: {
+      'şef önerisi': { bg: '#8B4513', text: '#FFFFFF' },
+      'vegan': { bg: '#2D8B2D', text: '#FFFFFF' },
+      'glütensiz': { bg: '#D4A574', text: '#2C1810' },
+      'acılı': { bg: '#CC3333', text: '#FFFFFF' },
+      'yeni': { bg: '#2C1810', text: '#F5DEB3' },
+      'favori': { bg: '#DAA520', text: '#2C1810' },
+    },
+    layoutType: 'two-column',
+    decorativeStyle: 'rustic-frames',
+  },
+  'street-food-menu': {
+    primaryColor: '#FF3366', secondaryColor: '#1A1A2E', bgColor: '#FFFFFF', textColor: '#1A1A2E', accentColor: '#FFD700',
+    headingFont: 'Bangers', bodyFont: 'Nunito', priceFont: 'Bebas Neue',
+    badgeColors: {
+      'şef önerisi': { bg: '#FFD700', text: '#1A1A2E' },
+      'vegan': { bg: '#00CC66', text: '#FFFFFF' },
+      'acılı': { bg: '#FF3366', text: '#FFFFFF' },
+      'yeni': { bg: '#00D4FF', text: '#1A1A2E' },
+      'çok satan': { bg: '#1A1A2E', text: '#FFD700' },
+    },
+    layoutType: 'grid-cards',
+    decorativeStyle: 'neon-glow',
+  },
+};
+
+// Menu format dimensions (pixels at 300 DPI)
+const MENU_FORMATS: Record<string, { name: string; wMm: number; hMm: number; dpi: number; bleedMm: number; safeMm: number }> = {
+  'a4-portrait': { name: 'A4 Dikey', wMm: 210, hMm: 297, dpi: 300, bleedMm: 3, safeMm: 8 },
+  'a4-landscape-fold': { name: 'A4 Yatay (2 Katlı)', wMm: 297, hMm: 210, dpi: 300, bleedMm: 3, safeMm: 6 },
+  'dl-tri-fold': { name: 'DL 3 Katlı', wMm: 297, hMm: 210, dpi: 300, bleedMm: 3, safeMm: 5 },
+};
+
+function buildMenuLayoutHTML(config: {
+  businessName: string;
+  style: string;
+  format: string;
+  categories: Array<{ name: string; items: Array<{ name: string; description?: string; price: string; badges?: string[] }> }>;
+  contactInfo?: string;
+  language?: string;
+  specialNote?: string;
+  qrContent?: string;
+  paletteResult?: any;
+  fontResult?: any;
+}): string {
+  const preset = (MENU_STYLE_PRESETS[config.style] ?? MENU_STYLE_PRESETS['casual-bistro'])!;
+  const fmt = (MENU_FORMATS[config.format] ?? MENU_FORMATS['a4-portrait'])!;
+  const lang = config.language ?? 'tr';
+  const pxW = Math.round((fmt.wMm / 25.4) * fmt.dpi);
+  const pxH = Math.round((fmt.hMm / 25.4) * fmt.dpi);
+  const safeL = Math.round((fmt.safeMm / 25.4) * fmt.dpi);
+
+  const headingFont = config.fontResult?.pairings?.[0]?.heading?.font ?? preset.headingFont;
+  const bodyFont = config.fontResult?.pairings?.[0]?.body?.font ?? preset.bodyFont;
+
+  const title = config.businessName;
+  const cats = config.categories;
+
+  // Build category and item HTML
+  const categoryHtml = cats.map((cat, ci) => {
+    const itemsHtml = cat.items.map((item, ii) => {
+      const badgesHtml = (item.badges ?? []).map((b) => {
+        const bc = preset.badgeColors[b.toLowerCase()] ?? { bg: preset.accentColor, text: '#FFFFFF' };
+        return `<span style="display:inline-block;background:${bc.bg};color:${bc.text};font-size:11px;padding:2px 8px;border-radius:12px;font-weight:600;text-transform:uppercase;letter-spacing:0.05em;">${b}</span>`;
+      }).join('');
+
+      const nameStyle = preset.layoutType === 'elegant-list'
+        ? `font-family:'${headingFont}',serif;font-size:18px;`
+        : `font-family:'${bodyFont}',sans-serif;font-size:20px;font-weight:700;`;
+
+      const priceStyle = `font-family:'${preset.priceFont}',${preset.bodyFont.includes('serif') ? 'serif' : 'sans-serif'};font-size:${preset.layoutType === 'elegant-list' ? '20px' : '22px'};font-weight:700;color:${preset.primaryColor};white-space:nowrap;`;
+
+      return `
+      <div style="display:flex;justify-content:space-between;align-items:baseline;padding:${preset.layoutType === 'grid-cards' ? '12px' : '8px 0'};${preset.layoutType === 'grid-cards' ? `border:1px solid ${preset.accentColor}22;border-radius:8px;` : ''}${ii < cat.items.length - 1 && preset.layoutType !== 'grid-cards' ? `border-bottom:1px solid ${preset.accentColor}15;` : ''}">
+        <div style="flex:1;">
+          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+            <span style="${nameStyle}color:${preset.textColor};">${item.name}</span>
+            ${badgesHtml}
+          </div>
+          ${item.description ? `<div style="font-size:14px;color:${preset.textColor};opacity:0.6;margin-top:4px;font-family:'${bodyFont}',sans-serif;">${item.description}</div>` : ''}
+        </div>
+        <div style="margin-left:24px;${priceStyle}">${item.price}</div>
+      </div>`;
+    }).join('');
+
+    const catTitleStyle = preset.layoutType === 'elegant-list'
+      ? `font-family:'${headingFont}',serif;font-size:28px;font-weight:600;color:${preset.accentColor};text-transform:uppercase;letter-spacing:0.08em;text-align:center;`
+      : preset.layoutType === 'grid-cards'
+      ? `font-family:'${headingFont}',sans-serif;font-size:32px;font-weight:700;color:${preset.primaryColor};text-transform:uppercase;`
+      : `font-family:'${headingFont}',serif;font-size:30px;font-weight:700;color:${preset.primaryColor};`;
+
+    return `
+    <div style="margin-bottom:${preset.layoutType === 'grid-cards' ? '32px' : '28px'};">
+      <div style="${catTitleStyle}margin-bottom:${preset.layoutType === 'elegant-list' ? '16px' : '12px'};">
+        ${preset.decorativeStyle === 'gold-lines' ? `<span style="display:inline-block;width:40px;height:1px;background:${preset.accentColor};vertical-align:middle;margin-right:12px;"></span>` : ''}
+        ${cat.name}
+        ${preset.decorativeStyle === 'gold-lines' ? `<span style="display:inline-block;width:40px;height:1px;background:${preset.accentColor};vertical-align:middle;margin-left:12px;"></span>` : preset.decorativeStyle === 'neon-glow' ? `<span style="display:inline-block;width:30px;height:3px;background:${preset.accentColor};vertical-align:middle;margin-left:8px;border-radius:2px;"></span>` : ''}
+      </div>
+      <div style="${preset.layoutType === 'grid-cards' ? 'display:grid;grid-template-columns:1fr 1fr;gap:12px;' : ''}${preset.layoutType === 'two-column' ? `columns:2;column-gap:24px;` : ''}">
+        ${itemsHtml}
+      </div>
+    </div>`;
+  }).join('');
+
+  // QR code for menu
+  const qrSVG = config.qrContent ? generateQRCodeSVG(config.qrContent, 120) : '';
+
+  const backHtml = `<!DOCTYPE html>
+<html lang="${lang}">
+<head>
+<meta charset="UTF-8">
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=${headingFont.replace(/ /g, '+')}:wght@400;600;700&family=${bodyFont.replace(/ /g, '+')}:wght@400;600;700&display=swap');
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    width: ${pxW}px; height: ${pxH}px; overflow: hidden;
+    font-family: '${bodyFont}', sans-serif;
+    background: ${preset.bgColor}; color: ${preset.textColor};
+  }
+  @page { size: ${fmt.wMm}mm ${fmt.hMm}mm; margin: 0; }
+  @media print { body { -webkit-print-color-adjust: exact; print-color-adjust: exact; } }
+
+  .page-container { padding: ${safeL}px; height: 100%; display: flex; flex-direction: column; }
+
+  .menu-header {
+    text-align: center; padding-bottom: ${safeL / 2}px;
+    ${preset.layoutType === 'elegant-list' ? `border-bottom:2px solid ${preset.accentColor};` : `border-bottom:3px solid ${preset.primaryColor};`}
+  }
+  .menu-header h1 {
+    font-family: '${headingFont}', ${preset.layoutType === 'elegant-list' ? 'serif' : 'sans-serif'};
+    font-size: ${preset.layoutType === 'elegant-list' ? '48px' : preset.layoutType === 'grid-cards' ? '56px' : '44px'};
+    font-weight: 700; color: ${preset.primaryColor};
+    ${preset.layoutType === 'elegant-list' ? 'text-transform:uppercase;letter-spacing:0.1em;' : ''}
+    ${preset.layoutType === 'grid-cards' ? 'text-transform:uppercase;letter-spacing:0.03em;' : ''}
+  }
+  .menu-header .subtitle {
+    font-size: 16px; color: ${preset.accentColor}; text-transform: uppercase; letter-spacing: 0.15em;
+    margin-top: 4px;
+  }
+  .menu-content { flex: 1; overflow: hidden; padding-top: ${safeL / 2}px; }
+  .menu-footer {
+    padding-top: ${safeL / 2}px; border-top: 1px solid ${preset.accentColor}33;
+    display: flex; justify-content: space-between; align-items: flex-end;
+    font-size: 13px; opacity: 0.6;
+  }
+  .qr-section { text-align: center; }
+  .qr-section .qr-label { font-size: 10px; text-transform: uppercase; letter-spacing: 0.1em; margin-top: 4px; }
+</style>
+</head>
+<body>
+  <div class="page-container">
+    <div class="menu-header">
+      <div class="subtitle">${lang === 'tr' ? 'MENÜ' : lang === 'de' ? 'SPEISEKARTE' : 'MENU'}</div>
+      <h1>${title}</h1>
+    </div>
+
+    <div class="menu-content">
+      ${categoryHtml}
+    </div>
+
+    <div class="menu-footer">
+      <div>
+        ${config.contactInfo ? config.contactInfo.replace(/,/g, '<br>') : ''}
+        ${config.specialNote ? `<div style="margin-top:4px;font-style:italic;">${config.specialNote}</div>` : ''}
+      </div>
+      ${qrSVG ? `<div class="qr-section">${qrSVG}<div class="qr-label">${lang === 'tr' ? 'Online Menü' : lang === 'de' ? 'Online Karte' : 'Online Menu'}</div></div>` : ''}
+    </div>
+  </div>
+</body>
+</html>`;
+
+  return backHtml;
+}
+
+async function execGenerateMenu(input: Record<string, unknown>): Promise<unknown> {
+  const businessName = String(input.businessName ?? '');
+  const style = String(input.style ?? 'casual-bistro');
+  const format = String(input.format ?? 'a4-portrait');
+  const language = typeof input.language === 'string' ? input.language : 'tr';
+  const contactInfo = typeof input.contactInfo === 'string' ? input.contactInfo : undefined;
+  const specialNote = typeof input.specialNote === 'string' ? input.specialNote : undefined;
+
+  // Parse categories from JSON string
+  let categories: Array<{ name: string; items: Array<{ name: string; description?: string; price: string; badges?: string[] }> }> = [];
+  try {
+    if (typeof input.categories === 'string' && input.categories.trim()) {
+      categories = JSON.parse(input.categories);
+    }
+  } catch {
+    return { error: 'categories JSON formatında olmalı. Örn: [{"name":"İçecekler","items":[{"name":"Ayran","price":"2,50€"}]}]' };
+  }
+
+  if (!categories.length) {
+    // Default demo categories
+    categories = [
+      { name: language === 'tr' ? 'İçecekler' : language === 'de' ? 'Getränke' : 'Drinks', items: [
+        { name: language === 'tr' ? 'Ayran' : 'Ayran', price: '2,50€' },
+        { name: language === 'tr' ? 'Çay' : 'Tee', description: language === 'tr' ? 'Demlik' : 'Kanne', price: '3,00€' },
+        { name: language === 'tr' ? 'Kola' : 'Cola', price: '3,50€' },
+      ]},
+      { name: language === 'tr' ? 'Ana Yemekler' : language === 'de' ? 'Hauptgerichte' : 'Main Courses', items: [
+        { name: language === 'tr' ? 'Döner Tabağı' : 'Döner Teller', description: language === 'tr' ? 'Pilav ve salata ile' : 'mit Reis und Salat', price: '12,90€', badges: ['şef önerisi'] },
+        { name: language === 'tr' ? 'Adana Kebap' : 'Adana Kebab', price: '14,90€', badges: ['acılı'] },
+      ]},
+    ];
+  }
+
+  const preset = (MENU_STYLE_PRESETS[style] ?? MENU_STYLE_PRESETS['casual-bistro'])!;
+  const fmt = (MENU_FORMATS[format] ?? MENU_FORMATS['a4-portrait'])!;
+
+  // Generate color palette
+  const paletteResult = await execGenerateColorPalette({
+    industry: 'restoran',
+    mood: style === 'elegant-fine-dining' ? 'lüks' : style === 'street-food-menu' ? 'enerjik' : 'samimi',
+    count: 5,
+  }) as any;
+
+  // Generate font pairing
+  const fontResult = await execSuggestFontPairing({
+    style: style === 'elegant-fine-dining' ? 'luxury' : style === 'street-food-menu' ? 'playful' : 'handcrafted',
+    usage: 'print',
+  }) as any;
+
+  // Extract QR content
+  let qrContent = '';
+  if (contactInfo) {
+    const urlMatch = contactInfo.match(/(https?:\/\/[^\s,]+)/);
+    if (urlMatch?.[1]) qrContent = urlMatch[1];
+  }
+
+  // Build HTML
+  const html = buildMenuLayoutHTML({
+    businessName, style, format, categories, contactInfo, language, specialNote, qrContent: qrContent || undefined,
+    paletteResult, fontResult,
+  });
+
+  // Print specs
+  const pxW = Math.round((fmt.wMm / 25.4) * fmt.dpi);
+  const pxH = Math.round((fmt.hMm / 25.4) * fmt.dpi);
+
+  const imagePrompts = [
+    `Professional food photography for restaurant menu. Appetizing dishes, warm lighting, shallow depth of field. Commercial quality suitable for print at 300 DPI. Style: ${style}.`,
+    `Restaurant interior ambiance shot. ${style === 'elegant-fine-dining' ? 'Elegant dining room, candlelit tables, luxury atmosphere.' : style === 'street-food-menu' ? 'Vibrant street food vibe, neon lights, dynamic angle.' : 'Cozy bistro atmosphere, rustic wooden tables, warm ambient light.'}`,
+    `Decorative culinary elements flat lay. Herbs, spices, fresh ingredients arranged elegantly. Overhead shot, natural light, ${style} aesthetic.`,
+  ];
+
+  // Try Vercel Blob upload
+  let previewUrl: string | null = null;
+  try {
+    const blobToken = process.env.BLOB_READ_WRITE_TOKEN;
+    if (blobToken) {
+      const filename = `menus/menu-${Date.now()}-${style}.html`;
+      const blobRes = await fetch(`https://blob.vercel-storage.com/${filename}`, {
+        method: 'PUT',
+        headers: { Authorization: `Bearer ${blobToken}`, 'Content-Type': 'text/html', 'X-Content-Type-Options': 'nosniff' },
+        body: html,
+      });
+      if (blobRes.ok) {
+        const blobData = await blobRes.json() as { url?: string };
+        previewUrl = blobData.url ?? null;
+      }
+    }
+  } catch { /* silent */ }
+
+  // Queue PDF render
+  let pdfTaskQueued = false;
+  try {
+    if (process.env.CRON_SECRET) {
+      const deplUrl = process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : null;
+      if (deplUrl) {
+        await fetch(`${deplUrl}/api/agent/tasks`, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${process.env.CRON_SECRET}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            task_type: 'render_flyer_pdf',
+            title: `Menu PDF: ${businessName}`,
+            payload: { html, format: format.startsWith('a4') ? 'flyer-a5' : 'flyer-a5', style, businessName },
+            priority: 5,
+          }),
+        });
+        pdfTaskQueued = true;
+      }
+    }
+  } catch { /* silent */ }
+
+  const productionTips = language === 'tr' ? [
+    'HTML\'i tarayıcıda açıp "Yazdır" → "PDF Olarak Kaydet" ile menü PDF\'i al',
+    'Menü kartı için en az 250-300g/m² kağıt önerilir',
+    'Laminasyon (mat veya parlak) dayanıklılığı artırır',
+    'QR kodu menüyü online versiyona yönlendirir — WhatsApp sipariş linki eklenebilir',
+  ] : [
+    'Open HTML in browser → Print → Save as PDF for print-ready menu',
+    'Use at least 250-300g/m² paper for menu cards',
+    'Lamination (matte or glossy) increases durability',
+    'QR code links to online menu — add WhatsApp order link',
+  ];
+
+  return {
+    format: fmt.name,
+    dimensions: { widthMm: fmt.wMm, heightMm: fmt.hMm },
+    pixelSize: { widthPx: pxW, heightPx: pxH, atDpi: fmt.dpi },
+    style,
+    language,
+    businessName,
+    categoryCount: categories.length,
+    totalItems: categories.reduce((sum, c) => sum + c.items.length, 0),
+    colorPalette: paletteResult.palette,
+    fontPairing: fontResult?.pairings?.[0] ?? null,
+    html,
+    previewUrl,
+    pdfTaskQueued,
+    imageGenerationPrompts: imagePrompts,
+    printSpecs: { bleedMm: fmt.bleedMm, safeMm: fmt.safeMm, dpi: fmt.dpi, profile: 'CMYK / ISO Coated v2' },
+    productionTips,
+  };
+}
+
 // ── Executor Map ──
 
 const EXECUTORS: Record<string, ToolExecutor> = {
@@ -3323,6 +3682,7 @@ const EXECUTORS: Record<string, ToolExecutor> = {
   calculate_print_specs: execCalculatePrintSpecs,
   analyze_design_psychology: execAnalyzeDesignPsychology,
   generate_flyer: execGenerateFlyer,
+  generate_menu: execGenerateMenu,
 };
 
 export async function executeTool(

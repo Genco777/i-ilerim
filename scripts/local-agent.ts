@@ -223,7 +223,7 @@ async function executeTask(task: AgentTask): Promise<void> {
 
 async function main() {
   console.log(`[local-agent] Worker ${WORKER_ID} starting — polling ${BASE}`);
-  console.log(`[local-agent] Handlers: render_video, video_analysis, design_critique, general`);
+  console.log(`[local-agent] Handlers: render_video, render_flyer_pdf, video_analysis, design_critique, general`);
 
   while (true) {
     try {
