@@ -711,3 +711,55 @@ export const chatMessages = pgTable(
     convCreatedIdx: index('chat_msg_conv_created_idx').on(t.conversation_id, t.created_at),
   }),
 );
+
+// ───── Site Content (Phase 10: agent-managed website content) ─────
+export const siteContent = pgTable(
+  'site_content',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    section: text('section').notNull().unique(), // 'hero', 'about', 'contact', 'footer'
+    title: text('title'),
+    body: text('body'),
+    meta: jsonb('meta').default({}), // extra fields like phone, email, address
+    updated_at: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+);
+
+export const portfolioItems = pgTable(
+  'portfolio_items',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    title: text('title').notNull(),
+    description: text('description'),
+    image_url: text('image_url'), // Vercel Blob URL
+    category: text('category'), // 'logo', 'flyer', 'web', 'branding'
+    sort_order: integer('sort_order').default(0),
+    is_published: integer('is_published').default(1), // 0=draft, 1=published
+    created_at: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    publishedIdx: index('pf_published_idx').on(t.is_published),
+    sortIdx: index('pf_sort_idx').on(t.sort_order),
+  }),
+);
+
+export const blogPosts = pgTable(
+  'blog_posts',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    title: text('title').notNull(),
+    slug: text('slug').notNull().unique(),
+    excerpt: text('excerpt'),
+    body: text('body'),
+    cover_url: text('cover_url'), // Vercel Blob URL
+    tags: jsonb('tags').default([]), // string[]
+    is_published: integer('is_published').default(0), // 0=draft, 1=published
+    published_at: timestamp('published_at', { withTimezone: true }),
+    created_at: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updated_at: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    publishedIdx: index('blog_published_idx').on(t.is_published),
+    slugIdx: index('blog_slug_idx').on(t.slug),
+  }),
+);

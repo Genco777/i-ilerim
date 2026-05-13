@@ -92,6 +92,20 @@
       "when": 1778657668393,
       "tag": "0012_lush_talos",
       "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1778661887317,
+      "tag": "0013_add_agent_memories",
+      "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1779500000000,
+      "tag": "0014_site_content",
+      "breakpoints": true
     }
   ]
 }

@@ -521,6 +521,18 @@ export const AGENT_TOOLS: AgentTool[] = [
     },
   },
   {
+    name: 'upload_image',
+    description: 'Portfolyo veya blog icin Vercel Blob uzerine gorsel yukleme talimati verir. Kullaniciya resmi Telegram uzerinden gondermesini soyle.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        folder: { type: 'string', description: 'Klasor adi: portfolio, blog, general' },
+        note: { type: 'string', description: 'Kullaniciya iletilecek not' },
+      },
+      required: ['folder'],
+    },
+  },
+  {
     name: 'publish_blog_post',
     description: 'fly-froth.com blogunda yeni bir yazı yayınlar.',
     input_schema: {
@@ -1501,30 +1513,94 @@ async function execGetCustomerSegments(): Promise<unknown> {
 }
 
 async function execUpdateWebsiteContent(input: Record<string, unknown>): Promise<unknown> {
+  const section = typeof input.section === 'string' ? input.section : null;
+  const title = typeof input.title === 'string' ? input.title : undefined;
+  const body = typeof input.body === 'string' ? input.body : undefined;
+  if (!section) return { error: 'section gerekli (hero, about, contact, footer vb.)' };
+
+  const { upsertSiteSection } = await import('@/lib/db/queries/site-content');
+  await upsertSiteSection(section, { title, body });
   return {
-    note: `Web sitesi guncellemesi (${input.page} / ${input.section}) — bu islem su anda manuel yapiliyor.`,
-    suggestion: 'Icerik guncellemesi icin admin panelini veya dogrudan kod degisikligini kullanin.',
+    ok: true,
+    section,
+    message: `${section} bolumu guncellendi. Degisiklikler fly-froth.com'da canli.`,
   };
 }
 
 async function execAddPortfolioItem(input: Record<string, unknown>): Promise<unknown> {
+  const title = typeof input.title === 'string' ? input.title : null;
+  if (!title) return { error: 'title gerekli' };
+
+  const { addPortfolioItem } = await import('@/lib/db/queries/site-content');
+  const item = await addPortfolioItem({
+    title,
+    description: typeof input.description === 'string' ? input.description : undefined,
+    image_url: typeof input.image_url === 'string' ? input.image_url : undefined,
+    category: typeof input.category === 'string' ? input.category : undefined,
+    sort_order: typeof input.sort_order === 'number' ? input.sort_order : undefined,
+  });
   return {
-    note: `Portfolyo ogresi ekleme: "${input.title}" — bu islem su anda manuel yapiliyor.`,
-    suggestion: 'Portfolyo ogeleri src/lib/content/website-images.ts uzerinden yonetiliyor.',
+    ok: true,
+    item,
+    message: `"${title}" portfolyoya eklendi.`,
   };
 }
 
 async function execUpdateContactInfo(input: Record<string, unknown>): Promise<unknown> {
+  const { upsertSiteSection } = await import('@/lib/db/queries/site-content');
+  const meta: Record<string, unknown> = {};
+  if (typeof input.phone === 'string') meta.phone = input.phone;
+  if (typeof input.email === 'string') meta.email = input.email;
+  if (typeof input.address === 'string') meta.address = input.address;
+  if (typeof input.whatsapp === 'string') meta.whatsapp = input.whatsapp;
+
+  await upsertSiteSection('contact', {
+    title: 'Kontakt',
+    body: typeof input.body === 'string' ? input.body : undefined,
+    meta,
+  });
   return {
-    note: `Iletisim bilgisi guncellemesi: ${input.field} — bu islem .env.local veya site kodunda manuel yapilmali.`,
-    suggestion: 'Iletisim bilgileri .env.local dosyasinda veya site footer componentinde guncellenmeli.',
+    ok: true,
+    message: 'Iletisim bilgileri guncellendi. fly-froth.com footer ve iletisim sayfasinda canli.',
   };
 }
 
 async function execPublishBlogPost(input: Record<string, unknown>): Promise<unknown> {
+  const title = typeof input.title === 'string' ? input.title : null;
+  if (!title) return { error: 'title gerekli' };
+
+  const { upsertBlogPost } = await import('@/lib/db/queries/site-content');
+  const slug = typeof input.slug === 'string'
+    ? input.slug
+    : title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+
+  await upsertBlogPost({
+    title,
+    slug,
+    excerpt: typeof input.excerpt === 'string' ? input.excerpt : undefined,
+    body: typeof input.body === 'string' ? input.body : undefined,
+    cover_url: typeof input.cover_url === 'string' ? input.cover_url : undefined,
+    tags: Array.isArray(input.tags) ? input.tags as string[] : undefined,
+    is_published: input.publish === true ? 1 : 0,
+  });
   return {
-    note: `Blog yazisi: "${input.title}" — fly-froth.com statik bir site oldugu icin blog yazilari kod tabanina eklenmeli.`,
-    suggestion: 'Blog yazisi icin yeni bir .mdx dosyasi olusturun veya /chat ile icerigi hazirlayip manuel ekleyin.',
+    ok: true,
+    slug,
+    url: `https://fly-froth.com/blog/${slug}`,
+    message: input.publish === true
+      ? `"${title}" blogda yayinlandi: https://fly-froth.com/blog/${slug}`
+      : `"${title}" taslak olarak kaydedildi. Yayinlamak icin publish: true ile tekrar gonder.`,
+  };
+}
+
+async function execUploadImage(input: Record<string, unknown>): Promise<unknown> {
+  const folder = typeof input.folder === 'string' ? input.folder : 'general';
+  return {
+    instruction: 'Resmi Telegram uzerinden gonderin (fotograf olarak). Webhook otomatik olarak Vercel Blob uzerine yukleyecek ve URL dondurecek.',
+    alternative: `Baska bir URLden resim kullanmak istiyorsaniz, dogrudan image_url olarak belirtin.`,
+    uploadEndpoint: `/api/blob/upload?secret=CRON_SECRET`,
+    folder,
+    acceptedFormats: 'PNG, JPG, WebP, GIF (max 10MB)',
   };
 }
 
@@ -1646,6 +1722,7 @@ const EXECUTORS: Record<string, ToolExecutor> = {
   add_portfolio_item: execAddPortfolioItem,
   update_contact_info: execUpdateContactInfo,
   publish_blog_post: execPublishBlogPost,
+  upload_image: execUploadImage,
   check_availability: execCheckAvailability,
   schedule_appointment: execScheduleAppointment,
   list_appointments: execListAppointments,
