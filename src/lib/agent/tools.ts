@@ -841,6 +841,23 @@ export const AGENT_TOOLS: AgentTool[] = [
       required: ['businessName'],
     },
   },
+  {
+    name: 'prepare_print_order',
+    description: 'Flyer/menü/broşür için baskıya hazır sipariş paketi oluşturur. Baskı spesifikasyonları, kağıt önerileri, cilt/son işlem seçenekleri, online baskı servisi linkleri ve fiyat tahmini içerir.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        designHtml: { type: 'string', description: 'Flyer/menü/broşür HTML\'i (generate_flyer veya generate_menu çıktısından)' },
+        format: { type: 'string', description: 'Baskı formatı: flyer-a5, flyer-a6, flyer-a4, brosur-dl, business-card, a4-portrait. Varsayılan flyer-a5.' },
+        quantity: { type: 'number', description: 'Baskı adedi. Varsayılan 100.' },
+        paperPreference: { type: 'string', description: 'Kağıt tercihi: 170g-matte, 250g-matte, 300g-gloss, 350g-gloss, 120g-uncoated, recycled-kraft. Varsayılan 250g-matte.' },
+        finishing: { type: 'string', description: 'JSON array: ek işlemler. Seçenekler: celloglaze-matte, celloglaze-gloss, spot-uv, gold-foil, silver-foil, round-corners, crease-fold, drilling, numbering. Örn: ["celloglaze-matte","round-corners"]' },
+        shippingAddress: { type: 'string', description: 'Teslimat adresi (opsiyonel)' },
+        language: { type: 'string', description: 'Dil (tr, de, en). Varsayılan tr.' },
+      },
+      required: ['designHtml'],
+    },
+  },
 ];
 
 // ── AI Image Auto-Generation & Embedding ──
@@ -4055,6 +4072,174 @@ async function execGenerateMenu(input: Record<string, unknown>): Promise<unknown
   };
 }
 
+// ── Print Order Packager ──
+
+const PAPER_OPTIONS: Record<string, { name: string; gsm: number; finish: string; bestFor: string; pricePerK: number }> = {
+  '170g-matte': { name: '170g/m² Mat Kuşe', gsm: 170, finish: 'matte', bestFor: 'Broşür, flyer (ekonomik)', pricePerK: 35 },
+  '250g-matte': { name: '250g/m² Mat Kuşe', gsm: 250, finish: 'matte', bestFor: 'Flyer, menü (standart)', pricePerK: 48 },
+  '300g-gloss': { name: '300g/m² Parlak Kuşe', gsm: 300, finish: 'gloss', bestFor: 'Premium flyer, kapak', pricePerK: 62 },
+  '350g-gloss': { name: '350g/m² Parlak Kuşe', gsm: 350, finish: 'gloss', bestFor: 'Kartvizit, premium menü', pricePerK: 78 },
+  '120g-uncoated': { name: '120g/m² 1. Hamur', gsm: 120, finish: 'uncoated', bestFor: 'Antetli, not defteri', pricePerK: 22 },
+  'recycled-kraft': { name: '300g/m² Kraft Geri Dönüşüm', gsm: 300, finish: 'kraft', bestFor: 'Eko-bilinçli markalar, rustik', pricePerK: 55 },
+};
+
+const FINISHING_OPTIONS: Record<string, { name: string; description: string; pricePerK: number; note: string }> = {
+  'celloglaze-matte': { name: 'Selefon Mat', description: 'Mat koruyucu laminasyon', pricePerK: 25, note: 'Dayanıklılığı artırır, parmak izi göstermez' },
+  'celloglaze-gloss': { name: 'Selefon Parlak', description: 'Parlak koruyucu laminasyon', pricePerK: 25, note: 'Renkleri canlandırır, suya dayanıklı' },
+  'spot-uv': { name: 'Spot UV / Kısmi Vernik', description: 'Belirli alanlara parlak vernik', pricePerK: 45, note: 'Logo veya başlıkta premium etki' },
+  'gold-foil': { name: 'Altın Yaldız / Gold Foil', description: 'Sıcak varak altın baskı', pricePerK: 80, note: 'Logo veya yazıda metalik altın efekti. Lüks algısı.' },
+  'silver-foil': { name: 'Gümüş Yaldız / Silver Foil', description: 'Sıcak varak gümüş baskı', pricePerK: 80, note: 'Modern teknoloji markaları için ideal' },
+  'round-corners': { name: 'Yuvarlak Köşe Kesim', description: 'Köşeleri yuvarlatma', pricePerK: 15, note: 'Kartvizit ve menüde yumuşak his' },
+  'crease-fold': { name: 'Piliyaj + Katlama', description: 'Katlama çizgisi + hassas kat', pricePerK: 20, note: 'Broşür ve menü katlaması için şart' },
+  'drilling': { name: 'Delik Delme', description: 'Askı deliği veya spiral delik', pricePerK: 10, note: 'Kapı askısı flyer veya dosyalama için' },
+  'numbering': { name: 'Numaratör Baskı', description: 'Her kopyaya sıralı numara', pricePerK: 30, note: 'Sınırlı seri, çekiliş, bilet için' },
+};
+
+const PRINT_SERVICE_CATALOG = [
+  { name: 'Flyeralarm', url: 'https://www.flyeralarm.com', region: 'DE/EU', specialties: 'Flyer, broşür, menü, geniş format', deliveryDays: '3-5 iş günü', minQty: 50 },
+  { name: 'WIRmachenDRUCK', url: 'https://www.wir-machen-druck.de', region: 'DE', specialties: 'Flyer, broşür, PVC banner', deliveryDays: '2-4 iş günü', minQty: 50 },
+  { name: 'Saxoprint', url: 'https://www.saxoprint.com', region: 'DE/EU', specialties: 'Flyer, kartvizit, poster', deliveryDays: '3-5 iş günü', minQty: 25 },
+  { name: 'Onlineprinters', url: 'https://www.onlineprinters.com', region: 'EU', specialties: 'Her şey — flyer, kalem, tekstil', deliveryDays: '3-7 iş günü', minQty: 25 },
+  { name: 'Matbaan', url: 'https://www.matbaan.com', region: 'TR', specialties: 'Flyer, broşür, kartvizit — Türkiye', deliveryDays: '1-3 iş günü', minQty: 100 },
+  { name: 'BaskiDunyasi', url: 'https://www.baskidunyasi.com', region: 'TR', specialties: 'Flyer, poster, roll-up', deliveryDays: '2-4 iş günü', minQty: 50 },
+];
+
+async function execPreparePrintOrder(input: Record<string, unknown>): Promise<unknown> {
+  const designHtml = String(input.designHtml ?? '');
+  if (!designHtml) return { error: 'designHtml gerekli. Flyer/menü HTML\'ini generate_flyer veya generate_menu çıktısından alın.' };
+
+  const format = String(input.format ?? 'flyer-a5');
+  const quantity = Math.max(1, Math.round(Number(input.quantity ?? 100)));
+  const paperKey = String(input.paperPreference ?? '250g-matte');
+  const language = typeof input.language === 'string' ? input.language : 'tr';
+  const shippingAddress = typeof input.shippingAddress === 'string' ? input.shippingAddress : undefined;
+
+  let finishing: string[] = [];
+  if (typeof input.finishing === 'string' && input.finishing.trim()) {
+    try { finishing = JSON.parse(input.finishing); } catch { finishing = [input.finishing]; }
+  }
+
+  // Get print specs
+  const specResult = await execCalculatePrintSpecs({ format, hasBleed: true }) as any;
+  if (specResult.error) return { error: 'Geçersiz format.' };
+
+  const paper = PAPER_OPTIONS[paperKey] ?? PAPER_OPTIONS['250g-matte']!;
+  const finishingDetails = finishing
+    .filter((f: string) => f in FINISHING_OPTIONS)
+    .map((f: string) => FINISHING_OPTIONS[f]!);
+
+  // Cost estimate
+  const baseCostPerK = paper.pricePerK;
+  const finishingCostPerK = finishingDetails.reduce((sum: number, f) => sum + f.pricePerK, 0);
+  const totalCostPerK = baseCostPerK + finishingCostPerK;
+  const thousands = Math.ceil(quantity / 1000);
+  const estimatedCostEur = thousands * totalCostPerK;
+  const estimatedCostTry = Math.round(estimatedCostEur * 35); // ~35 TRY/EUR
+
+  // Order reference
+  const orderRef = `FF-PRINT-${Date.now().toString(36).toUpperCase()}-${quantity}`;
+
+  // Production-ready order instructions
+  const orderInstructions = language === 'tr' ? [
+    `📦 Sipariş Referansı: ${orderRef}`,
+    `📐 Format: ${specResult.format} — ${specResult.dimensions?.widthMm ?? '?'}×${specResult.dimensions?.heightMm ?? '?'}mm`,
+    `📄 Kağıt: ${paper.name}`,
+    `🔢 Adet: ${quantity.toLocaleString('tr')}`,
+    `🖨️ Renk: CMYK / ISO Coated v2 — 300 DPI`,
+    `✂️ Kesim payı: ${specResult.bleed?.mm ?? 3}mm — safe zone: ${specResult.safeZone?.mm ?? 8}mm`,
+    finishingDetails.length > 0 ? `✨ Ek işlemler: ${finishingDetails.map((f) => f.name).join(', ')}` : '',
+    shippingAddress ? `🚚 Teslimat: ${shippingAddress}` : '',
+    '',
+    '📋 MATBAAYA NOT:',
+    `- HTML dosyasını tarayıcıda aç → "Yazdır" → "PDF Olarak Kaydet" ile vektörel baskı PDF\'i alın`,
+    '- PDF\'i CMYK profilinde (ISO Coated v2) kaydedin',
+    '- Taşma payı (bleed) alanını KESMEYİN — kesim çizgisi dışıdır',
+    '- Kritik içerik (yazı, logo) safe zone içinde kalmalı',
+    `- Katlama varsa: piliyaj (crease) yaptırın — kırılma/çatlama önler`,
+    '- Proof (örnek baskı) isteyin — renkleri ve kesimi kontrol edin',
+    '',
+    '🔗 ONLINE BASKI SERVİSLERİ:',
+    ...PRINT_SERVICE_CATALOG.map((s) => `  ${s.name}: ${s.url} — ${s.specialties} (${s.deliveryDays}, min ${s.minQty} adet)`),
+    '',
+    `💰 TAHMİNİ MALİYET: ~€${estimatedCostEur.toFixed(2)} / ~₺${estimatedCostTry.toLocaleString('tr')}`,
+    `   (${thousands} × 1000 adet bazında, ${paper.name} + ${finishingDetails.length > 0 ? finishingDetails.map((f) => f.name).join(' + ') : 'ek işlemsiz'})`,
+    '   Not: Kesin fiyat için matbaadan teklif alın. Bu sadece yönlendirme amaçlıdır.',
+  ] : [
+    `📦 Order Reference: ${orderRef}`,
+    `📐 Format: ${specResult.format} — ${specResult.dimensions?.widthMm ?? '?'}×${specResult.dimensions?.heightMm ?? '?'}mm`,
+    `📄 Paper: ${paper.name}`,
+    `🔢 Quantity: ${quantity.toLocaleString()}`,
+    `🖨️ Color: CMYK / ISO Coated v2 — 300 DPI`,
+    `✂️ Bleed: ${specResult.bleed?.mm ?? 3}mm — safe zone: ${specResult.safeZone?.mm ?? 8}mm`,
+    finishingDetails.length > 0 ? `✨ Finishing: ${finishingDetails.map((f) => f.name).join(', ')}` : '',
+    shippingAddress ? `🚚 Delivery: ${shippingAddress}` : '',
+    '',
+    '📋 PRINTER INSTRUCTIONS:',
+    '- Open HTML in browser → Print → Save as PDF for vector print PDF',
+    '- Save PDF in CMYK profile (ISO Coated v2)',
+    '- Do NOT trim bleed area — it is outside the cut line',
+    '- Critical content (text, logos) must stay in the safe zone',
+    '- For folding: request creasing to prevent cracking',
+    '- Request a proof print to verify colors and cut',
+    '',
+    '🔗 ONLINE PRINT SERVICES:',
+    ...PRINT_SERVICE_CATALOG.map((s) => `  ${s.name}: ${s.url} — ${s.specialties} (${s.deliveryDays}, min ${s.minQty})`),
+    '',
+    `💰 ESTIMATED COST: ~€${estimatedCostEur.toFixed(2)}`,
+    `   (${thousands} × 1000 units, ${paper.name} + ${finishingDetails.length > 0 ? finishingDetails.map((f) => f.name).join(' + ') : 'no finishing'})`,
+    '   Note: Request a formal quote from the printer. This is a guideline only.',
+  ];
+
+  // Queue PDF render task
+  let pdfTaskQueued = false;
+  if (process.env.CRON_SECRET) {
+    try {
+      const deplUrl = process.env.DEPLOY_URL || process.env.VERCEL_URL
+        ? `https://${process.env.VERCEL_URL ?? process.env.DEPLOY_URL}`
+        : null;
+      if (deplUrl) {
+        await fetch(`${deplUrl}/api/agent/tasks`, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${process.env.CRON_SECRET}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            task_type: 'render_flyer_pdf',
+            title: `Print Order PDF: ${orderRef}`,
+            payload: { html: designHtml, format: specResult.format, style: 'print-order', businessName: orderRef },
+            priority: 3,
+          }),
+        });
+        pdfTaskQueued = true;
+      }
+    } catch { /* silent */ }
+  }
+
+  return {
+    orderReference: orderRef,
+    format: specResult.format,
+    dimensions: specResult.dimensions,
+    quantity,
+    paper: { key: paperKey, ...paper },
+    finishing: finishingDetails.length > 0 ? finishingDetails.map((f) => ({ key: finishing[finishingDetails.indexOf(f)], ...f })) : [],
+    estimatedCost: {
+      eur: Math.round(estimatedCostEur * 100) / 100,
+      try: estimatedCostTry,
+      basis: `${thousands} × 1000 adet`,
+      note: 'Kesin fiyat teklifi için matbaa ile görüşün.',
+    },
+    printSpecs: {
+      bleed: specResult.bleed,
+      safeZone: specResult.safeZone,
+      recommendedPaper: specResult.recommendedPaper,
+      colorProfile: 'CMYK / ISO Coated v2',
+      dpi: 300,
+    },
+    printServices: PRINT_SERVICE_CATALOG,
+    orderInstructions: orderInstructions.join('\n'),
+    pdfTaskQueued,
+    designHtmlLength: designHtml.length,
+  };
+}
+
 // ── Executor Map ──
 
 const EXECUTORS: Record<string, ToolExecutor> = {
@@ -4125,6 +4310,7 @@ const EXECUTORS: Record<string, ToolExecutor> = {
   analyze_design_psychology: execAnalyzeDesignPsychology,
   generate_flyer: execGenerateFlyer,
   generate_menu: execGenerateMenu,
+  prepare_print_order: execPreparePrintOrder,
 };
 
 export async function executeTool(
