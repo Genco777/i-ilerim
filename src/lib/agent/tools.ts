@@ -2507,6 +2507,9 @@ const PRINT_SPECS: Record<string, { name: string; wMm: number; hMm: number; blee
   'folder': { name: 'Klasör (A4)', wMm: 450, hMm: 315, bleedMm: 3, safeMm: 10, dpi: 300, colorProfile: 'CMYK / ISO Coated v2', paper: '350-400g/m²', notes: 'Açık hali 450x315mm. Katlama ve cep payları için die-cut şablonu gerekir.' },
   'social-media-post': { name: 'Sosyal Medya Post', wMm: 1080, hMm: 1080, bleedMm: 0, safeMm: 0, dpi: 72, colorProfile: 'RGB / sRGB', paper: 'N/A (dijital)', notes: '1080x1080px @72 DPI. Instagram/Facebook feed. Merkezde kritik içerik, kenarlarda boşluk.' },
   'social-media-story': { name: 'Sosyal Medya Story', wMm: 1080, hMm: 1920, bleedMm: 0, safeMm: 0, dpi: 72, colorProfile: 'RGB / sRGB', paper: 'N/A (dijital)', notes: '1080x1920px @72 DPI. Üst ve alt %14 (yaklaşık 270px) UI elementleri tarafından kapatılabilir.' },
+  'door-hanger': { name: 'Kapı Askısı', wMm: 95, hMm: 210, bleedMm: 3, safeMm: 5, dpi: 300, colorProfile: 'CMYK / ISO Coated v2', paper: '250-350g/m² kuşe', notes: 'Üstte askı deliği için 15mm çapında boşluk bırakın. Delik yeri: üstten 12mm, yatay orta.' },
+  'tent-card': { name: 'Masa Kartı (Tent Card)', wMm: 148, hMm: 210, bleedMm: 3, safeMm: 5, dpi: 300, colorProfile: 'CMYK / ISO Coated v2', paper: '250-350g/m² kuşe', notes: 'A5 yatay. Ortadan katlamalı (piliyaj). İki yüz birbirinin ters yönünde tasarlanmalı.' },
+  'sticker-label': { name: 'Sticker / Etiket', wMm: 100, hMm: 100, bleedMm: 3, safeMm: 4, dpi: 300, colorProfile: 'CMYK / ISO Coated v2', paper: 'Vinil veya kuşe sticker', notes: 'Kontür kesim için die-cut çizgisi gerekir. Kare dışı shape\'ler için vektör path hazırlayın.' },
 };
 
 async function execCalculatePrintSpecs(input: Record<string, unknown>): Promise<unknown> {
@@ -2721,6 +2724,42 @@ const FLYER_STYLE_PRESETS: Record<string, {
     headingFont: 'Bebas Neue', bodyFont: 'Rajdhani',
     layoutPattern: 'banner',
     decorativeElements: ['speed-line-diagonal', 'carbon-fiber-texture', 'racing-stripe', 'bold-number-plate'],
+  },
+  'wellness-spa': {
+    primaryColor: '#4A6741', secondaryColor: '#F7F4F0', bgColor: '#FDFCFA', textColor: '#3D4A3B', accentColor: '#C9A84C',
+    headingFont: 'Cormorant Garamond', bodyFont: 'Lato',
+    layoutPattern: 'centered',
+    decorativeElements: ['architectural-line', 'lace-pattern-bg', 'gold-accent-bar'],
+  },
+  'fitness-gym': {
+    primaryColor: '#0D0D0D', secondaryColor: '#FF4500', bgColor: '#F5F5F5', textColor: '#0D0D0D', accentColor: '#00FF88',
+    headingFont: 'Bebas Neue', bodyFont: 'Roboto Condensed',
+    layoutPattern: 'edge-to-edge',
+    decorativeElements: ['speed-line-diagonal', 'bold-stripe', 'carbon-fiber-texture'],
+  },
+  'kids-party': {
+    primaryColor: '#FF6B35', secondaryColor: '#FFE66D', bgColor: '#FFFFFF', textColor: '#2C2C2C', accentColor: '#00CEC9',
+    headingFont: 'Fredoka One', bodyFont: 'Nunito',
+    layoutPattern: 'banner',
+    decorativeElements: ['splash-bg', 'starburst-badge', 'geometric-accent-dot'],
+  },
+  'music-festival': {
+    primaryColor: '#1A0020', secondaryColor: '#FF00FF', bgColor: '#0A0A0A', textColor: '#FFFFFF', accentColor: '#00FFCC',
+    headingFont: 'Bebas Neue', bodyFont: 'Rajdhani',
+    layoutPattern: 'edge-to-edge',
+    decorativeElements: ['neon-glow-text', 'splash-bg', 'halftone-pattern'],
+  },
+  'art-gallery': {
+    primaryColor: '#F5F0EB', secondaryColor: '#1A1A1A', bgColor: '#FFFFFF', textColor: '#1A1A1A', accentColor: '#E63946',
+    headingFont: 'Playfair Display', bodyFont: 'Crimson Text',
+    layoutPattern: 'grid',
+    decorativeElements: ['architectural-line', 'geometric-grid-lines', 'data-dot-accent'],
+  },
+  'eco-organic': {
+    primaryColor: '#4A3728', secondaryColor: '#F0EAD6', bgColor: '#FFFDF7', textColor: '#4A3728', accentColor: '#6B8E23',
+    headingFont: 'Amatic SC', bodyFont: 'Nunito Sans',
+    layoutPattern: 'split',
+    decorativeElements: ['vintage-ornament', 'flourish-divider', 'badge-frame'],
   },
 };
 
@@ -3424,8 +3463,26 @@ async function execGenerateFlyer(input: Record<string, unknown>): Promise<unknow
       : `Flyer optimized for ${specResult.format} in "${style}" style. ${previewUrl ? `Preview: ${previewUrl}` : 'HTML can be opened directly in browser.'} Colors are CMYK-print suitable. AI image prompts ready.`,
   };
 
-  // Auto-create a PDF render task for the local bridge if available
-  if (process.env.CRON_SECRET) {
+  // PDF rendering: Browserless (cloud) or local bridge (fallback)
+  let pdfBufferBase64: string | undefined;
+  let pdfProvider: string | null = null;
+  try {
+    const { renderPdfViaBrowserless } = await import('@/lib/print/render-pdf');
+    const pdfResult = await renderPdfViaBrowserless(frontHtml, {
+      format: specResult.dimensions?.widthMm && specResult.dimensions?.heightMm
+        ? undefined // use browserless auto-detect from CSS @page
+        : 'A4',
+      printBackground: true,
+      marginMm: 3,
+    });
+    if (pdfResult) {
+      pdfBufferBase64 = pdfResult.buffer.toString('base64');
+      pdfProvider = 'browserless';
+      result.pdf = { sizeBytes: pdfResult.sizeBytes, provider: 'browserless', encoding: 'base64' };
+    }
+  } catch { /* Browserless failed, fall back to local bridge */ }
+
+  if (!pdfBufferBase64 && process.env.CRON_SECRET) {
     try {
       const deplUrl = process.env.DEPLOY_URL || process.env.VERCEL_URL
         ? `https://${process.env.VERCEL_URL ?? process.env.DEPLOY_URL}`
@@ -3451,11 +3508,14 @@ async function execGenerateFlyer(input: Record<string, unknown>): Promise<unknow
             priority: 5,
           }),
         });
+        result.pdfTaskQueued = true;
+        pdfProvider = pdfProvider ?? 'local-bridge-queued';
       }
-      result.pdfTaskQueued = true;
     } catch {
       result.pdfTaskQueued = false;
     }
+  } else if (!pdfBufferBase64) {
+    result.pdfTaskQueued = false;
   }
 
   return result;
@@ -3491,6 +3551,20 @@ const FOLDING_CONFIGS: Record<string, { name: string; panels: number; ratios: nu
     ratios: [0.25, 0.50, 0.25],
     panelLabels: ['Sol Kanat', 'Orta (Açılış)', 'Sağ Kanat'],
     foldMarks: [25, 75],
+  },
+  'accordion-4': {
+    name: 'Akordiyon 4 Panel',
+    panels: 4,
+    ratios: [0.25, 0.25, 0.25, 0.25],
+    panelLabels: ['Kapak', 'Panel 2', 'Panel 3', 'Arka Kapak'],
+    foldMarks: [25, 50, 75],
+  },
+  'double-parallel': {
+    name: 'Çift Paralel (Double Parallel)',
+    panels: 4,
+    ratios: [0.25, 0.25, 0.25, 0.25],
+    panelLabels: ['Ön Dış', 'Ön İç', 'Arka İç', 'Arka Dış'],
+    foldMarks: [25, 50, 75],
   },
 };
 
@@ -3764,6 +3838,56 @@ const MENU_STYLE_PRESETS: Record<string, {
     layoutType: 'grid-cards',
     decorativeStyle: 'neon-glow',
   },
+  'japanese-izakaya': {
+    primaryColor: '#1A0A00', secondaryColor: '#FFF8F0', bgColor: '#FFFCF8', textColor: '#1A0A00', accentColor: '#CC0000',
+    headingFont: 'Noto Serif JP', bodyFont: 'Noto Sans', priceFont: 'Noto Serif JP',
+    badgeColors: {
+      'şef önerisi': { bg: '#CC0000', text: '#FFFFFF' },
+      'vegan': { bg: '#2D8B2D', text: '#FFFFFF' },
+      'acılı': { bg: '#FF6B00', text: '#FFFFFF' },
+      'yeni': { bg: '#1A0A00', text: '#F5DEB3' },
+    },
+    layoutType: 'single-column',
+    decorativeStyle: 'gold-lines',
+  },
+  'italian-trattoria': {
+    primaryColor: '#5C2018', secondaryColor: '#FFF5EB', bgColor: '#FFFDF8', textColor: '#5C2018', accentColor: '#D4A017',
+    headingFont: 'Playfair Display', bodyFont: 'Merriweather', priceFont: 'Playfair Display',
+    badgeColors: {
+      'şef önerisi': { bg: '#D4A017', text: '#FFFFFF' },
+      'vegan': { bg: '#4A7C2E', text: '#FFFFFF' },
+      'glütensiz': { bg: '#C4A265', text: '#5C2018' },
+      'yeni': { bg: '#5C2018', text: '#F5DEB3' },
+      'favori': { bg: '#CC3333', text: '#FFFFFF' },
+    },
+    layoutType: 'two-column',
+    decorativeStyle: 'rustic-frames',
+  },
+  'cocktail-lounge': {
+    primaryColor: '#0A0A14', secondaryColor: '#F5F0E8', bgColor: '#0E0E1A', textColor: '#E8E0D0', accentColor: '#D4AF37',
+    headingFont: 'Marcellus', bodyFont: 'Jost', priceFont: 'Marcellus',
+    badgeColors: {
+      'şef önerisi': { bg: '#D4AF37', text: '#0A0A14' },
+      'yeni': { bg: '#D4AF37', text: '#0A0A14' },
+      'alkollü': { bg: '#8B0000', text: '#E8E0D0' },
+      'alkolsüz': { bg: '#2D6A4F', text: '#E8E0D0' },
+    },
+    layoutType: 'elegant-list',
+    decorativeStyle: 'gold-lines',
+  },
+  'breakfast-brunch': {
+    primaryColor: '#8B6914', secondaryColor: '#FFF8E7', bgColor: '#FFFDF5', textColor: '#4A3728', accentColor: '#E8A850',
+    headingFont: 'Amatic SC', bodyFont: 'Nunito', priceFont: 'Nunito',
+    badgeColors: {
+      'vegan': { bg: '#6B8E23', text: '#FFFFFF' },
+      'glütensiz': { bg: '#D4A574', text: '#4A3728' },
+      'yeni': { bg: '#E8A850', text: '#FFFFFF' },
+      'favori': { bg: '#CC6633', text: '#FFFFFF' },
+      'organik': { bg: '#4A7C2E', text: '#FFFFFF' },
+    },
+    layoutType: 'grid-cards',
+    decorativeStyle: 'clean-rule',
+  },
 };
 
 // Menu format dimensions (pixels at 300 DPI)
@@ -3771,6 +3895,8 @@ const MENU_FORMATS: Record<string, { name: string; wMm: number; hMm: number; dpi
   'a4-portrait': { name: 'A4 Dikey', wMm: 210, hMm: 297, dpi: 300, bleedMm: 3, safeMm: 8 },
   'a4-landscape-fold': { name: 'A4 Yatay (2 Katlı)', wMm: 297, hMm: 210, dpi: 300, bleedMm: 3, safeMm: 6 },
   'dl-tri-fold': { name: 'DL 3 Katlı', wMm: 297, hMm: 210, dpi: 300, bleedMm: 3, safeMm: 5 },
+  'a5-portrait': { name: 'A5 Dikey', wMm: 148, hMm: 210, dpi: 300, bleedMm: 3, safeMm: 5 },
+  'square-210': { name: 'Kare 210×210', wMm: 210, hMm: 210, dpi: 300, bleedMm: 3, safeMm: 6 },
 };
 
 function buildMenuLayoutHTML(config: {
@@ -4018,26 +4144,35 @@ async function execGenerateMenu(input: Record<string, unknown>): Promise<unknown
     }
   } catch { /* silent */ }
 
-  // Queue PDF render
+  // PDF rendering: Browserless (cloud) or local bridge (fallback)
   let pdfTaskQueued = false;
+  let pdfBufferBase64: string | undefined;
   try {
-    if (process.env.CRON_SECRET) {
-      const deplUrl = process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : null;
-      if (deplUrl) {
-        await fetch(`${deplUrl}/api/agent/tasks`, {
-          method: 'POST',
-          headers: { Authorization: `Bearer ${process.env.CRON_SECRET}`, 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            task_type: 'render_flyer_pdf',
-            title: `Menu PDF: ${businessName}`,
-            payload: { html: embedHtml, format: format.startsWith('a4') ? 'flyer-a5' : 'flyer-a5', style, businessName },
-            priority: 5,
-          }),
-        });
-        pdfTaskQueued = true;
+    const { renderPdfViaBrowserless } = await import('@/lib/print/render-pdf');
+    const pdfResult = await renderPdfViaBrowserless(embedHtml, { format: 'A4', printBackground: true, marginMm: 3 });
+    if (pdfResult) pdfBufferBase64 = pdfResult.buffer.toString('base64');
+  } catch { /* fall back to local bridge */ }
+
+  if (!pdfBufferBase64) {
+    try {
+      if (process.env.CRON_SECRET) {
+        const deplUrl = process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : null;
+        if (deplUrl) {
+          await fetch(`${deplUrl}/api/agent/tasks`, {
+            method: 'POST',
+            headers: { Authorization: `Bearer ${process.env.CRON_SECRET}`, 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              task_type: 'render_flyer_pdf',
+              title: `Menu PDF: ${businessName}`,
+              payload: { html: embedHtml, format: format.startsWith('a4') ? 'flyer-a5' : 'flyer-a5', style, businessName },
+              priority: 5,
+            }),
+          });
+          pdfTaskQueued = true;
+        }
       }
-    }
-  } catch { /* silent */ }
+    } catch { /* silent */ }
+  }
 
   const productionTips = language === 'tr' ? [
     'HTML\'i tarayıcıda açıp "Yazdır" → "PDF Olarak Kaydet" ile menü PDF\'i al',
@@ -4064,6 +4199,7 @@ async function execGenerateMenu(input: Record<string, unknown>): Promise<unknown
     fontPairing: fontResult?.pairings?.[0] ?? null,
     html: embedHtml,
     previewUrl,
+    pdf: pdfBufferBase64 ? { sizeBytes: Buffer.byteLength(pdfBufferBase64, 'base64'), provider: 'browserless', encoding: 'base64' } : undefined,
     pdfTaskQueued,
     autoGeneratedImages,
     imageGenerationPrompts: imagePrompts,
@@ -4190,9 +4326,16 @@ async function execPreparePrintOrder(input: Record<string, unknown>): Promise<un
     '   Note: Request a formal quote from the printer. This is a guideline only.',
   ];
 
-  // Queue PDF render task
+  // PDF rendering: Browserless (cloud) or local bridge (fallback)
   let pdfTaskQueued = false;
-  if (process.env.CRON_SECRET) {
+  let pdfBufferBase64: string | undefined;
+  try {
+    const { renderPdfViaBrowserless } = await import('@/lib/print/render-pdf');
+    const pdfResult = await renderPdfViaBrowserless(designHtml, { format: 'A4', printBackground: true, marginMm: 3 });
+    if (pdfResult) pdfBufferBase64 = pdfResult.buffer.toString('base64');
+  } catch { /* fall back to local bridge */ }
+
+  if (!pdfBufferBase64 && process.env.CRON_SECRET) {
     try {
       const deplUrl = process.env.DEPLOY_URL || process.env.VERCEL_URL
         ? `https://${process.env.VERCEL_URL ?? process.env.DEPLOY_URL}`
@@ -4235,6 +4378,7 @@ async function execPreparePrintOrder(input: Record<string, unknown>): Promise<un
     },
     printServices: PRINT_SERVICE_CATALOG,
     orderInstructions: orderInstructions.join('\n'),
+    pdf: pdfBufferBase64 ? { sizeBytes: Buffer.byteLength(pdfBufferBase64, 'base64'), provider: 'browserless', encoding: 'base64' } : undefined,
     pdfTaskQueued,
     designHtmlLength: designHtml.length,
   };
