@@ -25,6 +25,10 @@
     {
       "path": "/api/cron/payment-watchdog?secret=080084ec9089202b8d409dc4e1c5672aea675a581133c994a63e86f6e31868a1",
       "schedule": "0 7 * * *"
+    },
+    {
+      "path": "/api/cron/appointment-reminder?secret=080084ec9089202b8d409dc4e1c5672aea675a581133c994a63e86f6e31868a1",
+      "schedule": "0 * * * *"
     }
   ]
 }

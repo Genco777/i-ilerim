@@ -479,6 +479,111 @@ export const AGENT_TOOLS: AgentTool[] = [
     description: 'Müşteri segmentlerini analiz eder: VIP, düzenli, tek seferlik, riskli.',
     input_schema: { type: 'object', properties: {}, required: [] },
   },
+
+  // ── Site Management ──
+  {
+    name: 'update_website_content',
+    description: 'fly-froth.com web sitesindeki sayfa içeriğini günceller.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        page: { type: 'string', description: "Sayfa: 'home', 'about', 'services', 'contact', 'portfolio'" },
+        section: { type: 'string', description: 'Bölüm adı (örn. "hero", "intro", "services-list")' },
+        content: { type: 'string', description: 'Yeni içerik (metin veya JSON)' },
+      },
+      required: ['page', 'section', 'content'],
+    },
+  },
+  {
+    name: 'add_portfolio_item',
+    description: 'Portfolyoya yeni bir iş ekler.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        title: { type: 'string', description: 'İş başlığı (örn. "Logo Design fur Cafe Rose")' },
+        description: { type: 'string', description: 'İş açıklaması' },
+        category: { type: 'string', description: "'logo', 'flyer', 'web', 'branding', 'social'" },
+        imageUrl: { type: 'string', description: 'Görsel URLsi (opsiyonel)' },
+      },
+      required: ['title', 'description', 'category'],
+    },
+  },
+  {
+    name: 'update_contact_info',
+    description: 'İletişim bilgilerini günceller (telefon, email, adres).',
+    input_schema: {
+      type: 'object',
+      properties: {
+        field: { type: 'string', description: "'phone', 'email', 'address', 'whatsapp'" },
+        value: { type: 'string', description: 'Yeni değer' },
+      },
+      required: ['field', 'value'],
+    },
+  },
+  {
+    name: 'publish_blog_post',
+    description: 'fly-froth.com blogunda yeni bir yazı yayınlar.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        title: { type: 'string', description: 'Blog başlığı' },
+        content: { type: 'string', description: 'Blog içeriği (Markdown)' },
+        excerpt: { type: 'string', description: 'Özet (1-2 cümle)' },
+      },
+      required: ['title', 'content'],
+    },
+  },
+
+  // ── Calendar ──
+  {
+    name: 'check_availability',
+    description: 'Belirtilen günde boş zaman slotlarını gösterir.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        date: { type: 'string', description: 'Tarih (ISO formatında, opsiyonel). Boş bırakılırsa bugün.' },
+      },
+      required: [],
+    },
+  },
+  {
+    name: 'schedule_appointment',
+    description: 'Google Calendar\'da randevu oluşturur.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        customerName: { type: 'string', description: 'Müşteri adı' },
+        customerEmail: { type: 'string', description: 'Müşteri emaili' },
+        date: { type: 'string', description: 'Tarih (ISO formatında, örn. "2026-05-20")' },
+        time: { type: 'string', description: 'Saat (örn. "14:00")' },
+        duration: { type: 'number', description: 'Süre (dakika). Varsayılan 60.' },
+        purpose: { type: 'string', description: 'Görüşme konusu' },
+      },
+      required: ['customerName', 'date', 'time', 'purpose'],
+    },
+  },
+  {
+    name: 'list_appointments',
+    description: 'Bugünkü veya belirtilen tarihteki randevuları listeler.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        date: { type: 'string', description: 'Tarih (ISO formatında). Boş bırakılırsa bugün.' },
+      },
+      required: [],
+    },
+  },
+  {
+    name: 'cancel_appointment',
+    description: 'Bir randevuyu iptal eder.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        eventId: { type: 'string', description: 'Google Calendar event IDsi' },
+      },
+      required: ['eventId'],
+    },
+  },
 ];
 
 // ── Tool Executors ──
@@ -1395,6 +1500,102 @@ async function execGetCustomerSegments(): Promise<unknown> {
   };
 }
 
+async function execUpdateWebsiteContent(input: Record<string, unknown>): Promise<unknown> {
+  return {
+    note: `Web sitesi guncellemesi (${input.page} / ${input.section}) — bu islem su anda manuel yapiliyor.`,
+    suggestion: 'Icerik guncellemesi icin admin panelini veya dogrudan kod degisikligini kullanin.',
+  };
+}
+
+async function execAddPortfolioItem(input: Record<string, unknown>): Promise<unknown> {
+  return {
+    note: `Portfolyo ogresi ekleme: "${input.title}" — bu islem su anda manuel yapiliyor.`,
+    suggestion: 'Portfolyo ogeleri src/lib/content/website-images.ts uzerinden yonetiliyor.',
+  };
+}
+
+async function execUpdateContactInfo(input: Record<string, unknown>): Promise<unknown> {
+  return {
+    note: `Iletisim bilgisi guncellemesi: ${input.field} — bu islem .env.local veya site kodunda manuel yapilmali.`,
+    suggestion: 'Iletisim bilgileri .env.local dosyasinda veya site footer componentinde guncellenmeli.',
+  };
+}
+
+async function execPublishBlogPost(input: Record<string, unknown>): Promise<unknown> {
+  return {
+    note: `Blog yazisi: "${input.title}" — fly-froth.com statik bir site oldugu icin blog yazilari kod tabanina eklenmeli.`,
+    suggestion: 'Blog yazisi icin yeni bir .mdx dosyasi olusturun veya /chat ile icerigi hazirlayip manuel ekleyin.',
+  };
+}
+
+async function execCheckAvailability(input: Record<string, unknown>): Promise<unknown> {
+  const date = typeof input.date === 'string' ? input.date : new Date().toISOString().slice(0, 10);
+  const { listEvents, findFreeSlots } = await import('@/lib/calendar/google');
+  const freeSlots = await findFreeSlots(date);
+  return {
+    date,
+    freeSlots: freeSlots.map((s) => ({ start: s.start, end: s.end })),
+    count: freeSlots.length,
+    note: freeSlots.length === 0 ? 'Bu gun icin bos slot yok.' : `${freeSlots.length} bos slot bulundu.`,
+  };
+}
+
+async function execScheduleAppointment(input: Record<string, unknown>): Promise<unknown> {
+  const date = String(input.date ?? '');
+  const time = String(input.time ?? '');
+  const purpose = String(input.purpose ?? '');
+  if (!date || !time || !purpose) return { error: 'date, time, purpose gerekli.' };
+
+  const startDateTime = new Date(`${date}T${time}:00`);
+  const duration = typeof input.duration === 'number' ? input.duration : 60;
+  const endDateTime = new Date(startDateTime.getTime() + duration * 60000);
+
+  const { createEvent } = await import('@/lib/calendar/google');
+  const event = await createEvent({
+    summary: purpose,
+    description: `Musteri: ${input.customerName ?? 'Belirtilmedi'}\nEmail: ${input.customerEmail ?? 'Belirtilmedi'}`,
+    start: startDateTime,
+    end: endDateTime,
+    attendees: typeof input.customerEmail === 'string' ? [input.customerEmail] : [],
+  });
+
+  return {
+    success: true,
+    eventId: event.id,
+    link: event.htmlLink,
+    summary: purpose,
+    start: startDateTime.toISOString(),
+    end: endDateTime.toISOString(),
+  };
+}
+
+async function execListAppointments(input: Record<string, unknown>): Promise<unknown> {
+  const date = typeof input.date === 'string' ? input.date : new Date().toISOString().slice(0, 10);
+  const { listEvents } = await import('@/lib/calendar/google');
+  const timeMin = new Date(`${date}T00:00:00`);
+  const timeMax = new Date(`${date}T23:59:59`);
+  const events = await listEvents(timeMin, timeMax);
+  return {
+    date,
+    count: events.length,
+    appointments: events.map((e) => ({
+      id: e.id,
+      summary: e.summary,
+      start: e.start?.dateTime ?? e.start?.date,
+      end: e.end?.dateTime ?? e.end?.date,
+      attendees: e.attendees?.map((a: { email: string }) => a.email),
+    })),
+  };
+}
+
+async function execCancelAppointment(input: Record<string, unknown>): Promise<unknown> {
+  const eventId = String(input.eventId ?? '');
+  if (!eventId) return { error: 'eventId gerekli.' };
+  const { deleteEvent } = await import('@/lib/calendar/google');
+  await deleteEvent(eventId);
+  return { success: true, eventId, message: 'Randevu iptal edildi.' };
+}
+
 // ── Executor Map ──
 
 const EXECUTORS: Record<string, ToolExecutor> = {
@@ -1441,6 +1642,14 @@ const EXECUTORS: Record<string, ToolExecutor> = {
   get_revenue_forecast: execGetRevenueForecast,
   get_service_profitability: execGetServiceProfitability,
   get_customer_segments: execGetCustomerSegments,
+  update_website_content: execUpdateWebsiteContent,
+  add_portfolio_item: execAddPortfolioItem,
+  update_contact_info: execUpdateContactInfo,
+  publish_blog_post: execPublishBlogPost,
+  check_availability: execCheckAvailability,
+  schedule_appointment: execScheduleAppointment,
+  list_appointments: execListAppointments,
+  cancel_appointment: execCancelAppointment,
 };
 
 export async function executeTool(
