@@ -110,7 +110,7 @@ import { wrapAngebotHtml } from '@/lib/email/angebot-email';
 import { wrapMailHtml } from '@/lib/email/mail-html';
 import { generateEmailContent } from '@/lib/email/generate-content';
 import type { EmailContent } from '@/lib/email/generate-content';
-import { getLists, createContact, sendEmail, getAccount, createCampaign, sendCampaignNow } from '@/lib/email/brevo';
+import { getLists, createContact, getContact, sendEmail, getAccount, createCampaign, sendCampaignNow } from '@/lib/email/brevo';
 import {
   getWizardState,
   setWizardState,
@@ -212,6 +212,8 @@ export const maxDuration = 60;
 // In-memory session for manual text editing (post caption)
 const textEditSessions = new Map<number, string>(); // chatId -> postId
 const planEditSessions = new Map<number, string>(); // chatId -> planId
+interface PendingBrevoContact { email: string; name: string; listIds: number[] }
+const pendingBrevoAdd = new Map<number, PendingBrevoContact>();
 
 interface TelegramUser {
   id: number;
@@ -292,6 +294,7 @@ const HELP_TEXT = [
   '  /email-outreach <şehir>  — Lokal business outreach emaili (19 şehir)',
   '  /email-reactivate <email> <isim> <proje> — Eski müşteriye yeniden aktivasyon maili',
   '  /email-lists             — Brevo email listelerini göster',
+  '  /liste ekle <email> [isim] — Email adresini Brevo kontakt listesine ekle',
   '',
   '🎯 Google Ads:',
   '  /ads new                — kampanya sihirbazı (AI metin + onay)',
@@ -1539,6 +1542,44 @@ async function handleMailSend(
         `Message-ID: ${result.messageId}`,
       ].join('\n'),
     });
+
+    // Post-send: ask about Brevo contact list for invoice/angebot sends
+    const isFromInvoice = draft.instruction?.startsWith('__FROM_INVOICE__:');
+    const isFromAngebot = draft.instruction?.startsWith('__FROM_ANGEBOT__:');
+    if (isFromInvoice || isFromAngebot) {
+      try {
+        const existing = await getContact(draft.to_email);
+        if (!existing) {
+          let recipientName = '';
+          const refId = draft.instruction!.split(':')[1];
+          if (refId) {
+            try {
+              const ref = await getInvoice(refId);
+              recipientName = ref?.recipient?.name ?? '';
+            } catch { /* ignore */ }
+          }
+
+          pendingBrevoAdd.set(chatId, {
+            email: draft.to_email,
+            name: recipientName,
+            listIds: emailListIds(),
+          });
+
+          await sendMessage({
+            chatId,
+            text: `📬 Bu emaili Brevo kontakt listesine eklemek ister misin?\n\n📧 ${draft.to_email}`,
+            replyMarkup: {
+              inline_keyboard: [
+                [
+                  { text: '✅ Evet', callback_data: 'brevo_add:yes' },
+                  { text: '❌ Hayır', callback_data: 'brevo_add:no' },
+                ],
+              ],
+            },
+          });
+        }
+      } catch { /* don't block mail send for Brevo prompt failures */ }
+    }
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     await updateDraft(draft.id, { error: msg.slice(0, 1000) });
@@ -3311,6 +3352,97 @@ async function handleEmailListsCommand(chatId: number): Promise<void> {
   }
 }
 
+async function handleListeEkleCommand(chatId: number, args: string): Promise<void> {
+  const parts = args.split(/\s+/).filter(Boolean);
+  if (parts.length === 0) {
+    await sendMessage({
+      chatId,
+      text: '⚠️ Kullanım: /liste ekle <email> [isim]\nÖrnek: /liste ekle ahmet@ornek.com Ahmet',
+    });
+    return;
+  }
+
+  const email = parts[0]!.trim().toLowerCase();
+  if (!/^[\w.+-]+@[\w-]+\.[\w.-]+$/.test(email)) {
+    await sendMessage({ chatId, text: `⚠️ "${email}" geçerli bir email adresi değil.` });
+    return;
+  }
+
+  const name = parts.slice(1).join(' ').trim();
+
+  try {
+    const existing = await getContact(email);
+    if (existing) {
+      const listInfo = existing.listIds?.length
+        ? ` (liste #${existing.listIds.join(', ')})`
+        : '';
+      await sendMessage({
+        chatId,
+        text: `ℹ️ ${email} zaten Brevo kontakt listesinde${listInfo}.`,
+      });
+      return;
+    }
+
+    const listIds = emailListIds();
+    if (listIds.length === 0) {
+      await sendMessage({
+        chatId,
+        text: '⚠️ BREVO_LIST_IDS env değişkeni ayarlanmamış.',
+      });
+      return;
+    }
+
+    await createContact({
+      email,
+      attributes: name ? { NAME: name } : {},
+      listIds,
+    });
+
+    await sendMessage({
+      chatId,
+      text: `✅ ${email}${name ? ` (${name})` : ''} Brevo kontakt listesine eklendi.`,
+    });
+  } catch (err) {
+    await notifyError(chatId, err);
+  }
+}
+
+async function handleBrevoAddCallback(
+  chatId: number,
+  messageId: number,
+  choice: string,
+): Promise<void> {
+  const pending = pendingBrevoAdd.get(chatId);
+  if (!pending) {
+    await sendMessage({ chatId, text: '⏰ Bu işlem zaman aşımına uğradı.' });
+    return;
+  }
+  pendingBrevoAdd.delete(chatId);
+
+  await editMessageReplyMarkup({ chatId, messageId, replyMarkup: undefined });
+
+  if (choice === 'yes') {
+    try {
+      await createContact({
+        email: pending.email,
+        attributes: pending.name ? { NAME: pending.name } : {},
+        listIds: pending.listIds,
+      });
+      await sendMessage({
+        chatId,
+        text: `✅ ${pending.email} Brevo kontakt listesine eklendi.`,
+      });
+    } catch (err) {
+      await notifyError(chatId, err);
+    }
+  } else {
+    await sendMessage({
+      chatId,
+      text: `👌 ${pending.email} listeye eklenmedi.`,
+    });
+  }
+}
+
 async function handleEmailOutreachCommand(chatId: number, city: string): Promise<void> {
   const validCities = [
     'Karben', 'Frankfurt', 'Bad Vilbel', 'Friedberg', 'Hanau', 'Bad Homburg',
@@ -4359,6 +4491,16 @@ async function handleCommand(
     return;
   }
 
+  if (trimmed.startsWith('/liste')) {
+    const rest = trimmed.replace(/^\/liste(@\w+)?\s*/, '').trim();
+    if (rest.toLowerCase().startsWith('ekle ')) {
+      await handleListeEkleCommand(chatId, rest.slice(5).trim());
+    } else {
+      await sendMessage({ chatId, text: '📋 Kullanım:\n/liste ekle <email> [isim]\nÖrnek: /liste ekle ahmet@ornek.com Ahmet Yılmaz' });
+    }
+    return;
+  }
+
   if (trimmed.startsWith('/email-outreach') || trimmed.startsWith('/email_outreach')) {
     const city = trimmed.replace(/^\/email[-_]outreach(@\w+)?\s*/, '').trim();
     if (!city) {
@@ -4466,27 +4608,12 @@ async function handleCommand(
         return;
       }
       const recipientEmail = trimmed.trim();
+      const invId = activeDraft.instruction.split(':')[1];
       const updated = await updateDraft(activeDraft.id, {
         to_email: recipientEmail,
-        instruction: '',
+        instruction: invId ? `__FROM_INVOICE__:${invId}` : '',
         status: 'drafting',
       });
-
-      // Auto-add to Brevo contact list (don't block on failure)
-      const invId = activeDraft.instruction.split(':')[1];
-      if (invId) {
-        try {
-          const invoice = await getInvoice(invId);
-          await createContact({
-            email: recipientEmail,
-            attributes: {
-              NAME: invoice?.recipient?.name ?? '',
-              COMPANY: invoice?.recipient?.company ?? '',
-            },
-            listIds: emailListIds(),
-          });
-        } catch { /* Brevo failure shouldn't block invoice sending */ }
-      }
 
       const sent = await sendMessage({
         chatId,
@@ -4508,27 +4635,12 @@ async function handleCommand(
         return;
       }
       const recipientEmail = trimmed.trim();
+      const angebotId = activeDraft.instruction.split(':')[1];
       const updated = await updateDraft(activeDraft.id, {
         to_email: recipientEmail,
-        instruction: '',
+        instruction: angebotId ? `__FROM_ANGEBOT__:${angebotId}` : '',
         status: 'drafting',
       });
-
-      // Auto-add to Brevo contact list (don't block on failure)
-      const angebotId = activeDraft.instruction.split(':')[1];
-      if (angebotId) {
-        try {
-          const angebot = await getInvoice(angebotId);
-          await createContact({
-            email: recipientEmail,
-            attributes: {
-              NAME: angebot?.recipient?.name ?? '',
-              COMPANY: angebot?.recipient?.company ?? '',
-            },
-            listIds: emailListIds(),
-          });
-        } catch { /* Brevo failure shouldn't block angebot sending */ }
-      }
 
       const sent = await sendMessage({
         chatId,
@@ -4752,6 +4864,8 @@ async function handleCallback(
       await handleSlotBack(chatId, postId);
     } else if (action === 'plan_cancel' && postId) {
       await handlePlanCancel(chatId, messageId, postId);
+    } else if (action === 'brevo_add') {
+      await handleBrevoAddCallback(chatId, messageId, postId ?? '');
     } else if (action === 'ads_type' && postId) {
       const typeStr = rest[0];
       const draft = await getAdsDraft(postId);

@@ -222,6 +222,18 @@ export const AGENT_TOOLS: AgentTool[] = [
       required: ['type'],
     },
   },
+  {
+    name: 'add_to_brevo_list',
+    description: 'Bir email adresini Brevo kontakt listesine EKLER. Kullanici "email kaydet", "listeye ekle", "kontakt ekle" gibi bir sey soylediginde kullan.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        email: { type: 'string', description: 'Eklenecek email adresi' },
+        name: { type: 'string', description: 'Istege bagli: kisinin adi' },
+      },
+      required: ['email'],
+    },
+  },
 
   // ── Google Ads ──
   {
@@ -1361,6 +1373,33 @@ async function execSendEmailCampaign(input: Record<string, unknown>): Promise<un
   return {
     note: `Email kampanyası başlatma (${campaignType}) — bu işlem Telegram üzerinden /email-${campaignType} ile yapılır. Agent üzerinden doğrudan başlatma henüz eklenmedi. Lütfen slash komut kullanın.`,
   };
+}
+
+async function execAddToBrevoList(input: Record<string, unknown>): Promise<unknown> {
+  const email = String(input.email ?? '').trim().toLowerCase();
+  if (!email || !/^[\w.+-]+@[\w-]+\.[\w.-]+$/.test(email)) {
+    return { error: 'Gecerli bir email adresi gerekli.' };
+  }
+  const name = typeof input.name === 'string' ? input.name.trim() : '';
+
+  const { getContact, createContact } = await import('@/lib/email/brevo');
+
+  const existing = await getContact(email);
+  if (existing) {
+    return { ok: true, alreadyExists: true, message: `${email} zaten Brevo listesinde mevcut.` };
+  }
+
+  const listIdsRaw = process.env.BREVO_LIST_IDS;
+  const listIds = listIdsRaw
+    ? listIdsRaw.split(',').map((s) => Number(s.trim())).filter((n) => Number.isFinite(n))
+    : [];
+  if (listIds.length === 0) {
+    return { error: 'BREVO_LIST_IDS env degiskeni ayarlanmamis.' };
+  }
+
+  await createContact({ email, attributes: name ? { NAME: name } : {}, listIds });
+
+  return { ok: true, added: email, name: name || null, message: `${email}${name ? ` (${name})` : ''} Brevo kontakt listesine eklendi.` };
 }
 
 async function execListAdsCampaigns(input: Record<string, unknown>): Promise<unknown> {
@@ -5154,6 +5193,7 @@ const EXECUTORS: Record<string, ToolExecutor> = {
   draft_social_reply: execDraftSocialReply,
   list_email_lists: execListEmailLists,
   send_email_campaign: execSendEmailCampaign,
+  add_to_brevo_list: execAddToBrevoList,
   list_ads_campaigns: execListAdsCampaigns,
   get_ads_status: execGetAdsStatus,
   generate_image: execGenerateImage,

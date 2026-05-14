@@ -51,6 +51,7 @@ export const SALES_AGENT: SwarmAgent = {
     'list_incoming_messages',
     'draft_social_reply',
     'auto_handle_inquiry',
+    'add_to_brevo_list',
   ],
   model: 'claude-sonnet-4-6',
 };
@@ -93,6 +94,7 @@ export const SOCIAL_AGENT: SwarmAgent = {
     'send_email_campaign',
     'get_system_status',
     'get_database_summary',
+    'add_to_brevo_list',
   ],
   model: 'claude-sonnet-4-6',
 };

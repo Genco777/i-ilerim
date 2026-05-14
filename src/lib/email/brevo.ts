@@ -57,6 +57,22 @@ export async function createContacts(contacts: BrevoContact[]) {
   });
 }
 
+export async function getContact(email: string): Promise<BrevoContact | null> {
+  try {
+    const data = await brevoFetch(`/contacts/${encodeURIComponent(email)}`);
+    return {
+      email: data.email,
+      attributes: data.attributes ?? {},
+      listIds: data.listIds?.map((l: { id: number }) => l.id) ?? [],
+    };
+  } catch (err) {
+    if (err instanceof Error && err.message.includes('404')) {
+      return null;
+    }
+    throw err;
+  }
+}
+
 export async function getLists() {
   const data = await brevoFetch('/contacts/lists?limit=50');
   return (data.lists ?? []) as { id: number; name: string; totalSubscribers: number }[];
