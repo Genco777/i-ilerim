@@ -95,6 +95,10 @@ export async function GET(req: Request): Promise<NextResponse> {
         body_text: mail.bodyText,
         received_at: mail.receivedAt,
       });
+
+      // Duplicate UID — skip notification (already processed previously)
+      if (!row) continue;
+
       try {
         if (isKleinanzeigenSender(mail.fromEmail)) {
           await handleKleinanzeigenMail({

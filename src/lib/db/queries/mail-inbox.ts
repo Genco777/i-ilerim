@@ -15,10 +15,13 @@ export async function getLastSeenUid(folder: string): Promise<number | null> {
 
 export async function insertInboxMessage(
   data: NewMailInbox,
-): Promise<MailInbox> {
-  const [row] = await db.insert(mailInbox).values(data).returning();
-  if (!row) throw new Error('Failed to insert mail_inbox row');
-  return row;
+): Promise<MailInbox | null> {
+  const [row] = await db
+    .insert(mailInbox)
+    .values(data)
+    .onConflictDoNothing({ target: [mailInbox.folder, mailInbox.uid] })
+    .returning();
+  return row ?? null;
 }
 
 export async function getInboxById(id: string): Promise<MailInbox | null> {
