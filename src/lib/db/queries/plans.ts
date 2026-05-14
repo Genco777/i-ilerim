@@ -35,6 +35,10 @@ export async function approvePlan(id: string): Promise<ContentPlan> {
   return updatePlan(id, { status: 'approved', approved_at: new Date() });
 }
 
+export async function cancelPlan(id: string): Promise<ContentPlan> {
+  return updatePlan(id, { status: 'draft' });
+}
+
 // ───── Slots ─────
 
 export async function createSlot(data: NewContentSlot): Promise<ContentSlot> {

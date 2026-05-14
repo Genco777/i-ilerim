@@ -228,7 +228,7 @@ export async function runAgentTurn(
     const isShortMessage = userText.length <= 8;
     const swarmPromise = (isShortMessage || !swarmEnabled)
       ? Promise.resolve({ reply: '', delegatedTo: '', toolCalls: 0, swarmed: false } as const)
-      : runSwarmTurn(userText);
+      : runSwarmTurn(userText, maxTurns);
 
     // Build system prompt in parallel with swarm
     const systemPromptPromise = buildSystemPrompt();

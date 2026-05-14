@@ -29,6 +29,7 @@ async function runSubAgentTurn(
   agent: SwarmAgent,
   userMessage: string,
   context: Record<string, unknown>,
+  maxTurns = 4,
 ): Promise<SwarmResult> {
   const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! });
   const tools = getToolDefinitions(agent);
@@ -42,10 +43,10 @@ async function runSubAgentTurn(
     { role: 'user', content: `${userMessage}${contextLines}` },
   ];
 
-  for (let turn = 0; turn < 2; turn++) {
+  for (let turn = 0; turn < maxTurns; turn++) {
     const response = await anthropic.messages.create({
       model: agent.model,
-      max_tokens: 800,
+      max_tokens: 1600,
       system: [
         { type: 'text', text: agent.systemPrompt },
         {
@@ -227,6 +228,7 @@ export async function delegateToAgent(
   agentName: string,
   task: string,
   context?: Record<string, unknown>,
+  maxTurns = 4,
 ): Promise<SwarmResult> {
   const agent = ALL_AGENTS[agentName];
   if (!agent) {
@@ -239,7 +241,7 @@ export async function delegateToAgent(
     };
   }
 
-  return runSubAgentTurn(agent, task, context ?? {});
+  return runSubAgentTurn(agent, task, context ?? {}, maxTurns);
 }
 
 // Paralel delegasyon — birden fazla ajana aynı anda görev ver
@@ -252,6 +254,7 @@ export async function delegateParallel(
 // Swarm modunda ana ajan yanıtını oluştur
 export async function runSwarmTurn(
   userMessage: string,
+  maxTurns = 4,
 ): Promise<{ reply: string; delegatedTo: string; toolCalls: number; swarmed: boolean }> {
   const route = routeToAgent(userMessage);
 
@@ -260,7 +263,7 @@ export async function runSwarmTurn(
     return { reply: '', delegatedTo: '', toolCalls: 0, swarmed: false };
   }
 
-  const result = await delegateToAgent(route.agent.name, userMessage);
+  const result = await delegateToAgent(route.agent.name, userMessage, undefined, maxTurns);
 
   const groupLabel = route.group ? ` │ ${AGENT_GROUPS[route.group].emoji} Grup ${route.group}` : '';
 
