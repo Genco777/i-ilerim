@@ -52,7 +52,7 @@ async function main() {
   }
 
   // Slotları say (bilgi amaçlı)
-  const ids = toDelete.map((p: { id: string }) => p.id);
+  const ids = (toDelete as Array<{ id: string }>).map((p) => p.id);
   const slotCount = await sql`
     SELECT count(*)::int AS count
     FROM content_slots
