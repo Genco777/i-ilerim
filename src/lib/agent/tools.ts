@@ -947,6 +947,119 @@ export const AGENT_TOOLS: AgentTool[] = [
     },
   },
 
+  // ── Content Plan Orchestration ──
+  {
+    name: 'generate_weekly_plan',
+    description: 'Bu hafta için içerik planı OLUŞTURUR (20 slot: gün, zaman, kategori, konu). Plan zaten varsa uyarır.',
+    input_schema: { type: 'object', properties: {}, required: [] },
+  },
+  {
+    name: 'generate_next_week_plan',
+    description: 'Gelecek hafta için içerik planı OLUŞTURUR (20 slot). Haftalık rutin planlama için kullan.',
+    input_schema: { type: 'object', properties: {}, required: [] },
+  },
+  {
+    name: 'list_content_plans',
+    description: 'Tüm içerik planlarını listeler (hafta, yıl, durum, slot sayısı). Geçmiş ve gelecek planları görmek için kullan.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        limit: { type: 'number', description: 'Kaç plan? Varsayılan 10.' },
+      },
+      required: [],
+    },
+  },
+  {
+    name: 'approve_plan',
+    description: 'Bir içerik planını ONAYLA. Onaylanan plan publish edilmeye hazır olur.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        planId: { type: 'string', description: 'Onaylanacak planın IDsi' },
+      },
+      required: ['planId'],
+    },
+  },
+  {
+    name: 'list_plan_slots',
+    description: 'Belirli bir planın slotlarını listeler (gün, saat, kategori, konu, durum).',
+    input_schema: {
+      type: 'object',
+      properties: {
+        planId: { type: 'string', description: 'Plan IDsi. Boş bırakılırsa bu haftanın planı.' },
+      },
+      required: [],
+    },
+  },
+  {
+    name: 'generate_slot_content',
+    description: 'Belirli bir slot için AI ile içerik ÜRET (metin + görsel). Post oluşturulur ve slota bağlanır.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        slotId: { type: 'string', description: 'İçerik üretilecek slot IDsi' },
+      },
+      required: ['slotId'],
+    },
+  },
+  {
+    name: 'approve_slot',
+    description: 'Bir içerik slotunu ONAYLA. Onaylanan slot yayınlanmaya hazır olur.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        slotId: { type: 'string', description: 'Onaylanacak slot IDsi' },
+      },
+      required: ['slotId'],
+    },
+  },
+  {
+    name: 'reject_slot',
+    description: 'Bir içerik slotunu REDDET (içerik yeniden üretilmesi için).',
+    input_schema: {
+      type: 'object',
+      properties: {
+        slotId: { type: 'string', description: 'Reddedilecek slot IDsi' },
+        reason: { type: 'string', description: 'Red nedeni (opsiyonel)' },
+      },
+      required: ['slotId'],
+    },
+  },
+  {
+    name: 'regenerate_post_image',
+    description: 'Mevcut bir post için görseli YENİDEN ÜRET (AI ile). Görsel beğenilmezse kullan.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        postId: { type: 'string', description: 'Görseli yenilenecek post IDsi' },
+      },
+      required: ['postId'],
+    },
+  },
+  {
+    name: 'regenerate_post_text',
+    description: 'Mevcut bir post için metni YENİDEN OLUŞTUR (AI ile). Metin beğenilmezse kullan.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        postId: { type: 'string', description: 'Metni yenilenecek post IDsi' },
+      },
+      required: ['postId'],
+    },
+  },
+  {
+    name: 'delete_old_plans',
+    description: 'Geçmiş haftalara ait içerik planlarını ve slotlarını VERİTABANINDAN SİL. Temizlik için kullan.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        beforeWeek: { type: 'number', description: 'Bu haftadan önceki planları sil. Boş bırakılırsa mevcut haftadan öncekiler silinir.' },
+        beforeYear: { type: 'number', description: 'Yıl filtresi (beforeWeek ile birlikte kullan). Boş bırakılırsa mevcut yıl.' },
+      },
+      required: [],
+    },
+  },
+
   // ── System Configuration ──
   {
     name: 'get_system_config',
@@ -5186,6 +5299,243 @@ async function execUpdateSystemConfig(input: Record<string, unknown>): Promise<u
   };
 }
 
+// ── Content Plan Orchestration Executors ──
+
+async function execGenerateWeeklyPlan(): Promise<unknown> {
+  const { generateWeeklyPlan, getCurrentWeek } = await import('@/lib/content/generate-plan');
+  const { getPlanByWeek } = await import('@/lib/db/queries/plans');
+  const { week, year } = getCurrentWeek();
+  const existing = await getPlanByWeek(week, year);
+  if (existing) {
+    return {
+      alreadyExists: true,
+      plan: { id: existing.id, week: existing.calendar_week, year: existing.year, status: existing.status },
+      message: `${week}. hafta plani zaten mevcut (${existing.status}). Yeni olusturmak icin once mevcut plani kaldirin.`,
+    };
+  }
+  const { plan, slots } = await generateWeeklyPlan(0);
+  return {
+    created: true,
+    plan: { id: plan.id, week: plan.calendar_week, year: plan.year, status: plan.status },
+    slotCount: slots.length,
+    topics: slots.map((s) => `[${s.pillar}] ${s.topic ?? '?'}`),
+    message: `${plan.calendar_week}. hafta plani olusturuldu: ${slots.length} slot.`,
+  };
+}
+
+async function execGenerateNextWeekPlan(): Promise<unknown> {
+  const { generateNextWeekPlan, getNextWeek } = await import('@/lib/content/generate-plan');
+  const { getPlanByWeek } = await import('@/lib/db/queries/plans');
+  const { week, year } = getNextWeek();
+  const existing = await getPlanByWeek(week, year);
+  if (existing) {
+    return {
+      alreadyExists: true,
+      plan: { id: existing.id, week: existing.calendar_week, year: existing.year, status: existing.status },
+      message: `${week}. hafta plani zaten mevcut (${existing.status}).`,
+    };
+  }
+  const { plan, slots } = await generateNextWeekPlan(0);
+  return {
+    created: true,
+    plan: { id: plan.id, week: plan.calendar_week, year: plan.year, status: plan.status },
+    slotCount: slots.length,
+    topics: slots.map((s) => `[${s.pillar}] ${s.topic ?? '?'}`),
+    message: `${plan.calendar_week}. hafta (gelecek) plani olusturuldu: ${slots.length} slot.`,
+  };
+}
+
+async function execListContentPlans(input: Record<string, unknown>): Promise<unknown> {
+  const { db } = await import('@/lib/db');
+  const { contentPlans, contentSlots } = await import('@/lib/db/schema');
+  const { desc, sql, eq } = await import('drizzle-orm');
+  const limit = typeof input.limit === 'number' ? input.limit : 10;
+
+  const plans = await db
+    .select()
+    .from(contentPlans)
+    .orderBy(desc(contentPlans.year), desc(contentPlans.calendar_week))
+    .limit(limit);
+
+  const results = await Promise.all(
+    plans.map(async (p) => {
+      const slots = await db
+        .select({ count: sql<number>`count(*)::int` })
+        .from(contentSlots)
+        .where(eq(contentSlots.plan_id, p.id));
+      return {
+        id: p.id,
+        week: p.calendar_week,
+        year: p.year,
+        status: p.status,
+        slotCount: slots[0]?.count ?? 0,
+        createdAt: p.created_at,
+        approvedAt: p.approved_at,
+      };
+    }),
+  );
+
+  return { count: results.length, plans: results };
+}
+
+async function execApprovePlan(input: Record<string, unknown>): Promise<unknown> {
+  const planId = String(input.planId ?? '');
+  if (!planId) return { error: 'planId gerekli.' };
+  const { approvePlan } = await import('@/lib/db/queries/plans');
+  const updated = await approvePlan(planId);
+  return {
+    approved: true,
+    plan: { id: updated.id, week: updated.calendar_week, year: updated.year, status: updated.status, approvedAt: updated.approved_at },
+    message: `Plan onaylandi: ${updated.calendar_week}. hafta / ${updated.year}.`,
+  };
+}
+
+async function execListPlanSlots(input: Record<string, unknown>): Promise<unknown> {
+  const { getSlotsByPlan, getPlanByWeek } = await import('@/lib/db/queries/plans');
+  const { getCurrentWeek } = await import('@/lib/content/generate-plan');
+
+  let planId = typeof input.planId === 'string' ? input.planId : '';
+  if (!planId) {
+    const { week, year } = getCurrentWeek();
+    const plan = await getPlanByWeek(week, year);
+    if (!plan) return { error: 'Bu hafta icin plan bulunamadi.' };
+    planId = plan.id;
+  }
+
+  const slots = await getSlotsByPlan(planId);
+  return {
+    planId,
+    slotCount: slots.length,
+    slots: slots.map((s) => ({
+      id: s.id,
+      day: s.day_of_week,
+      time: s.time_slot,
+      pillar: s.pillar,
+      channel: s.channel,
+      topic: s.topic,
+      status: s.status,
+      postId: s.post_id,
+    })),
+  };
+}
+
+async function execGenerateSlotContent(input: Record<string, unknown>): Promise<unknown> {
+  const slotId = String(input.slotId ?? '');
+  if (!slotId) return { error: 'slotId gerekli.' };
+
+  const { getSlot, updateSlot } = await import('@/lib/db/queries/plans');
+  const slot = await getSlot(slotId);
+  if (!slot) return { error: `Slot bulunamadi: ${slotId}` };
+  if (!slot.topic) return { error: `Slotun konusu yok: ${slotId}` };
+
+  const { generatePost } = await import('@/lib/content/generate-post');
+  const isStory = slot.channel === 'story' || slot.channel === 'reel';
+
+  const post = await generatePost({
+    topic: slot.topic,
+    channel: isStory ? 'ig_story' : 'post',
+    pillar: slot.pillar as never,
+    scheduledAt: slot.scheduled_at ?? undefined,
+  });
+
+  await updateSlot(slotId, { post_id: post.id, status: 'content_generated' });
+
+  return {
+    generated: true,
+    slotId,
+    postId: post.id,
+    topic: post.topic,
+    text: post.text_de,
+    hashtags: post.hashtags,
+    imageUrl: post.final_image_url,
+    message: `Icerik uretildi ve slota baglandi. Post ID: ${post.id}`,
+  };
+}
+
+async function execApproveSlot(input: Record<string, unknown>): Promise<unknown> {
+  const slotId = String(input.slotId ?? '');
+  if (!slotId) return { error: 'slotId gerekli.' };
+  const { updateSlot } = await import('@/lib/db/queries/plans');
+  const updated = await updateSlot(slotId, { status: 'approved' });
+  return {
+    approved: true,
+    slot: { id: updated.id, day: updated.day_of_week, time: updated.time_slot, pillar: updated.pillar, status: updated.status },
+    message: `Slot onaylandi: ${updated.pillar} - ${updated.topic}`,
+  };
+}
+
+async function execRejectSlot(input: Record<string, unknown>): Promise<unknown> {
+  const slotId = String(input.slotId ?? '');
+  if (!slotId) return { error: 'slotId gerekli.' };
+  const { updateSlot } = await import('@/lib/db/queries/plans');
+  const updated = await updateSlot(slotId, { status: 'pending', post_id: null });
+  return {
+    rejected: true,
+    slot: { id: updated.id, pillar: updated.pillar, topic: updated.topic, status: updated.status },
+    reason: typeof input.reason === 'string' ? input.reason : null,
+    message: 'Slot reddedildi. Yeniden icerik uretmek icin generate_slot_content kullanin.',
+  };
+}
+
+async function execRegeneratePostImage(input: Record<string, unknown>): Promise<unknown> {
+  const postId = String(input.postId ?? '');
+  if (!postId) return { error: 'postId gerekli.' };
+  const { regenerateImage } = await import('@/lib/content/generate-post');
+  const updated = await regenerateImage(postId);
+  return {
+    regenerated: true,
+    postId: updated.id,
+    newImageUrl: updated.final_image_url,
+    message: 'Gorsel yeniden uretildi.',
+  };
+}
+
+async function execRegeneratePostText(input: Record<string, unknown>): Promise<unknown> {
+  const postId = String(input.postId ?? '');
+  if (!postId) return { error: 'postId gerekli.' };
+  const { regenerateText } = await import('@/lib/content/generate-post');
+  const updated = await regenerateText(postId);
+  return {
+    regenerated: true,
+    postId: updated.id,
+    newText: updated.text_de,
+    newHashtags: updated.hashtags,
+    message: 'Metin yeniden uretildi.',
+  };
+}
+
+async function execDeleteOldPlans(input: Record<string, unknown>): Promise<unknown> {
+  const { getCurrentWeek } = await import('@/lib/content/generate-plan');
+  const { db } = await import('@/lib/db');
+  const { contentPlans } = await import('@/lib/db/schema');
+  const { lt, and, eq, or } = await import('drizzle-orm');
+
+  const { week: currentWeek, year: currentYear } = getCurrentWeek();
+  const beforeWeek = typeof input.beforeWeek === 'number' ? input.beforeWeek : currentWeek;
+  const beforeYear = typeof input.beforeYear === 'number' ? input.beforeYear : currentYear;
+
+  const deleted = await db
+    .delete(contentPlans)
+    .where(
+      or(
+        lt(contentPlans.year, beforeYear),
+        and(
+          eq(contentPlans.year, beforeYear),
+          lt(contentPlans.calendar_week, beforeWeek),
+        ),
+      ),
+    )
+    .returning({ id: contentPlans.id, week: contentPlans.calendar_week, year: contentPlans.year });
+
+  return {
+    deleted: deleted.length,
+    deletedPlans: deleted.map((p) => `${p.year}-W${p.week}`),
+    message: deleted.length > 0
+      ? `${deleted.length} eski plan (ve slotlari) silindi.`
+      : 'Silinecek eski plan bulunamadi.',
+  };
+}
+
 // ── Agent Delegation Executor ──
 
 async function execDelegateToAgent(input: Record<string, unknown>): Promise<unknown> {
@@ -5288,6 +5638,17 @@ const EXECUTORS: Record<string, ToolExecutor> = {
   manage_design_approval: execManageDesignApproval,
   get_system_config: execGetSystemConfig,
   update_system_config: execUpdateSystemConfig,
+  generate_weekly_plan: execGenerateWeeklyPlan,
+  generate_next_week_plan: execGenerateNextWeekPlan,
+  list_content_plans: execListContentPlans,
+  approve_plan: execApprovePlan,
+  list_plan_slots: execListPlanSlots,
+  generate_slot_content: execGenerateSlotContent,
+  approve_slot: execApproveSlot,
+  reject_slot: execRejectSlot,
+  regenerate_post_image: execRegeneratePostImage,
+  regenerate_post_text: execRegeneratePostText,
+  delete_old_plans: execDeleteOldPlans,
 };
 
 export async function executeTool(

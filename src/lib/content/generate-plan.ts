@@ -81,6 +81,135 @@ function pickLokalCities(week: number, count: number): string[] {
   return result;
 }
 
+
+// =============================================================================
+// ALMANYA (HESSEN) RESMI TATIL GUNLERi
+// Hesaplama: Easter + turevleri + sabit tarihler
+// =============================================================================
+
+function easterDate(year: number): Date {
+  // Anonymous Gregorian algorithm
+  const a = year % 19;
+  const b = Math.floor(year / 100);
+  const c = year % 100;
+  const d = Math.floor(b / 4);
+  const e = b % 4;
+  const f = Math.floor((b + 8) / 25);
+  const g = Math.floor((b - f + 1) / 3);
+  const h = (19 * a + b - d - g + 15) % 30;
+  const i = Math.floor(c / 4);
+  const k = c % 4;
+  const l = (32 + 2 * e + 2 * i - h - k) % 7;
+  const m = Math.floor((a + 11 * h + 22 * l) / 451);
+  const month = Math.floor((h + l - 7 * m + 114) / 31); // 1-based
+  const day = ((h + l - 7 * m + 114) % 31) + 1;
+  return new Date(year, month - 1, day);
+}
+
+function addDays(date: Date, days: number): Date {
+  const d = new Date(date);
+  d.setDate(d.getDate() + days);
+  return d;
+}
+
+function isoDate(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
+/**
+ * Returns a Map of ISO date string -> holiday name for Hessen (Germany).
+ * Includes: national holidays + Hessen-specific (Fronleichnam)
+ * + major commercial occasions (Valentinstag, Muttertag, Vatertag, Silvester).
+ */
+export function getHessenHolidays(year: number): Map<string, string> {
+  const holidays = new Map<string, string>();
+  const easter = easterDate(year);
+
+  // Fixed national holidays
+  holidays.set(`${year}-01-01`, 'Neujahr');
+  holidays.set(`${year}-05-01`, 'Tag der Arbeit');
+  holidays.set(`${year}-10-03`, 'Tag der Deutschen Einheit');
+  holidays.set(`${year}-12-25`, '1. Weihnachtstag');
+  holidays.set(`${year}-12-26`, '2. Weihnachtstag');
+
+  // Moveable national holidays
+  holidays.set(isoDate(addDays(easter, -2)), 'Karfreitag');
+  holidays.set(isoDate(addDays(easter, 1)),  'Ostermontag');
+  holidays.set(isoDate(addDays(easter, 39)), 'Christi Himmelfahrt');
+  holidays.set(isoDate(addDays(easter, 50)), 'Pfingstmontag');
+
+  // Hessen-specific: Fronleichnam (60 days after Easter)
+  holidays.set(isoDate(addDays(easter, 60)), 'Fronleichnam');
+
+  // === Commercial occasions (not public holidays, but great for social media) ===
+  // Valentinstag — Feb 14
+  holidays.set(`${year}-02-14`, 'Valentinstag');
+
+  // Muttertag — 2nd Sunday in May
+  const may1 = new Date(year, 4, 1);
+  const firstSundayInMay = (7 - may1.getDay()) % 7;
+  const muttertag = new Date(year, 4, 1 + firstSundayInMay + 7);
+  holidays.set(isoDate(muttertag), 'Muttertag');
+
+  // Vatertag — same as Christi Himmelfahrt (always Thursday)
+  // (already added above as Christi Himmelfahrt)
+  // But let's rename it for social context
+  const himmelfahrt = isoDate(addDays(easter, 39));
+  holidays.set(himmelfahrt, 'Christi Himmelfahrt / Vatertag');
+
+  // Nikolaus — Dec 6 (not holiday but big in Germany)
+  holidays.set(`${year}-12-06`, 'Nikolaustag');
+
+  // Silvester — Dec 31
+  holidays.set(`${year}-12-31`, 'Silvester');
+
+  // 1. Advent (4th Sunday before Christmas)
+  const christmas = new Date(year, 11, 25);
+  const dayOfWeek = christmas.getDay(); // 0=Sun
+  const daysToSunday = dayOfWeek === 0 ? 0 : 7 - dayOfWeek;
+  const advent4 = new Date(year, 11, 25 - (dayOfWeek === 0 ? 7 : dayOfWeek));
+  const advent1 = addDays(advent4, -21);
+  holidays.set(isoDate(advent1), '1. Advent');
+
+  // Halloween — Oct 31 (commercial, popular in Germany)
+  holidays.set(`${year}-10-31`, 'Halloween');
+
+  return holidays;
+}
+
+/**
+ * Returns ISO date strings for all 7 days of a given calendar week (Mon-Sun, ISO week).
+ */
+export function getWeekDates(week: number, year: number): string[] {
+  // Find Jan 4 (always in week 1 of ISO year)
+  const jan4 = new Date(year, 0, 4);
+  const jan4Day = jan4.getDay() || 7; // 1=Mon, 7=Sun
+  const weekStart = new Date(jan4);
+  weekStart.setDate(jan4.getDate() - (jan4Day - 1) + (week - 1) * 7);
+  return Array.from({ length: 7 }, (_, i) => isoDate(addDays(weekStart, i)));
+}
+
+/**
+ * Given a week's dates, returns any Hessen holidays that fall in that week.
+ * Returns array of { date, dayIndex (0=Mon), holidayName }
+ */
+export function getHolidaysInWeek(
+  week: number,
+  year: number,
+): Array<{ date: string; dayIndex: number; name: string }> {
+  const dates = getWeekDates(week, year);
+  const holidays = getHessenHolidays(year);
+  const result: Array<{ date: string; dayIndex: number; name: string }> = [];
+  dates.forEach((date, i) => {
+    const name = holidays.get(date);
+    if (name) result.push({ date, dayIndex: i, name });
+  });
+  return result;
+}
+
 function systemPrompt(week: number, year: number): string {
   const slotCount = WEEKLY_CALENDAR.length;
   const slotPlan = WEEKLY_CALENDAR.map((s, i) => {
@@ -240,6 +369,58 @@ function buildSlotData(planId: string, topics: string[]) {
   }));
 }
 
+
+// ── Holiday slot injection ────────────────────────────────────────────────────
+async function addHolidaySlots(
+  planId: string,
+  week: number,
+  year: number,
+): Promise<ContentSlot[]> {
+  const weekHolidays = getHolidaysInWeek(week, year);
+  if (weekHolidays.length === 0) return [];
+
+  const { createSlot } = await import('@/lib/db/queries/plans');
+  const slots: ContentSlot[] = [];
+
+  for (const { dayIndex, name } of weekHolidays) {
+    // Generate a topical German holiday post
+    const holidayTopics: Record<string, string> = {
+      'Neujahr': 'Frohes Neues Jahr! Fly & Froth wuenscht euch einen guten Start ins neue Jahr -- und einen frischen Markenauftritt.',
+      'Karfreitag': 'Stille schaffen: Auch im Design braucht man manchmal Pause -- Karfreitag, Zeit zum Durchatmen.',
+      'Ostermontag': 'Frohe Ostern von Fly & Froth! Neue Saison, neue Projekte -- jetzt beraten lassen.',
+      'Tag der Arbeit': 'Zum Tag der Arbeit: Handwerk, Design und Leidenschaft gehoeren zusammen. Danke an alle fleissigen Unternehmer im Rhein-Main-Gebiet.',
+      'Christi Himmelfahrt / Vatertag': 'Vatertag im Rhein-Main: Gutes Design ist wie ein guter Vater -- zuverlaessig, klar und immer auf den Punkt.',
+      'Christi Himmelfahrt': 'Feiertag, aber die Ideen arbeiten weiter. Was koennen wir fuer euer naechstes Projekt planen?',
+      'Pfingstmontag': 'Pfingstmontag -- Zeit fuer neue Impulse! Wie frisch ist euer Markenauftritt noch?',
+      'Fronleichnam': 'Feiertag in Hessen: Wir schaffen den Raum, damit eure Marke zum Strahlen kommt.',
+      'Tag der Deutschen Einheit': 'Tag der Deutschen Einheit: Starke Marken verbinden -- so wie ein gutes Design Unternehmen mit ihren Kunden verbindet.',
+      'Nikolaustag': 'Nikolaus ist da! Habt ihr schon an eure Weihnachtskampagne gedacht? Fly & Froth hilft.',
+      '1. Weihnachtstag': 'Frohe Weihnachten von Fly & Froth! Wir danken allen Kunden fuer ein wunderbares Jahr.',
+      '2. Weihnachtstag': 'Weihnachten: Zeit fuer Familie -- und fuer neue Design-Traeume fuer das naechste Jahr.',
+      'Silvester': 'Silvester: Das alte Jahr hat gute Projekte gebracht. Was plant ihr fuer 2026? Fly & Froth ist dabei.',
+      'Valentinstag': 'Valentinstag: Zeigt eurer Zielgruppe, dass ihr sie liebt -- mit einem Auftritt, der begeistert.',
+      'Muttertag': 'Muttertag: Danke an alle Mamas -- auch die, die nebenbei ihr eigenes Business fuehren!',
+      'Halloween': 'Halloween: Erschreckt eure Konkurrenz -- mit einem Markenauftritt, der wirklich aufhorchen laesst.',
+      '1. Advent': '1. Advent: Die Weihnachtszeit beginnt. Ist euer Markenauftritt bereit fuer die wichtigste Saison des Jahres?',
+    };
+
+    const topic = holidayTopics[name] ?? `${name}: Fly & Froth wuenscht einen schoenen Feiertag im Rhein-Main-Gebiet.`;
+
+    const slot = await createSlot({
+      plan_id: planId,
+      day_of_week: dayIndex,
+      time_slot: '11:00',
+      pillar: 'lokal' as ContentPillar,
+      channel: 'feed',
+      topic,
+      status: 'pending',
+    });
+    slots.push(slot);
+  }
+
+  return slots;
+}
+
 export async function generateWeeklyPlan(chatId: number): Promise<{ plan: ContentPlan; slots: ContentSlot[] }> {
   const { week, year } = getCurrentWeek();
 
@@ -268,7 +449,9 @@ export async function generateWeeklyPlan(chatId: number): Promise<{ plan: Conten
     telegram_chat_id: chatId,
   });
 
-  const slots = await createSlots(buildSlotData(plan.id, topics));
+  const baseSlots = await createSlots(buildSlotData(plan.id, topics));
+  const holidaySlots = await addHolidaySlots(plan.id, week, year);
+  const slots = [...baseSlots, ...holidaySlots];
 
   return { plan, slots };
 }
@@ -300,7 +483,9 @@ export async function generateNextWeekPlan(chatId: number): Promise<{ plan: Cont
     telegram_chat_id: chatId,
   });
 
-  const slots = await createSlots(buildSlotData(plan.id, topics));
+  const baseSlots = await createSlots(buildSlotData(plan.id, topics));
+  const holidaySlots = await addHolidaySlots(plan.id, week, year);
+  const slots = [...baseSlots, ...holidaySlots];
 
   return { plan, slots };
 }

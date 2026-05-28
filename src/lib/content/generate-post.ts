@@ -4,12 +4,7 @@ import { composeLogo, applyGoldTint, cropToStoryAspect, cropToSquare } from '@/l
 import { uploadImage } from '@/lib/blob';
 import { getBrandKit } from '@/lib/db/queries/brand-kit';
 import { createPost, getPost, updatePost } from '@/lib/db/queries/posts';
-import { pickPortfolioImage } from '@/lib/content/website-images';
 import type { Post, ImageProvider, ContentPillar } from '@/types';
-
-function appBaseUrl(): string {
-  return process.env.APP_URL ?? 'https://admin.fly-froth.com';
-}
 
 export type ContentChannel = 'post' | 'ig_story';
 
@@ -68,69 +63,16 @@ export async function generatePost(opts: GeneratePostOpts): Promise<Post> {
       : undefined,
   });
 
-  // 2. Image: real portfolio images for vitrine/prozess, AI for insight/lokal/reel
+  // 2. Image — always AI generated (no portfolio/website images)
   let rawBuffer!: Buffer;
   let imageProvider: string | null = null;
   let imagePrompt: string | null = null;
-  let imageSource: 'ai_generated' | 'manual_upload' = 'ai_generated';
-
-  const useRealImage = !opts.manualImageBuffer
-    && (opts.pillar === 'vitrine' || opts.pillar === 'prozess');
+  const imageSource: 'ai_generated' | 'manual_upload' = opts.manualImageBuffer
+    ? 'manual_upload'
+    : 'ai_generated';
 
   if (opts.manualImageBuffer) {
     rawBuffer = opts.manualImageBuffer;
-    imageSource = 'manual_upload';
-  } else if (useRealImage) {
-    // Try real portfolio image from CDN; Vercel self-fetch can deadlock so
-    // use a short timeout and fall back to AI if the CDN isn't reachable.
-    const picked = pickPortfolioImage(opts.topic, opts.pillar);
-    const imageUrl = `${appBaseUrl()}${picked.path}`;
-    let fetched = false;
-    const controller = new AbortController();
-    const t = setTimeout(() => controller.abort(), 10_000);
-    try {
-      const res = await fetch(imageUrl, { signal: controller.signal });
-      if (res.ok) {
-        rawBuffer = Buffer.from(await res.arrayBuffer());
-        imageSource = 'manual_upload';
-        imageProvider = 'website';
-        imagePrompt = `Real portfolio: ${picked.description} (${picked.service})`;
-        fetched = true;
-      }
-    } catch {
-      // fetch failed or timed out — fall through to AI generation below
-    } finally {
-      clearTimeout(t);
-    }
-    if (!fetched) {
-      // Fall back to AI image generation
-      imagePrompt = buildImagePrompt(
-        opts.topic,
-        brandKit,
-        isStory ? 'ig_story' : 'ig_post',
-        opts.pillar,
-      );
-      if (opts.pillar) {
-        const result = await generateImageRouted(
-          imagePrompt,
-          opts.pillar,
-          opts.topic,
-          {
-            forceProvider: opts.forceProvider,
-            aspectRatio: isStory ? '9:16' : '1:1',
-          },
-        );
-        rawBuffer = result.buffer;
-        imageProvider = result.provider;
-      } else {
-        const result = await generateImage(imagePrompt, {
-          forceProvider: opts.forceProvider,
-          aspectRatio: isStory ? '9:16' : '1:1',
-        });
-        rawBuffer = result.buffer;
-        imageProvider = result.provider;
-      }
-    }
   } else {
     imagePrompt = buildImagePrompt(
       opts.topic,
@@ -139,7 +81,6 @@ export async function generatePost(opts: GeneratePostOpts): Promise<Post> {
       opts.pillar,
     );
 
-    // Use routed pipeline when pillar is known, fallback to generic generateImage
     if (opts.pillar) {
       const result = await generateImageRouted(
         imagePrompt,
@@ -215,43 +156,9 @@ export async function regenerateImage(postId: string): Promise<Post> {
   }
   const brandKit = await getBrandKit();
 
-  const useRealImage = post.content_pillar === 'vitrine' || post.content_pillar === 'prozess';
-
-  let buffer!: Buffer;
-  let provider: string | null = null;
-  let prompt: string | null = null;
-
-  if (useRealImage) {
-    const picked = pickPortfolioImage(post.topic, post.content_pillar ?? undefined);
-    const imageUrl = `${appBaseUrl()}${picked.path}`;
-    let fetched = false;
-    const controller = new AbortController();
-    const t = setTimeout(() => controller.abort(), 10_000);
-    try {
-      const fetchRes = await fetch(imageUrl, { signal: controller.signal });
-      if (fetchRes.ok) {
-        buffer = Buffer.from(await fetchRes.arrayBuffer());
-        provider = 'website';
-        prompt = `Real portfolio: ${picked.description} (${picked.service})`;
-        fetched = true;
-      }
-    } catch {
-      // fall through to AI generation
-    } finally {
-      clearTimeout(t);
-    }
-    if (!fetched) {
-      prompt = buildImagePrompt(post.topic, brandKit, undefined, post.content_pillar ?? undefined);
-      const result = await generateImage(prompt);
-      buffer = result.buffer;
-      provider = result.provider;
-    }
-  } else {
-    prompt = buildImagePrompt(post.topic, brandKit, undefined, post.content_pillar ?? undefined);
-    const result = await generateImage(prompt);
-    buffer = result.buffer;
-    provider = result.provider;
-  }
+  // Always AI-generated — never use portfolio/website images
+  const prompt = buildImagePrompt(post.topic, brandKit, undefined, post.content_pillar ?? undefined);
+  const { buffer, provider } = await generateImage(prompt);
 
   const isStoryRegen = post.channel === 'story' || post.channel === 'reel';
   const sizedBuffer = isStoryRegen

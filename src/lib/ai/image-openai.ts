@@ -10,30 +10,71 @@ function getClient(): OpenAI {
   return _client;
 }
 
-export type ImageQuality = 'low' | 'medium' | 'high' | 'auto';
-export type ImageSize = '1024x1024' | '1024x1536' | '1536x1024';
+export type ImageModel = 'gpt-image-2' | 'dall-e-3' | 'gpt-image-1';
+
+// DALL-E 3 sizes: 1024x1024 | 1024x1792 (portrait 9:16) | 1792x1024 (landscape 16:9)
+// gpt-image-1 sizes: 1024x1024 | 1024x1536 (portrait) | 1536x1024 (landscape)
+export type ImageSize =
+  | '1024x1024'
+  | '1024x1792'
+  | '1792x1024'
+  | '1024x1536'
+  | '1536x1024';
 
 export async function openaiGenerate(
   prompt: string,
-  opts?: { quality?: ImageQuality; size?: ImageSize },
+  opts?: { size?: ImageSize; model?: ImageModel },
 ): Promise<Buffer> {
-  const quality =
-    opts?.quality ??
-    (process.env.IMAGE_QUALITY as ImageQuality | undefined) ??
-    'high';
+  const model: ImageModel =
+    opts?.model ??
+    (process.env.IMAGE_MODEL as ImageModel | undefined) ??
+    'gpt-image-2';
+
   const size = opts?.size ?? '1024x1024';
 
-  const result = await getClient().images.generate({
-    model: 'gpt-image-1',
-    prompt,
-    size,
-    quality,
-    n: 1,
-  });
+  // gpt-image-2: same API as gpt-image-1 (b64_json, quality: low/medium/high)
+  if (model === 'gpt-image-2' || model === 'gpt-image-1') {
+    const gptSize = (
+      size === '1024x1792' ? '1024x1536'
+      : size === '1792x1024' ? '1536x1024'
+      : size
+    ) as '1024x1024' | '1024x1536' | '1536x1024';
 
-  const b64 = result.data?.[0]?.b64_json;
-  if (!b64) {
-    throw new Error('OpenAI gpt-image-1 returned no b64_json');
+    const result = await getClient().images.generate({
+      model,
+      prompt,
+      size: gptSize,
+      quality: 'high',
+      n: 1,
+    });
+
+    const b64 = result.data?.[0]?.b64_json;
+    if (!b64) throw new Error(`${model} returned no b64_json`);
+    return Buffer.from(b64, 'base64');
   }
-  return Buffer.from(b64, 'base64');
+
+  if (model === 'dall-e-3') {
+    // DALL-E 3 supports only three sizes
+    const dalle3Size: '1024x1024' | '1024x1792' | '1792x1024' =
+      size === '1024x1536' || size === '1024x1792'
+        ? '1024x1792'
+        : size === '1536x1024' || size === '1792x1024'
+          ? '1792x1024'
+          : '1024x1024';
+
+    const result = await getClient().images.generate({
+      model: 'dall-e-3',
+      prompt,
+      size: dalle3Size,
+      quality: 'hd',
+      response_format: 'b64_json',
+      n: 1,
+    });
+
+    const b64 = result.data?.[0]?.b64_json;
+    if (!b64) throw new Error('DALL-E 3 returned no b64_json');
+    return Buffer.from(b64, 'base64');
+  }
+
+  throw new Error(`Desteklenmeyen IMAGE_MODEL: ${model}`);
 }
