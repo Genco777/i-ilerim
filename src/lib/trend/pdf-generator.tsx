@@ -192,26 +192,35 @@ const styles = StyleSheet.create({
     fontFamily: 'Helvetica-Bold',
     color: COLORS.accent,
   },
-  // Template sections
+  // Template sections — compact so all 3 sections fit one A4 page
   sectionHeading: {
     fontFamily: 'Helvetica-Bold',
-    fontSize: 13,
-    marginTop: 16,
-    marginBottom: 8,
+    fontSize: 12,
+    marginTop: 14,
+    marginBottom: 6,
     color: COLORS.accent,
   },
   sectionItem: {
     flexDirection: 'row',
-    marginBottom: 6,
+    marginBottom: 4,
   },
   sectionBullet: {
-    width: 12,
+    width: 10,
     color: COLORS.muted,
   },
   sectionItemText: {
     flex: 1,
-    fontSize: 10.5,
-    lineHeight: 1.5,
+    fontSize: 10,
+    lineHeight: 1.4,
+  },
+  templateFooterNote: {
+    marginTop: 20,
+    paddingTop: 10,
+    borderTopWidth: 0.5,
+    borderTopColor: COLORS.rule,
+    fontSize: 9,
+    color: COLORS.muted,
+    lineHeight: 1.4,
   },
   // Poster
   posterPage: {
@@ -399,12 +408,17 @@ function TemplateSectionsPage({
   sections,
   niche,
   content,
+  isSocial,
 }: {
   sections: NonNullable<PdfBody['templateSections']>;
   niche: NicheCandidate;
   content: ProductContent;
+  isSocial: boolean;
 }) {
   const logo = loadLogo();
+  const footerNote = isSocial
+    ? 'Recreate this layout in Canva or Figma at 1080×1080 (feed) or 1080×1350 (reels). Keep the hierarchy: hook → body → soft CTA. Maintain colour palette across the series.'
+    : 'Print at 100 % scale on A4. For repeated handling use 100-120 gsm paper. To rebuild in Notion or Google Docs, follow the section headings above as your top-level structure.';
   return (
     <Page size="A4" style={styles.page}>
       <Text style={styles.pageEyebrow}>OVERVIEW</Text>
@@ -412,7 +426,7 @@ function TemplateSectionsPage({
       <View style={styles.rule} />
       <Text style={styles.body}>{niche.gapAngle}</Text>
       {sections.map((s, i) => (
-        <View key={i}>
+        <View key={i} wrap={false}>
           <Text style={styles.sectionHeading}>{s.heading}</Text>
           {s.items.map((item, j) => (
             <View key={j} style={styles.sectionItem}>
@@ -422,6 +436,7 @@ function TemplateSectionsPage({
           ))}
         </View>
       ))}
+      <Text style={styles.templateFooterNote}>{footerNote}</Text>
       <Text style={styles.footer} fixed>
         Fly & Froth • Template overview
       </Text>
@@ -563,11 +578,17 @@ function buildDocument(
         body.templateSections && body.templateSections.length > 0
           ? body.templateSections
           : fallbackTemplateSections(niche, content);
+      const isSocial = niche.productHint === 'social_template';
+      // Template type: cover + 1 sections page (printing note inline, no separate How-To page).
       return (
         <Document title={content.shopTitle}>
-          <CoverPage title={content.shopTitle} subtitle={subtitle} heroUrl={heroUrl} pageCount={3} />
-          <TemplateSectionsPage sections={sections} niche={niche} content={content} />
-          <HowToUsePage type={niche.productHint} />
+          <CoverPage title={content.shopTitle} subtitle={subtitle} heroUrl={heroUrl} pageCount={2} />
+          <TemplateSectionsPage
+            sections={sections}
+            niche={niche}
+            content={content}
+            isSocial={isSocial}
+          />
         </Document>
       );
     }
