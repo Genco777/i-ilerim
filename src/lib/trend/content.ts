@@ -208,10 +208,18 @@ function validateAndNormalize(
   raw: Record<string, unknown>,
   niche: NicheCandidate,
 ): ProductContent {
-  const etsyTitle = typeof raw.etsy_title === 'string' ? raw.etsy_title.trim() : '';
+  let etsyTitle = typeof raw.etsy_title === 'string' ? raw.etsy_title.trim() : '';
   if (etsyTitle.length === 0) throw new Error('etsy_title missing');
+  // Be tolerant: Claude sometimes overshoots by 1-3 chars. Trim at word
+  // boundary if possible, then hard-cut. 140 is Etsy's actual limit.
   if (etsyTitle.length > 140) {
-    throw new Error(`etsy_title too long (${etsyTitle.length} chars, max 140)`);
+    const head = etsyTitle.slice(0, 140);
+    const lastPipe = head.lastIndexOf(' | ');
+    const lastSpace = head.lastIndexOf(' ');
+    // Prefer cutting at a section break (|), else at last word
+    if (lastPipe > 100) etsyTitle = head.slice(0, lastPipe).trim();
+    else if (lastSpace > 100) etsyTitle = head.slice(0, lastSpace).trim();
+    else etsyTitle = head.trim();
   }
 
   const etsyDescription = typeof raw.etsy_description === 'string' ? raw.etsy_description.trim() : '';

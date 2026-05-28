@@ -19,7 +19,9 @@ import { eq } from 'drizzle-orm';
 import { discoverNiches, type NicheCandidate } from './discovery';
 import { generateProductContent, type ProductContent } from './content';
 import { generateHeroVisual } from './visual';
-import { sendPhoto } from '@/lib/telegram/bot';
+import { generateProductPdf } from './pdf-generator';
+import { uploadImage } from '@/lib/blob';
+import { sendPhoto, sendDocument } from '@/lib/telegram/bot';
 import { productApprovalKeyboard } from '@/lib/telegram/product-approval-keyboard';
 import { formatProductCaption } from './approval-handlers';
 
@@ -219,16 +221,42 @@ export async function runDailyTrendPipeline(
         turkishSummary: content.turkishSummary,
       });
 
-      // ── Faz 2-A + 2-B: hero + mockups + Telegram approval card ──
+      // ── Faz 2-A + 2-B + 2-C: hero + mockups + PDF + Telegram approval card ──
       if (generateVisuals && approvalChatIds.length > 0) {
         try {
           const hero = await generateHeroVisual(candidate, content, insertedProduct.id);
+
+          // ── Faz 2-C: generate PDF (best-effort, hero already exists) ──
+          let pdfUrl: string | null = null;
+          let pdfSize: number | null = null;
+          let pdfBuffer: Buffer | null = null;
+          try {
+            const pdfResult = await generateProductPdf(candidate, content, hero.url);
+            const pdfFilename = `trend/${insertedProduct.id}/product-${Date.now()}.pdf`;
+            const uploadedPdf = await uploadImage(
+              pdfResult.buffer,
+              pdfFilename,
+              'application/pdf',
+            );
+            pdfUrl = uploadedPdf.url;
+            pdfSize = pdfResult.sizeBytes;
+            pdfBuffer = pdfResult.buffer;
+          } catch (pdfErr) {
+            console.error('[trend] PDF generation failed', pdfErr);
+            summary.errors.push(
+              `PDF gen failed for "${candidate.topic}": ${
+                pdfErr instanceof Error ? pdfErr.message.slice(0, 200) : String(pdfErr)
+              }`,
+            );
+          }
 
           await db
             .update(products)
             .set({
               hero_image_url: hero.url,
               mockup_image_urls: hero.mockupUrls ?? [],
+              digital_file_url: pdfUrl,
+              digital_file_size_bytes: pdfSize,
               updated_at: new Date(),
             })
             .where(eq(products.id, insertedProduct.id));
@@ -261,6 +289,22 @@ export async function runDailyTrendPipeline(
                     telegram_approval_msg_id: String(sent.message_id),
                   })
                   .where(eq(products.id, insertedProduct.id));
+              }
+
+              // Send PDF as a Telegram document (no buttons — review/download only)
+              if (pdfBuffer) {
+                try {
+                  const sizeKb = pdfSize ? (pdfSize / 1024).toFixed(0) : '?';
+                  await sendDocument({
+                    chatId,
+                    document: pdfBuffer,
+                    filename: `${content.slug || 'product'}.pdf`,
+                    mime: 'application/pdf',
+                    caption: `📄 Ürün PDF • ${sizeKb} KB`,
+                  });
+                } catch (docErr) {
+                  console.error('[trend] sendDocument failed for chat', chatId, docErr);
+                }
               }
             } catch (sendErr) {
               console.error('[trend] sendPhoto failed for chat', chatId, sendErr);

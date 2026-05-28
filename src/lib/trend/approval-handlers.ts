@@ -24,6 +24,9 @@ import {
   clearedKeyboard,
 } from '@/lib/telegram/product-approval-keyboard';
 import { generateHeroVisual } from './visual';
+import { generateProductPdf } from './pdf-generator';
+import { uploadImage } from '@/lib/blob';
+import { sendDocument } from '@/lib/telegram/bot';
 import type { NicheCandidate } from './discovery';
 
 // ─────────────────────────────────────────────────────────────
@@ -197,11 +200,28 @@ export async function handleTrendRegenVisual(
   try {
     const hero = await generateHeroVisual(nicheShape, contentShape, productId);
 
+    // Regenerate PDF too (cover page embeds the new hero).
+    let pdfUrl: string | null = null;
+    let pdfSize: number | null = null;
+    let pdfBuffer: Buffer | null = null;
+    try {
+      const pdfResult = await generateProductPdf(nicheShape, contentShape, hero.url);
+      const pdfFilename = `trend/${productId}/product-${Date.now()}.pdf`;
+      const uploaded = await uploadImage(pdfResult.buffer, pdfFilename, 'application/pdf');
+      pdfUrl = uploaded.url;
+      pdfSize = pdfResult.sizeBytes;
+      pdfBuffer = pdfResult.buffer;
+    } catch (pdfErr) {
+      console.error('[trend] regen PDF failed', pdfErr);
+    }
+
     await db
       .update(products)
       .set({
         hero_image_url: hero.url,
         mockup_image_urls: hero.mockupUrls ?? [],
+        digital_file_url: pdfUrl ?? product.digital_file_url,
+        digital_file_size_bytes: pdfSize ?? product.digital_file_size_bytes,
         updated_at: new Date(),
       })
       .where(eq(products.id, productId));
@@ -217,6 +237,22 @@ export async function handleTrendRegenVisual(
       caption: formatProductCaption(product, nicheShape),
       replyMarkup: productApprovalKeyboard(productId),
     });
+
+    // Send fresh PDF too
+    if (pdfBuffer) {
+      try {
+        const sizeKb = pdfSize ? (pdfSize / 1024).toFixed(0) : '?';
+        await sendDocument({
+          chatId,
+          document: pdfBuffer,
+          filename: `${product.slug || 'product'}.pdf`,
+          mime: 'application/pdf',
+          caption: `📄 Yenilenen PDF • ${sizeKb} KB`,
+        });
+      } catch (docErr) {
+        console.error('[trend] regen sendDocument failed', docErr);
+      }
+    }
   } catch (err) {
     console.error('[trend] regen visual failed', err);
     await sendMessage({
