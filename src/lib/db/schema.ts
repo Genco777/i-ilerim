@@ -806,3 +806,120 @@ export const systemConfig = pgTable('system_config', {
   description: text('description'),
   updated_at: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });
+
+// ═══════════════════════════════════════════════════════════════
+// TREND ENGINE — Faz 1: niches + products + niche_performance
+// (channel listings, sales, download tokens come in Faz 3–4)
+// ═══════════════════════════════════════════════════════════════
+
+export const productType = pgEnum('product_type', [
+  'planner',
+  'poster',
+  'sticker',
+  'template',
+  'social_template',
+]);
+
+export const productStatus = pgEnum('product_status', [
+  'draft',
+  'awaiting_approval',
+  'approved',
+  'published',
+  'rejected',
+  'failed',
+]);
+
+export const competitionLevel = pgEnum('competition_level', [
+  'low',
+  'medium',
+  'high',
+]);
+
+// ── Niches: discovered trends with gap analysis ──
+export const niches = pgTable(
+  'niches',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    topic: text('topic').notNull(),
+    gap_angle: text('gap_angle').notNull(),
+    score: real('score').notNull(), // 0-100
+    competition: competitionLevel('competition').notNull().default('medium'),
+    source_signals: jsonb('source_signals').$type<string[]>().default([]),
+    raw_analysis: jsonb('raw_analysis').$type<Record<string, unknown>>().default({}),
+    used_in_product_id: uuid('used_in_product_id'),
+    discovered_at: timestamp('discovered_at', { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => ({
+    scoreIdx: index('niche_score_idx').on(t.score.desc()),
+    discoveredIdx: index('niche_discovered_idx').on(t.discovered_at.desc()),
+  }),
+);
+
+// ── Products: full product spec (content + assets + status) ──
+export const products = pgTable(
+  'products',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    niche_id: uuid('niche_id').references(() => niches.id),
+    type: productType('type').notNull(),
+    status: productStatus('status').notNull().default('draft'),
+    // Content (Faz 1)
+    slug: text('slug').unique(),
+    etsy_title: text('etsy_title'),
+    etsy_description: text('etsy_description'),
+    tags: text('tags').array().default([]),
+    shop_title: text('shop_title'),
+    shop_description: text('shop_description'),
+    // Turkish operator-facing fields (for Telegram digest + approval UI).
+    // Etsy/shop content stays in English — these are for Mehmet to evaluate at a glance.
+    turkish_gap_angle: text('turkish_gap_angle'),
+    turkish_summary: text('turkish_summary'),
+    price_cents: integer('price_cents').notNull(),
+    // Stripe references (Faz 4)
+    stripe_product_id: text('stripe_product_id'),
+    stripe_price_id: text('stripe_price_id'),
+    // Assets (Faz 2)
+    hero_image_url: text('hero_image_url'),
+    mockup_image_urls: text('mockup_image_urls').array().default([]),
+    digital_file_url: text('digital_file_url'),
+    digital_file_size_bytes: bigint('digital_file_size_bytes', { mode: 'number' }),
+    // Approval (Faz 2)
+    telegram_approval_chat_id: text('telegram_approval_chat_id'),
+    telegram_approval_msg_id: text('telegram_approval_msg_id'),
+    approved_at: timestamp('approved_at', { withTimezone: true }),
+    rejected_reason: text('rejected_reason'),
+    // Shop visibility (Faz 4)
+    is_public_in_shop: integer('is_public_in_shop').default(0),
+    created_at: timestamp('created_at', { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updated_at: timestamp('updated_at', { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => ({
+    statusIdx: index('product_status_idx').on(t.status),
+    nicheIdx: index('product_niche_idx').on(t.niche_id),
+    slugIdx: index('product_slug_idx').on(t.slug),
+  }),
+);
+
+// ── Niche Performance: rolling aggregate for feedback loop (Faz 5) ──
+// Pre-created so Faz 5 doesn't need another migration round.
+export const nichePerformance = pgTable(
+  'niche_performance',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    niche_topic: text('niche_topic').notNull().unique(),
+    product_count: integer('product_count').default(0).notNull(),
+    total_sales: integer('total_sales').default(0).notNull(),
+    total_revenue_cents: integer('total_revenue_cents').default(0).notNull(),
+    avg_score_boost: real('avg_score_boost').default(0).notNull(),
+    last_sale_at: timestamp('last_sale_at', { withTimezone: true }),
+    computed_at: timestamp('computed_at', { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+);

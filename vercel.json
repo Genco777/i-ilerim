@@ -33,6 +33,10 @@
     {
       "path": "/api/mail/poll-inbox?secret=080084ec9089202b8d409dc4e1c5672aea675a581133c994a63e86f6e31868a1",
       "schedule": "*/5 * * * *"
+    },
+    {
+      "path": "/api/cron/trend-discovery?secret=080084ec9089202b8d409dc4e1c5672aea675a581133c994a63e86f6e31868a1",
+      "schedule": "0 5 * * *"
     }
   ]
 }

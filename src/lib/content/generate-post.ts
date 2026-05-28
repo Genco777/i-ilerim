@@ -2,6 +2,7 @@ import { generateText } from '@/lib/ai/text';
 import { generateImage, generateImageRouted, buildImagePrompt } from '@/lib/ai/image';
 import { composeLogo, applyGoldTint, cropToStoryAspect, cropToSquare } from '@/lib/image/compose-logo';
 import { composeInfoCard, infoCardAspectRatio, type InfoCardOptions } from '@/lib/image/compose-info-card';
+import { generateCanvaPost } from '@/lib/canva/generate';
 import { uploadImage } from '@/lib/blob';
 import { getBrandKit } from '@/lib/db/queries/brand-kit';
 import { createPost, getPost, updatePost } from '@/lib/db/queries/posts';
@@ -22,6 +23,8 @@ export interface GeneratePostOpts {
   channel?: ContentChannel;
   pillar?: ContentPillar;
   scheduledAt?: Date;
+  /** true → AI görseli yerine Canva brand template kullan */
+  useCanva?: boolean;
 }
 
 function getCalendarWeek(date: Date): number {
@@ -70,6 +73,36 @@ export async function generatePost(opts: GeneratePostOpts): Promise<Post> {
       ? 'Story format: 1-2 kurze, schlagkraeftige Saetze (max 80 Zeichen), 2-3 Hashtags. Kein langer Beitrag - Story ist visuell.'
       : undefined,
   });
+
+  // ── CANVA flow — brand template autofill + export ─────────────────────────
+  if (opts.useCanva && !isStory) {
+    const canvaResult = await generateCanvaPost({
+      title:   opts.topic,
+      bodyText: textOut.text,
+      pillar:  opts.pillar,
+    });
+
+    const blob = await uploadImage(canvaResult.buffer, `canva-${Date.now()}.png`);
+
+    return createPost({
+      status:              'draft',
+      topic:               opts.topic,
+      text_de:             textOut.text,
+      hashtags:            textOut.hashtags,
+      image_source:        'ai_generated',
+      raw_image_url:       blob.url,
+      final_image_url:     blob.url,
+      image_prompt:        null,
+      image_provider:      'canva',
+      created_via:         'telegram',
+      telegram_chat_id:    opts.telegramChatId ?? null,
+      telegram_message_id: opts.telegramMessageId ?? null,
+      content_pillar:      opts.pillar ?? null,
+      calendar_week:       opts.scheduledAt ? getCalendarWeek(opts.scheduledAt) : null,
+      channel:             'feed',
+      scheduled_at:        opts.scheduledAt ?? null,
+    });
+  }
 
   // 2. Image
   let rawBuffer!: Buffer;
@@ -352,9 +385,9 @@ export async function regenerateImage(postId: string): Promise<Post> {
     ? await uploadImage(finalBuffer, `final-${Date.now()}.png`)
     : rawBlob;
   return updatePost(postId, {
-    raw_image_url:  rawBlob.url,
+    raw_image_url:   rawBlob.url,
     final_image_url: finalBlob.url,
-    image_prompt:   prompt,
+    image_prompt:    prompt,
     image_provider:  provider,
   });
 }

@@ -70,6 +70,18 @@ export const AGENT_TOOLS: AgentTool[] = [
     },
   },
   {
+    name: 'generate_canva_post',
+    description: 'Canva şablonu kullanarak Instagram post üretir. AI görsel yerine Canva brand template autofill kullanır — daha profesyonel sonuç.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        topic: { type: 'string', description: 'Post konusu' },
+        pillar: { type: 'string', description: 'İçerik kategorisi: vitrine, prozess, insight, lokal, reel' },
+      },
+      required: ['topic'],
+    },
+  },
+  {
     name: 'publish_post',
     description: 'Onaylanmış bir gönderiyi Facebook ve/veya Instagram\'da YAYINLAR.',
     input_schema: {
@@ -1261,6 +1273,31 @@ async function execGeneratePost(input: Record<string, unknown>): Promise<unknown
     status: result.status,
     imageUrl: result.final_image_url,
   };
+}
+
+async function execGenerateCanvaPost(input: Record<string, unknown>): Promise<unknown> {
+  const { generatePost } = await import('@/lib/content/generate-post');
+  const topic = String(input.topic ?? '');
+  if (!topic) return { error: 'Konu gerekli.' };
+  try {
+    const result = await generatePost({
+      topic,
+      pillar: typeof input.pillar === 'string' ? input.pillar as never : undefined,
+      useCanva: true,
+    });
+    return {
+      id: result.id,
+      topic: result.topic,
+      text: result.text_de,
+      hashtags: result.hashtags,
+      status: result.status,
+      imageUrl: result.final_image_url,
+      provider: 'canva',
+    };
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    return { error: msg };
+  }
 }
 
 async function execPublishPost(input: Record<string, unknown>): Promise<unknown> {
@@ -5612,6 +5649,7 @@ const EXECUTORS: Record<string, ToolExecutor> = {
   list_recent_posts: execListRecentPosts,
   get_weekly_plan: execGetWeeklyPlan,
   generate_post: execGeneratePost,
+  generate_canva_post: execGenerateCanvaPost,
   publish_post: execPublishPost,
   list_invoices: execListInvoices,
   get_invoice: execGetInvoice,

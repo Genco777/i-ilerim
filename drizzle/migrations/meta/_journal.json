@@ -120,6 +120,13 @@
 			"when": 1779700000000,
 			"tag": "0016_system_config",
 			"breakpoints": true
+		},
+		{
+			"idx": 17,
+			"version": "7",
+			"when": 1779800000000,
+			"tag": "0017_trend_engine",
+			"breakpoints": true
 		}
 	]
 }

@@ -79,6 +79,16 @@ import {
 } from '@/lib/db/queries/plans';
 import { planOverviewKeyboard, slotEditKeyboard } from '@/lib/telegram/plan-keyboard';
 import {
+  trendRejectSessions,
+  trendEditTitleSessions,
+  handleTrendApprove,
+  handleTrendReject,
+  handleTrendRegenVisual,
+  handleTrendEditTitle,
+  handleTrendRejectInput,
+  handleTrendEditTitleInput,
+} from '@/lib/trend/approval-handlers';
+import {
   generatePost,
   regenerateImage,
   regenerateText,
@@ -4713,6 +4723,18 @@ async function handleCommand(
     if (handled) return;
   }
 
+  // Trend engine: reject reason capture
+  if (trendRejectSessions.has(chatId)) {
+    const handled = await handleTrendRejectInput(chatId, trimmed);
+    if (handled) return;
+  }
+
+  // Trend engine: shop title edit capture
+  if (trendEditTitleSessions.has(chatId)) {
+    const handled = await handleTrendEditTitleInput(chatId, trimmed);
+    if (handled) return;
+  }
+
   // Active plan-edit session: user is selecting a slot by number
   const planId = planEditSessions.get(chatId);
   if (planId) {
@@ -5153,6 +5175,14 @@ async function handleCallback(
         });
         await notifyError(chatId, err);
       }
+    } else if (action === 'trend_approve' && postId) {
+      await handleTrendApprove(chatId, messageId, postId);
+    } else if (action === 'trend_reject' && postId) {
+      await handleTrendReject(chatId, postId);
+    } else if (action === 'trend_regen_visual' && postId) {
+      await handleTrendRegenVisual(chatId, messageId, postId);
+    } else if (action === 'trend_edit_title' && postId) {
+      await handleTrendEditTitle(chatId, postId);
     } else {
       await sendMessage({ chatId, text: `❓ Bilinmeyen aksiyon: ${data}` });
     }
