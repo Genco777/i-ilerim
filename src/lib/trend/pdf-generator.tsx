@@ -141,17 +141,27 @@ const styles = StyleSheet.create({
     objectFit: 'contain',
   },
   // Prompt page
+  promptNumberRow: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    marginBottom: 22,
+    marginTop: 4,
+  },
   promptNumber: {
     fontFamily: 'Helvetica-Bold',
-    fontSize: 38,
+    fontSize: 48,
+    lineHeight: 1.05,
     color: COLORS.accent,
-    marginBottom: 4,
+    marginRight: 18,
+    width: 80,
   },
   promptText: {
-    fontSize: 16,
+    flex: 1,
+    fontSize: 15,
     lineHeight: 1.4,
     fontFamily: 'Helvetica-Bold',
-    marginBottom: 22,
+    color: COLORS.ink,
+    paddingTop: 12,
   },
   reflectLineLabel: {
     fontSize: 8,
@@ -360,8 +370,10 @@ function PromptPage({
   return (
     <Page size="A4" style={styles.page}>
       <Text style={styles.pageEyebrow}>PROMPT {number} OF {total}</Text>
-      <Text style={styles.promptNumber}>{String(number).padStart(2, '0')}</Text>
-      <Text style={styles.promptText}>{prompt}</Text>
+      <View style={styles.promptNumberRow}>
+        <Text style={styles.promptNumber}>{String(number).padStart(2, '0')}</Text>
+        <Text style={styles.promptText}>{prompt}</Text>
+      </View>
       <Text style={styles.reflectLineLabel}>WRITE HERE</Text>
       {Array.from({ length: 14 }).map((_, i) => (
         <View key={i} style={styles.reflectLine} />

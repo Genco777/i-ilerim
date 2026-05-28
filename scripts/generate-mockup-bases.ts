@@ -54,7 +54,39 @@ const SPECS: MockupSpec[] = [
   },
 ];
 
-const MODEL = 'black-forest-labs/flux-2-pro' as `${string}/${string}`;
+const MODELS: Array<`${string}/${string}`> = [
+  'black-forest-labs/flux-2-pro',  // best quality
+  'black-forest-labs/flux-2-max',  // fallback if pro is unavailable
+  'black-forest-labs/flux-2-flex', // last resort
+];
+
+async function generateWithRetry(
+  client: Replicate,
+  spec: MockupSpec,
+  attempts = 3,
+): Promise<unknown> {
+  let lastErr: Error | null = null;
+  for (let i = 0; i < attempts; i++) {
+    const model = MODELS[Math.min(i, MODELS.length - 1)]!;
+    try {
+      console.log(`  Attempt ${i + 1}/${attempts} with ${model}…`);
+      const out = await client.run(model, {
+        input: {
+          prompt: spec.prompt,
+          aspect_ratio: '1:1',
+          output_format: 'png',
+          safety_tolerance: 2,
+        },
+      });
+      return out;
+    } catch (err) {
+      lastErr = err instanceof Error ? err : new Error(String(err));
+      console.log(`  ⚠ ${lastErr.message.slice(0, 100)} — retrying…`);
+      await new Promise((r) => setTimeout(r, 2000));
+    }
+  }
+  throw lastErr ?? new Error('All attempts failed');
+}
 
 async function main(): Promise<void> {
   if (!existsSync(OUT_DIR)) mkdirSync(OUT_DIR, { recursive: true });
@@ -70,16 +102,19 @@ async function main(): Promise<void> {
 
   for (const spec of SPECS) {
     console.log(`\n── ${spec.slug} ──`);
-    console.log('Generating with Flux 2 Pro…');
 
-    const output = (await client.run(MODEL, {
-      input: {
-        prompt: spec.prompt,
-        aspect_ratio: '1:1',
-        output_format: 'png',
-        safety_tolerance: 2,
-      },
-    })) as unknown;
+    let output: unknown;
+    try {
+      output = await generateWithRetry(client, spec);
+    } catch (err) {
+      console.error(
+        `  ❌ All retries exhausted for ${spec.slug}: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
+      console.error(`  Skipping ${spec.slug}, continuing with others…`);
+      continue;
+    }
 
     // Extract URL (same shape-handling as src/lib/trend/video.ts)
     let url: string | null = null;

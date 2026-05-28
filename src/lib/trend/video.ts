@@ -30,7 +30,10 @@ export interface ProductVideoResult {
 }
 
 const HIGGSFIELD_BASE = 'https://platform.higgsfield.ai';
-const DEFAULT_MODEL = 'higgsfield-ai/dop/standard';
+// Preview = higher quality tier per Higgsfield docs ("High-quality image animation")
+// DoP family chosen because it's camera-focused — minimises subject distortion
+// vs Kling/Seedance which can animate the subject itself.
+const DEFAULT_MODEL = 'higgsfield-ai/dop/preview';
 
 function getCredentials(): { key: string; secret: string } {
   const key = process.env.HIGGSFIELD_API_KEY;
@@ -63,24 +66,27 @@ function buildVideoPrompt(
   niche: NicheCandidate,
   content: ProductContent,
 ): string {
+  // Camera moves tuned for "high-end commercial product film" feel.
+  // DoP Preview rewards SPECIFIC camera direction (Hasselblad, Arri, focal length).
   const cameraByType: Record<NicheCandidate['productHint'], string> = {
     planner:
-      'slow cinematic dolly-in from above, gentle parallax over the open planner, soft window light shifts subtly',
+      'DRAMATIC cinematic dolly-in shot on Arri Alexa with 50mm prime lens, smooth parallax over the open planner from overhead-tilted angle, soft window light slowly intensifies, professional commercial product film',
     poster:
-      'slow push-in on the framed poster, light dust particles drift through warm side-light',
+      'DRAMATIC slow push-in on the framed poster with shallow depth of field, light dust particles drift through warm directional side-light, Hasselblad medium-format aesthetic, gallery-quality cinematography',
     sticker:
-      'gentle horizontal pan across the sticker sheet, soft overhead light catches paper texture',
+      'SMOOTH cinematic dolly across the sticker sheet at low angle, focus rack from foreground stickers to back, soft overhead key light, premium product commercial style',
     template:
-      'smooth dolly-in over the laptop screen showing the template, ambient blur on background',
+      'CINEMATIC dolly-in over the laptop screen showing the template, professional camera move with subtle parallax, ambient bokeh on background, Apple product film aesthetic',
     social_template:
-      'slow cinematic push-in on the phone screen, gentle bokeh shifts in background',
+      'CINEMATIC push-in on the phone screen with rack focus, premium commercial framing, gentle bokeh shifts, smooth gimbal movement',
   };
   const cameraMove = cameraByType[niche.productHint] ?? cameraByType.planner;
   return [
-    `Editorial still-life: ${content.shopTitle}. Theme: ${niche.topic}.`,
-    `Camera direction: ${cameraMove}.`,
-    'Cinematic, magazine-quality, restrained colour palette, gentle film grain.',
-    'Subject stays still — only the CAMERA moves; no animated objects, no rotating items, no changing text.',
+    `Editorial still-life product film: "${content.shopTitle}". Theme: ${niche.topic}.`,
+    `CAMERA MOVEMENT: ${cameraMove}.`,
+    'STYLE: high-end commercial advertisement film, restrained editorial colour palette, magazine-quality cinematography, gentle film grain, golden-hour soft lighting.',
+    'CRITICAL — ABSOLUTE STATIC SUBJECT REQUIREMENT: the product itself must remain 100% identical to the source image — no movement, no morphing, no rotation, no shifting, no text changing, no objects appearing or disappearing. The PRODUCT IS FROZEN IN PLACE. Only the camera moves through space. This is a still-life shot, not an animation.',
+    'AVOID: animated objects, rotating items, changing text, distortion, morphing, additional elements, AI artefacts, jittery motion, cartoon style.',
   ].join(' ');
 }
 
@@ -166,11 +172,15 @@ export async function generateProductVideo(
   const prompt = buildVideoPrompt(niche, content);
 
   // Higgsfield DoP body. Field names follow the docs/examples.
+  // negative_prompt may or may not be honoured by all model variants — including
+  // it costs nothing and helps when supported.
   const created = await postCreate(model, {
     prompt,
     image_url: heroUrl,
     duration: 5,
     aspect_ratio: '9:16',
+    negative_prompt:
+      'animated subject, rotating product, morphing text, changing letters, distorted geometry, AI artefacts, jittery motion, glitching, warped objects, additional elements appearing, subject deformation',
   });
 
   // Poll every 5s, up to 6 minutes (72 attempts)
