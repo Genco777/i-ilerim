@@ -5436,11 +5436,10 @@ async function execGenerateSlotContent(input: Record<string, unknown>): Promise<
     topic: slot.topic,
     channel: isStory ? 'ig_story' : 'post',
     pillar: slot.pillar as never,
-    scheduledAt: slot.scheduled_at ?? undefined,
     imageQuality: 'medium', // agent calls: faster response over max quality
   });
 
-  await updateSlot(slotId, { post_id: post.id, status: 'content_generated' });
+  await updateSlot(slotId, { post_id: post.id, status: 'generated' });
 
   return {
     generated: true,
