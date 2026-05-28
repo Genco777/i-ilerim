@@ -91,6 +91,26 @@ export async function sendPhoto(
   });
 }
 
+interface SendVideoOptions extends BaseSendOptions {
+  /** Public URL of the MP4. Telegram server-side fetches it. */
+  video: string;
+  caption?: string;
+}
+
+export async function sendVideo(
+  opts: SendVideoOptions,
+): Promise<SendMessageResult> {
+  return call<SendMessageResult>('sendVideo', {
+    chat_id: opts.chatId,
+    video: opts.video,
+    caption: opts.caption,
+    parse_mode: opts.parseMode,
+    reply_markup: opts.replyMarkup,
+    disable_notification: opts.disableNotification,
+    supports_streaming: true,
+  });
+}
+
 export async function editMessageReplyMarkup(
   opts: EditMarkupOptions,
 ): Promise<void> {

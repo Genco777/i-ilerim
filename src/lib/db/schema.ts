@@ -887,6 +887,8 @@ export const products = pgTable(
     mockup_image_urls: text('mockup_image_urls').array().default([]),
     digital_file_url: text('digital_file_url'),
     digital_file_size_bytes: bigint('digital_file_size_bytes', { mode: 'number' }),
+    /** Cinematic 5-sec preview video (Faz 2-D, Kling 2.1 master) */
+    video_url: text('video_url'),
     // Approval (Faz 2)
     telegram_approval_chat_id: text('telegram_approval_chat_id'),
     telegram_approval_msg_id: text('telegram_approval_msg_id'),

@@ -4,8 +4,9 @@ import { runDailyTrendPipeline, formatDigestMessage } from '@/lib/trend/orchestr
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
-// Discovery + 2-3 content generations × Claude call ≈ 30-90 s typical.
-export const maxDuration = 300;
+// High-quality hero (~90s) + Kling v2.1-master video (~90s) + PDF + mockups
+// per product. 2 products at premium quality ≈ 400 s; bumped headroom to 800 s.
+export const maxDuration = 800;
 
 function unauthorized(): NextResponse {
   return new NextResponse('Unauthorized', { status: 401 });

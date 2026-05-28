@@ -93,7 +93,7 @@ export async function generateHeroVisual(
 
   const { buffer: heroBuffer } = await generateWithRouter(prompt, route, {
     aspectRatio: '1:1',
-    quality: 'medium',
+    quality: 'high', // user prefers quality over cost; ~90s but premium detail
   });
 
   const ts = Date.now();

@@ -20,8 +20,9 @@ import { discoverNiches, type NicheCandidate } from './discovery';
 import { generateProductContent, type ProductContent } from './content';
 import { generateHeroVisual } from './visual';
 import { generateProductPdf } from './pdf-generator';
+import { generateProductVideo } from './video';
 import { uploadImage } from '@/lib/blob';
-import { sendPhoto, sendDocument } from '@/lib/telegram/bot';
+import { sendPhoto, sendDocument, sendVideo } from '@/lib/telegram/bot';
 import { productApprovalKeyboard } from '@/lib/telegram/product-approval-keyboard';
 import { formatProductCaption } from './approval-handlers';
 
@@ -251,6 +252,28 @@ export async function runDailyTrendPipeline(
             );
           }
 
+          // ── Faz 2-D: generate cinematic video (best-effort) ──
+          let videoUrl: string | null = null;
+          try {
+            const enabledRaw = (process.env.ENABLE_AI_VIDEO ?? 'true').toLowerCase();
+            if (enabledRaw !== 'false' && enabledRaw !== '0') {
+              const videoResult = await generateProductVideo(
+                candidate,
+                content,
+                insertedProduct.id,
+                hero.url,
+              );
+              videoUrl = videoResult.url;
+            }
+          } catch (videoErr) {
+            console.error('[trend] video generation failed', videoErr);
+            summary.errors.push(
+              `Video gen failed for "${candidate.topic}": ${
+                videoErr instanceof Error ? videoErr.message.slice(0, 200) : String(videoErr)
+              }`,
+            );
+          }
+
           await db
             .update(products)
             .set({
@@ -258,6 +281,7 @@ export async function runDailyTrendPipeline(
               mockup_image_urls: hero.mockupUrls ?? [],
               digital_file_url: pdfUrl,
               digital_file_size_bytes: pdfSize,
+              video_url: videoUrl,
               updated_at: new Date(),
             })
             .where(eq(products.id, insertedProduct.id));
@@ -305,6 +329,19 @@ export async function runDailyTrendPipeline(
                   });
                 } catch (docErr) {
                   console.error('[trend] sendDocument failed for chat', chatId, docErr);
+                }
+              }
+
+              // Send video preview (Faz 2-D, Kling cinematic 5-sec clip)
+              if (videoUrl) {
+                try {
+                  await sendVideo({
+                    chatId,
+                    video: videoUrl,
+                    caption: `🎬 5-sn sinematik önizleme (Reels/Pinterest için)`,
+                  });
+                } catch (vidErr) {
+                  console.error('[trend] sendVideo failed for chat', chatId, vidErr);
                 }
               }
             } catch (sendErr) {

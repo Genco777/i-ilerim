@@ -110,11 +110,12 @@ If product type is "poster":
 If product type is "template" or "social_template":
   pdf_body = {
     "template_sections": [
-      { "heading": "What's included", "items": ["4-7 concrete deliverables specific to this product"] },
-      { "heading": "How to customise", "items": ["3-5 actionable steps to make it the buyer's own"] },
-      { "heading": "Best for", "items": ["3-4 specific use cases or audience snippets"] }
+      { "heading": "What's included", "items": ["EXACTLY 4-5 concrete deliverables, each ≤2 lines"] },
+      { "heading": "How to customise", "items": ["EXACTLY 3-4 actionable steps, each ≤2 lines"] },
+      { "heading": "Best for", "items": ["EXACTLY 3 audience snippets, each ≤1.5 lines"] }
     ]
   }
+  HARD limit: total items across all 3 sections MUST NOT exceed 12. Quality + concision beats quantity — the entire content must fit on a single A4 page (after a half-page intro).
 
 Constraints:
 - tags array must have EXACTLY 13 items
@@ -347,7 +348,10 @@ function validateAndNormalize(
   }
 
   // template / social_template: structured sections
+  // Hard caps: max 3 sections, max 5 items per section, max 12 items total
+  // → guarantees the page fits on a single A4 after the half-page intro.
   if (Array.isArray(pdfBodyRaw.template_sections)) {
+    let totalItems = 0;
     pdfBody.templateSections = pdfBodyRaw.template_sections
       .filter((s): s is Record<string, unknown> => typeof s === 'object' && s !== null)
       .map((s) => ({
@@ -357,11 +361,18 @@ function validateAndNormalize(
           ? s.items
               .filter((i): i is string => typeof i === 'string')
               .map((i) => i.trim())
-              .slice(0, 8)
+              .slice(0, 5)
           : [],
       }))
       .filter((s) => s.items.length > 0)
-      .slice(0, 5);
+      .slice(0, 3)
+      .map((s) => {
+        const remaining = Math.max(0, 12 - totalItems);
+        const trimmed = { ...s, items: s.items.slice(0, remaining) };
+        totalItems += trimmed.items.length;
+        return trimmed;
+      })
+      .filter((s) => s.items.length > 0);
   }
 
   return {
