@@ -24,8 +24,25 @@ import {
   StyleSheet,
   pdf,
 } from '@react-pdf/renderer';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import type { NicheCandidate } from './discovery';
 import type { ProductContent } from './content';
+
+// ─── Fly & Froth logo (cached read from public/branding) ─────────────────────
+
+let cachedLogo: Buffer | null = null;
+function loadLogo(): Buffer | null {
+  if (cachedLogo) return cachedLogo;
+  try {
+    const path = join(process.cwd(), 'public', 'branding', 'logo-navy.png');
+    cachedLogo = readFileSync(path);
+    return cachedLogo;
+  } catch (err) {
+    console.error('[trend pdf] could not load logo', err);
+    return null;
+  }
+}
 
 // ─── shared styles ───────────────────────────────────────────────────────────
 
@@ -80,6 +97,30 @@ const sharedStyles = StyleSheet.create({
     objectFit: 'cover',
     alignSelf: 'center',
     marginVertical: 24,
+  },
+  coverLogo: {
+    width: 110,
+    height: 38,
+    objectFit: 'contain',
+    alignSelf: 'flex-start',
+    marginBottom: 28,
+  },
+  footerLogo: {
+    position: 'absolute',
+    bottom: 22,
+    right: 56,
+    width: 56,
+    height: 18,
+    objectFit: 'contain',
+  },
+  posterCorner: {
+    position: 'absolute',
+    bottom: 36,
+    right: 36,
+    width: 70,
+    height: 24,
+    objectFit: 'contain',
+    opacity: 0.85,
   },
   pageTitle: {
     fontFamily: 'Helvetica-Bold',
@@ -181,9 +222,14 @@ function CoverPage({
   subtitle: string;
   heroUrl?: string | null;
 }) {
+  const logo = loadLogo();
   return (
     <Page size="A4" style={sharedStyles.coverPage}>
-      <Text style={sharedStyles.brand}>FLY & FROTH</Text>
+      {logo ? (
+        <Image src={logo} style={sharedStyles.coverLogo} />
+      ) : (
+        <Text style={sharedStyles.brand}>FLY & FROTH</Text>
+      )}
       <Text style={sharedStyles.coverTitle}>{title}</Text>
       <Text style={sharedStyles.coverSubtitle}>{subtitle}</Text>
       {heroUrl ? <Image src={heroUrl} style={sharedStyles.heroImage} /> : null}
@@ -227,6 +273,7 @@ function HowToUsePage({ type }: { type: NicheCandidate['productHint'] }) {
   };
 
   const tips = tipsByType[type] ?? tipsByType.planner;
+  const logo = loadLogo();
   return (
     <Page size="A4" style={sharedStyles.page}>
       <Text style={sharedStyles.pageTitle}>How to use this download</Text>
@@ -242,8 +289,9 @@ function HowToUsePage({ type }: { type: NicheCandidate['productHint'] }) {
         Need help or want a variant? Reply to the order email.
       </Text>
       <Text style={sharedStyles.footer} fixed>
-        Fly & Froth • Karben, Germany • www.fly-froth.com
+        Karben, Germany • www.fly-froth.com
       </Text>
+      {logo ? <Image src={logo} style={sharedStyles.footerLogo} fixed /> : null}
     </Page>
   );
 }
@@ -364,10 +412,12 @@ function SocialTemplateMockPage({ content }: { content: ProductContent }) {
 }
 
 function PosterPage({ phrase, subline }: { phrase: string; subline: string }) {
+  const logo = loadLogo();
   return (
     <Page size="A4" style={sharedStyles.posterPage}>
       <Text style={sharedStyles.posterTitle}>{phrase.toUpperCase()}</Text>
       <Text style={sharedStyles.posterSubtitle}>{subline.slice(0, 60)}</Text>
+      {logo ? <Image src={logo} style={sharedStyles.posterCorner} /> : null}
     </Page>
   );
 }
