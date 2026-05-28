@@ -219,14 +219,18 @@ export async function runDailyTrendPipeline(
         turkishSummary: content.turkishSummary,
       });
 
-      // ── Faz 2-A: hero visual + Telegram approval card ──
+      // ── Faz 2-A + 2-B: hero + mockups + Telegram approval card ──
       if (generateVisuals && approvalChatIds.length > 0) {
         try {
           const hero = await generateHeroVisual(candidate, content, insertedProduct.id);
 
           await db
             .update(products)
-            .set({ hero_image_url: hero.url, updated_at: new Date() })
+            .set({
+              hero_image_url: hero.url,
+              mockup_image_urls: hero.mockupUrls ?? [],
+              updated_at: new Date(),
+            })
             .where(eq(products.id, insertedProduct.id));
 
           // Re-fetch the product so the caption formatter sees the full row.
@@ -236,11 +240,14 @@ export async function runDailyTrendPipeline(
             .where(eq(products.id, insertedProduct.id))
             .limit(1);
 
+          // Use gallery (2x2 grid) if compositing succeeded, otherwise hero
+          const photoUrl = hero.galleryUrl ?? hero.url;
+
           for (const chatId of approvalChatIds) {
             try {
               const sent = await sendPhoto({
                 chatId,
-                photo: hero.url,
+                photo: photoUrl,
                 caption: fresh[0] ? formatProductCaption(fresh[0], candidate) : content.shopTitle,
                 replyMarkup: productApprovalKeyboard(insertedProduct.id),
               });

@@ -11,6 +11,12 @@
 
 import { generateWithRouter, routeImageTool } from '@/lib/ai/image-router';
 import { uploadImage } from '@/lib/blob';
+import {
+  composeWallFrame,
+  composeTabletScene,
+  composePaperPrint,
+  composeGallery,
+} from './mockup';
 import type { NicheCandidate } from './discovery';
 import type { ProductContent } from './content';
 
@@ -18,6 +24,10 @@ export interface HeroVisualResult {
   url: string;
   pathname: string;
   promptUsed: string;
+  /** Per-product-type mockup variants (Faz 2-B). Hero plus 3 mockups. */
+  mockupUrls?: string[];
+  /** 2x2 grid composite (hero + 3 mockups) — used as the Telegram photo. */
+  galleryUrl?: string;
 }
 
 /**
@@ -61,8 +71,17 @@ function buildImagePrompt(
 }
 
 /**
- * Generates a hero image and uploads it to Vercel Blob.
- * Returns the public URL ready to be sent in a Telegram sendPhoto call.
+ * Generates a hero image + 3 procedural mockup scenes + a 2x2 gallery
+ * composite. Uploads hero, mockups, and gallery to Vercel Blob.
+ *
+ * Returns:
+ *  - `url`          → hero image URL (used by Faz 3 publish to Etsy/Stripe)
+ *  - `mockupUrls`   → 3 mockup variant URLs (wall frame, tablet, paper)
+ *  - `galleryUrl`   → single 2x2 composite (best for Telegram photo card)
+ *  - `promptUsed`   → the OpenAI/Replicate prompt (debug / regen)
+ *
+ * If mockup compositing fails for any reason, hero is still returned so the
+ * pipeline doesn't crash — Telegram will fall back to plain hero.
  */
 export async function generateHeroVisual(
   niche: NicheCandidate,
@@ -70,17 +89,47 @@ export async function generateHeroVisual(
   productId: string,
 ): Promise<HeroVisualResult> {
   const prompt = buildImagePrompt(niche, content);
-
-  // Pick the configured image tool (OpenAI by default per image-router)
   const route = routeImageTool('vitrine', niche.topic);
 
-  const { buffer } = await generateWithRouter(prompt, route, {
-    aspectRatio: '1:1', // Etsy + Pinterest happiest with square
+  const { buffer: heroBuffer } = await generateWithRouter(prompt, route, {
+    aspectRatio: '1:1',
     quality: 'medium',
   });
 
-  const filename = `trend/${productId}/hero-${Date.now()}.png`;
-  const uploaded = await uploadImage(buffer, filename, 'image/png');
+  const ts = Date.now();
+  const heroFilename = `trend/${productId}/hero-${ts}.png`;
+  const uploadedHero = await uploadImage(heroBuffer, heroFilename, 'image/png');
 
-  return { url: uploaded.url, pathname: uploaded.pathname, promptUsed: prompt };
+  // Mockups + gallery — best-effort. Failures don't break the hero return.
+  try {
+    const [wallBuf, tabletBuf, paperBuf] = await Promise.all([
+      composeWallFrame(heroBuffer),
+      composeTabletScene(heroBuffer),
+      composePaperPrint(heroBuffer),
+    ]);
+
+    const galleryBuf = await composeGallery(heroBuffer, [wallBuf, tabletBuf, paperBuf]);
+
+    const [wallUp, tabletUp, paperUp, galleryUp] = await Promise.all([
+      uploadImage(wallBuf, `trend/${productId}/mockup-wall-${ts}.jpg`, 'image/jpeg'),
+      uploadImage(tabletBuf, `trend/${productId}/mockup-tablet-${ts}.jpg`, 'image/jpeg'),
+      uploadImage(paperBuf, `trend/${productId}/mockup-paper-${ts}.jpg`, 'image/jpeg'),
+      uploadImage(galleryBuf, `trend/${productId}/gallery-${ts}.jpg`, 'image/jpeg'),
+    ]);
+
+    return {
+      url: uploadedHero.url,
+      pathname: uploadedHero.pathname,
+      promptUsed: prompt,
+      mockupUrls: [wallUp.url, tabletUp.url, paperUp.url],
+      galleryUrl: galleryUp.url,
+    };
+  } catch (err) {
+    console.error('[trend] mockup compositing failed, falling back to hero only', err);
+    return {
+      url: uploadedHero.url,
+      pathname: uploadedHero.pathname,
+      promptUsed: prompt,
+    };
+  }
 }

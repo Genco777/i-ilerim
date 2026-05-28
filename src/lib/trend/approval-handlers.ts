@@ -199,14 +199,21 @@ export async function handleTrendRegenVisual(
 
     await db
       .update(products)
-      .set({ hero_image_url: hero.url, updated_at: new Date() })
+      .set({
+        hero_image_url: hero.url,
+        mockup_image_urls: hero.mockupUrls ?? [],
+        updated_at: new Date(),
+      })
       .where(eq(products.id, productId));
+
+    // Use gallery composite if available, otherwise plain hero.
+    const photoUrl = hero.galleryUrl ?? hero.url;
 
     // Clear keyboard on old message and post a fresh one with new photo.
     await editMessageReplyMarkup({ chatId, messageId, replyMarkup: clearedKeyboard() });
     await sendPhoto({
       chatId,
-      photo: hero.url,
+      photo: photoUrl,
       caption: formatProductCaption(product, nicheShape),
       replyMarkup: productApprovalKeyboard(productId),
     });
