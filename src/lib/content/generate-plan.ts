@@ -287,8 +287,12 @@ GENAU ${slotCount} TOPICS für die unten stehenden Slots. Jeder Topic ist eine k
 SLOT-LISTE:
 ${slotPlan}
 
-Antworte NUR mit JSON:
+Antworte NUR mit JSON (kein Markdown, keine \`\`\`-Codefence, keinerlei Vor- oder Nachtext):
 { "topics": ["Topic 1", ..., "Topic ${slotCount}"] }
+
+Jedes Topic ist ein REINER String — KEIN Slot-Prefix wie "1." oder "[Mo 18:30 | INSIGHT | FEED]".
+Verwende innerhalb der Strings KEINE doppelten Anführungszeichen ("). Nutze stattdessen
+deutsche Anführungszeichen („…") oder einfache Anführungszeichen ('…'), um JSON nicht zu brechen.
 EXAKT ${slotCount} Einträge. Keinen auslassen.`;
 }
 
@@ -305,20 +309,46 @@ Aktueller Monat: ${month} (${season}) — nutze saisonale Anlässe wo sinnvoll (
 Jedes Thema soll konkret, spezifisch und mit klarem Blickwinkel sein. Exakt ${WEEKLY_CALENDAR.length} Topics — keines auslassen.`;
 }
 
-function parseTopicsJson(raw: string): string[] {
-  // Try direct parse first
-  try {
-    const parsed = JSON.parse(raw);
-    if (Array.isArray(parsed.topics)) return parsed.topics;
-    if (Array.isArray(parsed)) return parsed;
-  } catch { /* fall through to regex */ }
+// Strips slot prefixes like "1. " or "1. [Mo 18:30 | INSIGHT | FEED]" that
+// the model sometimes echoes back from the prompt's SLOT-LISTE.
+function cleanTopic(s: string): string {
+  return s
+    .replace(/^\s*\d+\.\s*/, '')
+    .replace(/^\[[^\]]+\]\s*/, '')
+    .trim();
+}
 
-  // Regex fallback: extract quoted strings from JSON array
-  const arrayMatch = raw.match(/"topics"\s*:\s*\[([\s\S]*?)\]/);
-  const target = arrayMatch?.[1] ?? raw;
-  const topics = target.match(/"([^"]*)"/g)?.map((t) => t.replace(/^"|"$/g, '')) ?? [];
-  if (topics.length === 0) throw new Error(`No topics extractable: ${raw.slice(0, 300)}`);
-  return topics;
+function parseTopicsJson(raw: string): string[] {
+  // Strip markdown code fence wrapper if present (```json ... ```).
+  const fenced = raw.match(/```(?:json)?\s*([\s\S]*?)```/);
+  const body = (fenced ? fenced[1]! : raw).trim();
+
+  // 1) Try direct JSON parse.
+  try {
+    const parsed = JSON.parse(body);
+    const arr =
+      Array.isArray(parsed?.topics) ? parsed.topics
+      : Array.isArray(parsed) ? parsed
+      : null;
+    if (arr) return arr.map((t: unknown) => cleanTopic(String(t))).filter(Boolean);
+  } catch { /* fall through */ }
+
+  // 2) Extract the topics array slice and parse strings inside, supporting
+  //    escaped quotes (\") within each string.
+  const arrayMatch = body.match(/"topics"\s*:\s*\[([\s\S]*?)\]/);
+  const target = arrayMatch?.[1] ?? body;
+  const found: string[] = [];
+  for (const match of target.matchAll(/"((?:\\.|[^"\\])*)"/g)) {
+    const unescaped = match[1]!
+      .replace(/\\"/g, '"')
+      .replace(/\\\\/g, '\\')
+      .replace(/\\n/g, '\n');
+    const cleaned = cleanTopic(unescaped);
+    if (cleaned && cleaned !== 'topics') found.push(cleaned);
+  }
+  if (found.length > 0) return found;
+
+  throw new Error(`No topics extractable: ${raw.slice(0, 300)}`);
 }
 
 function callClaude(system: string, user: string): Promise<string> {
