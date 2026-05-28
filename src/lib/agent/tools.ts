@@ -580,6 +580,21 @@ export const AGENT_TOOLS: AgentTool[] = [
     },
   },
 
+  // ── Agent Delegation ──
+  {
+    name: 'delegate_to_agent',
+    description: 'Baska bir ajana gorev havale eder. Tasarim bittikten sonra sosyal medyada yayinlamak icin social_agent\'a yonlendir. Kullanilabilir ajanlar: social_agent, sales_agent, finance_agent, design_agent, luxury_market_researcher, luxury_buyer, luxury_shopify_director, luxury_marketing_director.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        agent_name: { type: 'string', description: 'Hedef ajan adi: social_agent, sales_agent, finance_agent, design_agent, vb.' },
+        task: { type: 'string', description: 'Ajana verilecek gorev tanimi. Detayli ve net olmali.' },
+        context: { type: 'object', description: 'Ek baglam verisi (opsiyonel). Orn: {"imageUrl": "...", "designType": "flyer"}' },
+      },
+      required: ['agent_name', 'task'],
+    },
+  },
+
   // ── Local Bridge ──
   {
     name: 'delegate_to_local',
@@ -5171,6 +5186,29 @@ async function execUpdateSystemConfig(input: Record<string, unknown>): Promise<u
   };
 }
 
+// ── Agent Delegation Executor ──
+
+async function execDelegateToAgent(input: Record<string, unknown>): Promise<unknown> {
+  const agentName = String(input.agent_name ?? '');
+  const task = String(input.task ?? '');
+  if (!agentName || !task) return { error: 'agent_name ve task gerekli.' };
+
+  const { delegateToAgent } = await import('./swarm');
+  const context = (input.context as Record<string, unknown>) ?? {};
+
+  try {
+    const result = await delegateToAgent(agentName, task, context, 4);
+    return {
+      ok: true,
+      delegatedTo: agentName,
+      result: result.result.slice(0, 3000),
+      toolCalls: result.toolCalls,
+    };
+  } catch (err) {
+    return { error: `Delegasyon basarisiz: ${err instanceof Error ? err.message : 'Bilinmeyen hata'}` };
+  }
+}
+
 // ── Executor Map ──
 
 const EXECUTORS: Record<string, ToolExecutor> = {
@@ -5225,6 +5263,7 @@ const EXECUTORS: Record<string, ToolExecutor> = {
   upload_image: execUploadImage,
   generate_video: execGenerateVideo,
   delegate_to_local: execDelegateToLocal,
+  delegate_to_agent: execDelegateToAgent,
   analyze_video: execAnalyzeVideo,
   design_critique: execDesignCritique,
   extract_design_brief: execExtractDesignBrief,

@@ -1,7 +1,7 @@
 import type { ContentPillar } from '@/types';
 import { replicateGenerate, type FluxModel } from './image-replicate';
 import { recraftGenerate, type RecraftStyle } from './image-recraft';
-import { openaiGenerate } from './image-openai';
+import { openaiGenerate, type ImageSize } from './image-openai';
 
 export type ImageTool = 'flux' | 'recraft' | 'openai';
 
@@ -11,42 +11,16 @@ export interface RouteResult {
   recraftStyle?: RecraftStyle;
 }
 
-export function routeImageTool(pillar: ContentPillar, topic: string): RouteResult {
-  const t = topic.toLowerCase();
+// All pillars route to OpenAI gpt-image-1 (highest quality, best prompt adherence).
+// Flux/Recraft kept available for explicit forceProvider overrides.
+export function routeImageTool(_pillar: ContentPillar, _topic: string): RouteResult {
+  return { tool: 'openai' };
+}
 
-  // Recraft for logo/branding/corporate identity presentations
-  if (
-    pillar === 'vitrine' &&
-    (t.includes('logo') || t.includes('branding') || t.includes('corporate') || t.includes('firmenidentität'))
-  ) {
-    return { tool: 'recraft', recraftStyle: 'logo_presentation' };
-  }
-
-  // Recraft for insight design-theory posts (brand boards, color systems)
-  if (
-    pillar === 'insight' &&
-    (t.includes('farbpalette') || t.includes('brand') || t.includes('designsystem') || t.includes('farbtheorie'))
-  ) {
-    return { tool: 'recraft', recraftStyle: 'brand_board' };
-  }
-
-  // FLUX.2 pro for reel covers (vertical, photorealistic)
-  if (pillar === 'reel') {
-    return { tool: 'flux', model: 'flux-2-pro' };
-  }
-
-  // FLUX.2 pro for prozess and lokal (photorealism is key)
-  if (pillar === 'prozess' || pillar === 'lokal') {
-    return { tool: 'flux', model: 'flux-2-pro' };
-  }
-
-  // FLUX.2 max for vitrine showcase posts (highest fidelity for portfolio)
-  if (pillar === 'vitrine') {
-    return { tool: 'flux', model: 'flux-2-max' };
-  }
-
-  // FLUX.2 pro as default (best photorealism)
-  return { tool: 'flux', model: 'flux-2-pro' };
+function aspectRatioToSize(ratio?: string): ImageSize {
+  if (ratio === '9:16') return '1024x1536';
+  if (ratio === '16:9') return '1536x1024';
+  return '1024x1024';
 }
 
 export async function generateWithRouter(
@@ -67,7 +41,9 @@ export async function generateWithRouter(
     return { buffer, tool: 'flux' };
   }
 
-  // Fallback to OpenAI
-  const buffer = await openaiGenerate(prompt);
+  // OpenAI gpt-image-1 — pass correct size for aspect ratio
+  const buffer = await openaiGenerate(prompt, {
+    size: aspectRatioToSize(opts?.aspectRatio),
+  });
   return { buffer, tool: 'openai' };
 }

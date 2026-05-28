@@ -146,7 +146,10 @@ export function routeToAgent(userMessage: string): { agent: SwarmAgent; confiden
   // Tasarım sinyalleri
   const designKeywords = ['logo', 'flyer', 'tasarım', 'design', 'renk', 'font', 'banner',
     'kartvizit', 'svg', 'görsel', 'image', 'broşür', 'web tasarım', 'revizyon',
-    'brief', 'konsept', 'vizitkart'];
+    'brief', 'konsept', 'vizitkart',
+    'oluştur', 'oluşturma', 'resim', 'tasarla', 'çiz', 'grafik', 'maket',
+    'menü', 'menu', 'katalog', 'afiş', 'poster', 'mockup', 'moodboard',
+    'bild', 'generier', 'gestalte', 'zeichne', 'entwirf', 'plakat', 'speisekarte', 'menükarte'];
   const designMatches = designKeywords.filter((k) => lower.includes(k));
   const designScore = designMatches.length / Math.max(1, designKeywords.length);
 

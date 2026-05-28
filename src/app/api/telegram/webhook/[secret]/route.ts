@@ -214,6 +214,8 @@ const textEditSessions = new Map<number, string>(); // chatId -> postId
 const planEditSessions = new Map<number, string>(); // chatId -> planId
 interface PendingBrevoContact { email: string; name: string; listIds: number[] }
 const pendingBrevoAdd = new Map<number, PendingBrevoContact>();
+interface PendingGenerateTask { topic: string; agents: string[] }
+const pendingGenerate = new Map<number, PendingGenerateTask>();
 
 interface TelegramUser {
   id: number;
@@ -279,6 +281,7 @@ const HELP_TEXT = [
   '📋 Komut listesi:',
   '  /post <konu>            — AI metin + 1:1 görsel + FB Page + IG yayını',
   '  /story <konu>           — IG Story (9:16, sadece IG)',
+  '  /generate <açıklama>    — AI görsel oluşturucu (logo, flyer, menü, moodboard...)',
   '  /raw <metin>            — manuel paylaşım (foto ekle, AI dokunmaz)',
   '  /mail <email> <talimat> — AI yardımıyla mail taslağı + Zoho gönder',
   '  /fatura                 — adım adım PDF fatura oluştur (DE), müşteriye mail at',
@@ -730,6 +733,83 @@ async function handlePostCommand(
   } catch (err) {
     await notifyError(chatId, err);
   }
+}
+
+async function handleGenerateCommand(
+  chatId: number,
+  _messageId: number,
+  topic: string,
+): Promise<void> {
+  if (!topic) {
+    await sendMessage({
+      chatId,
+      text: [
+        '🎨 **Görsel Oluşturucu**',
+        '',
+        'Kullanım: `/generate <açıklama>`',
+        '',
+        'Örnekler:',
+        '• `/generate logo: mavi altıgen, FF harfleri, modern`',
+        '• `/generate yaz indirimi için A5 flyer`',
+        '• `/generate Instagram görseli: kahve logosu`',
+        '• `/generate restoran menüsü: İtalyan mutfağı`',
+        '• `/generate moodboard: lüks kozmetik markası`',
+        '• `/generate renk paleti: spa & wellness`',
+        '',
+        'Direkt `/chat` ile de tasarım isteyebilirsin.',
+      ].join('\n'),
+      parseMode: 'Markdown',
+    });
+    return;
+  }
+
+  // Konuyu ve boş seçim listesini sakla
+  pendingGenerate.set(chatId, { topic, agents: [] });
+
+  // Keyword analizi ile en uygun agent'ı bul
+  const { routeToAgent } = await import('@/lib/agent/swarm');
+  const route = routeToAgent(topic);
+  const recommended = route.confidence >= 0.05 ? route.agent.name : null;
+
+  const allAgents = [
+    { name: 'sales_agent', emoji: '💰', role: 'Satış ve Müşteri İlişkileri' },
+    { name: 'social_agent', emoji: '📱', role: 'Sosyal Medya ve İçerik' },
+    { name: 'design_agent', emoji: '🎨', role: 'Tasarım ve Kreatif' },
+    { name: 'finance_agent', emoji: '📊', role: 'Finans ve Raporlama' },
+    { name: 'luxury_market_researcher', emoji: '🔍', role: 'Lüks Pazar Araştırma' },
+    { name: 'luxury_buyer', emoji: '🛍️', role: 'Lüks Satın Alma' },
+    { name: 'luxury_shopify_director', emoji: '🛒', role: 'Shopify E-Ticaret' },
+    { name: 'luxury_marketing_director', emoji: '✨', role: 'Lüks Pazarlama' },
+  ];
+
+  const agentRows = allAgents.map((a) => [{
+    text: `${a.emoji} ${a.role}${a.name === recommended ? ' ⭐' : ''}`,
+    callback_data: `gen_agent:${a.name}`,
+  }]);
+
+  const keyboard = [
+    ...agentRows,
+    [{ text: '▶️ Başlat (seçili agent\'ları çalıştır)', callback_data: 'gen_run' }],
+  ];
+
+  const recInfo = recommended
+    ? `\n⭐ Önerilen: ${allAgents.find(a => a.name === recommended)?.emoji} ${allAgents.find(a => a.name === recommended)?.role} — ${route.reason}`
+    : '';
+
+  await sendMessage({
+    chatId,
+    text: [
+      `🎨 **"${topic.slice(0, 80)}${topic.length > 80 ? '...' : ''}"**`,
+      '',
+      'Agent seç (birden fazla seçebilirsin):',
+      'Seçtikten sonra ▶️ **Başlat** butonuna bas.',
+      recInfo,
+      '',
+      '📋 _Seçili: (yok)_',
+    ].join('\n'),
+    parseMode: 'Markdown',
+    replyMarkup: { inline_keyboard: keyboard },
+  });
 }
 
 async function handleRawCommand(chatId: number): Promise<void> {
@@ -3443,6 +3523,102 @@ async function handleBrevoAddCallback(
   }
 }
 
+async function handleGenAgentCallback(
+  chatId: number,
+  messageId: number,
+  agentName: string,
+): Promise<void> {
+  const task = pendingGenerate.get(chatId);
+  if (!task) {
+    await answerCallbackQuery({ callbackQueryId: '', text: '⏰ İstek süresi doldu.' });
+    return;
+  }
+
+  // Toggle agent selection
+  const idx = task.agents.indexOf(agentName);
+  if (idx >= 0) {
+    task.agents.splice(idx, 1);
+    await answerCallbackQuery({ callbackQueryId: '', text: `❌ Çıkarıldı: ${agentName}` });
+  } else {
+    task.agents.push(agentName);
+    await answerCallbackQuery({ callbackQueryId: '', text: `✅ Eklendi: ${agentName}` });
+  }
+
+  // Update message to show current selection
+  const selectedText = task.agents.length > 0
+    ? task.agents.join(', ')
+    : '(yok)';
+  await editMessageText({
+    chatId,
+    messageId,
+    text: [
+      `🎨 **"${task.topic.slice(0, 80)}${task.topic.length > 80 ? '...' : ''}"**`,
+      '',
+      'Agent seç (birden fazla seçebilirsin):',
+      'Seçtikten sonra ▶️ **Başlat** butonuna bas.',
+      '',
+      `📋 _Seçili (${task.agents.length}): ${selectedText}_`,
+    ].join('\n'),
+    parseMode: 'Markdown',
+  });
+}
+
+async function handleGenRunCallback(
+  chatId: number,
+  messageId: number,
+): Promise<void> {
+  const task = pendingGenerate.get(chatId);
+  pendingGenerate.delete(chatId);
+
+  if (!task || task.agents.length === 0) {
+    await answerCallbackQuery({ callbackQueryId: '', text: '⚠️ Önce en az bir agent seç.' });
+    return;
+  }
+
+  await answerCallbackQuery({ callbackQueryId: '', text: `${task.agents.length} agent zincirleme çalışıyor…` });
+
+  const agents = task.agents.join(' + ');
+  await sendMessage({
+    chatId,
+    text: `🔄 *${agents}* zincirleme çalışıyor:\n"${task.topic.slice(0, 60)}${task.topic.length > 60 ? '...' : ''}"`,
+    parseMode: 'Markdown',
+  });
+
+  const { delegateToAgent } = await import('@/lib/agent/swarm');
+  let context: Record<string, unknown> = {};
+  const results: string[] = [];
+
+  for (let i = 0; i < task.agents.length; i++) {
+    const agentName = task.agents[i]!;
+    try {
+      const agentTask = i === 0
+        ? task.topic
+        : `${task.topic}\n\nÖnceki agent (${task.agents[i - 1]}) sonucu:\n${results[results.length - 1]?.slice(0, 1500)}`;
+
+      const result = await delegateToAgent(agentName, agentTask, context, 5);
+      results.push(result.result);
+
+      // Sonraki agent'a context aktar
+      context = { previous_agent: agentName, previous_result: result.result.slice(0, 2000) };
+    } catch (err) {
+      await sendMessage({
+        chatId,
+        text: `⚠️ *${agentName}* hatası: ${err instanceof Error ? err.message.slice(0, 200) : 'Bilinmeyen hata'}\n\nZincir ${i + 1}/${task.agents.length} adımda kırıldı.`,
+        parseMode: 'Markdown',
+      });
+      return;
+    }
+  }
+
+  // Tüm sonuçları göster
+  const summary = results.map((r, i) => `### ${i + 1}. ${task.agents[i]}\n${r.slice(0, 1500)}${r.length > 1500 ? '\n...' : ''}`).join('\n\n---\n\n');
+  await sendMessage({
+    chatId,
+    text: summary.slice(0, 3900),
+    parseMode: 'Markdown',
+  });
+}
+
 async function handleEmailOutreachCommand(chatId: number, city: string): Promise<void> {
   const validCities = [
     'Karben', 'Frankfurt', 'Bad Vilbel', 'Friedberg', 'Hanau', 'Bad Homburg',
@@ -4415,6 +4591,12 @@ async function handleCommand(
     return;
   }
 
+  if (trimmed === '/generate' || trimmed.startsWith('/generate ')) {
+    const topic = trimmed === '/generate' ? '' : trimmed.slice('/generate'.length).trim();
+    await handleGenerateCommand(chatId, messageId, topic);
+    return;
+  }
+
   if (trimmed.startsWith('/post')) {
     const topic = trimmed.slice('/post'.length).trim();
     if (!topic) {
@@ -4864,6 +5046,10 @@ async function handleCallback(
       await handleSlotBack(chatId, postId);
     } else if (action === 'plan_cancel' && postId) {
       await handlePlanCancel(chatId, messageId, postId);
+    } else if (action === 'gen_agent' && postId) {
+      await handleGenAgentCallback(chatId, messageId, postId);
+    } else if (action === 'gen_run') {
+      await handleGenRunCallback(chatId, messageId);
     } else if (action === 'brevo_add') {
       await handleBrevoAddCallback(chatId, messageId, postId ?? '');
     } else if (action === 'ads_type' && postId) {

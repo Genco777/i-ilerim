@@ -20,7 +20,7 @@ export async function openaiGenerate(
   const quality =
     opts?.quality ??
     (process.env.IMAGE_QUALITY as ImageQuality | undefined) ??
-    'medium';
+    'high';
   const size = opts?.size ?? '1024x1024';
 
   const result = await getClient().images.generate({

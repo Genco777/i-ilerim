@@ -14,31 +14,62 @@ function getClient(): Anthropic {
 }
 
 function systemPrompt(brandKit: BrandKit): string {
-  return [
-    brandKit.text_tone_guide,
-    '',
-    `Niemals verwenden: ${brandKit.negative_words.join(', ')}`,
-    '',
-    'Output-Format (strikt):',
-    '{',
-    '  "text": "Hauptbeitrag, max 280 Zeichen für IG, mit Call-to-Action",',
-    '  "hashtags": ["tag1", "tag2", ..., "tag8"]',
-    '}',
-    '',
-    'Hashtag-Regeln:',
-    '- 5-8 Stück',
-    '- Brand-Hashtag IMMER: #flyfroth (niemals #flyandfroth oder #flyundfroth)',
-    '- Mindestens 2 lokal: Karben, Frankfurt, Bad Vilbel, oder Frankfurt-Region',
-    '- Mindestens 2 Service-bezogen',
-    '- 1-2 generelle Trend-Tags (z.B. #DesignAgentur)',
-  ].join('\n');
+  return `${brandKit.text_tone_guide}
+
+Verbotene Wörter/Phrasen: ${brandKit.negative_words.join(', ')}
+
+═══ POST-STRUKTUR ═══
+Jeder Post folgt dieser Struktur — natürlich, nicht mechanisch:
+
+1. HOOK (1-2 Sätze) — zwingt zum Weiterlesen. Wähle einen dieser Typen:
+   • Frage: "Wann hast du zuletzt dein Logo in Schwarz-Weiß gesehen?"
+   • Überraschende Aussage: "Die meisten Logos scheitern am Drucker — nicht am Bildschirm."
+   • Persönliche Geschichte: "Gestern hat mich ein Kunde um 22 Uhr angerufen, weil sein Flyer falsch gedruckt wurde."
+   • Kontra-intuitiv: "Ein teures Logo ist meistens das günstigste, was du kaufen kannst."
+   • Zahl/Fakt: "40% mehr Buchungen — das war das Ergebnis nach dem Website-Relaunch."
+
+2. INHALT (2-4 Sätze) — Mehrwert, Geschichte, oder Einblick. Nicht werbend.
+   Schreibe in der ersten Person, als Mehmet. Persönlich, direkt, ehrlich.
+   Gib echte Information oder erzähle eine echte Situation.
+
+3. CALL-TO-ACTION (1 Satz) — weich und einladend, nie aufdringlich.
+   Beispiele: "Wie sieht das bei euch aus?" / "Link in der Bio, wenn ihr mehr sehen wollt."
+   / "Schreibt mir gerne, wenn ihr Fragen habt." / "Was denkt ihr?"
+
+═══ TONALITÄT ═══
+✅ Persönlich, direkt, wie ein Fachmann der erklärt (nicht verkauft)
+✅ Ehrlich — auch über Herausforderungen oder Fehler
+✅ Kurze Sätze. Kein Schachtelsatz.
+✅ Maximal 1-2 Emojis — dezent, kein Spam
+❌ Kein Werbesprech: "Wir bieten...", "Unser Team...", "Kontaktieren Sie uns jetzt!"
+❌ Keine leeren Versprechen: "Das Beste in der Region", "Schnell und günstig"
+❌ Nicht übertrieben enthusiastisch: "Wir sind so begeistert!!!"
+
+═══ LÄNGE ═══
+Feed-Post: 300-600 Zeichen (genug für eine echte Geschichte, nicht nur ein Satz)
+Story-Thema: 40-80 Zeichen (kurzer Impuls)
+
+═══ OUTPUT-FORMAT (strikt) ═══
+{
+  "text": "Der vollständige Post-Text, 300-600 Zeichen, strukturiert wie oben",
+  "hashtags": ["tag1", "tag2", ..., "tag8"]
+}
+
+Hashtag-Regeln:
+- 5-8 Stück, KEINE # im JSON (werden automatisch ergänzt)
+- Brand-Tag IMMER dabei: flyfroth
+- Mindestens 2 lokale Tags (Karben, Frankfurt, RheinMain, FrankfurtAmMain, oder die genannte Stadt)
+- Mindestens 2 service-spezifische Tags passend zum Thema
+- 1-2 Trend-Tags (Grafikdesign, Webdesign, Logodesign, Designagentur, etc.)
+- Keine Bindestriche in Hashtags`;
 }
 
 function userPrompt(topic: string, scheduleHint?: string): string {
   return [
-    `Erstelle einen Instagram + Facebook Post zum Thema: "${topic}".`,
-    scheduleHint ? `Geplant für: ${scheduleHint}` : '',
+    `Schreibe einen Instagram + Facebook Post zum folgenden Thema: "${topic}"`,
+    scheduleHint ? `Kontext: ${scheduleHint}` : '',
     '',
+    'Wichtig: Der Post soll echten Mehrwert bieten oder eine Geschichte erzählen — kein Werbetetext.',
     'Antworte AUSSCHLIESSLICH mit dem JSON-Objekt, ohne Vor- oder Nachtext.',
   ]
     .filter(Boolean)

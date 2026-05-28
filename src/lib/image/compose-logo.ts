@@ -59,42 +59,19 @@ export async function cropToSquare(imageBuffer: Buffer): Promise<Buffer> {
     .toBuffer();
 }
 
-const PILLAR_GOLD_HEX: Record<string, string> = {
-  vitrine: '#d4a43a',
-  prozess: '#d4a43a',
-  insight: '#d4a43a',
-  lokal: '#d4a43a',
-  reel: '#d4a43a',
-  logodesign: '#c9a96e',
-  flyerdesign: '#b8943a',
-  druckdesign: '#a08040',
-  webdesign: '#d4a43a',
-};
-
 /**
- * Apply a subtle warm gold wash to any image.
- * Uses Sharp composite with low-opacity gold tint.
+ * Brand color tint — previously applied a gold wash, now disabled.
+ * The brand palette is deep navy (#1A2340) + steel blue (#8A9DC8).
+ * Color consistency is handled at the prompt level; a flat color overlay
+ * on top of a photorealistic image degrades quality more than it helps.
+ * Kept as a no-op so callers don't need to change their signatures.
  */
 export async function applyGoldTint(
   imageBuffer: Buffer,
-  pillar?: string | null,
+  _pillar?: string | null,
 ): Promise<Buffer> {
-  const hex = (pillar && PILLAR_GOLD_HEX[pillar]) ? PILLAR_GOLD_HEX[pillar]! : '#d4a43a';
-  const r = parseInt(hex.slice(1, 3), 16);
-  const g = parseInt(hex.slice(3, 5), 16);
-  const b = parseInt(hex.slice(5, 7), 16);
-
-  return sharp(imageBuffer)
-    .composite([
-      {
-        input: Buffer.from([r, g, b, 28]), // ~11% opacity warm gold
-        raw: { width: 1, height: 1, channels: 4 },
-        tile: true,
-        blend: 'over',
-      },
-    ])
-    .png()
-    .toBuffer();
+  // No-op: return the image unchanged, converted to PNG for consistency.
+  return sharp(imageBuffer).png().toBuffer();
 }
 
 async function loadLogo(url: string): Promise<Buffer> {

@@ -3,16 +3,13 @@ import { brandKit } from '@/lib/db/schema';
 import { eq } from 'drizzle-orm';
 import type { BrandKit, NewBrandKit } from '@/types';
 
-const DEFAULT_VISUAL = `photorealistic, high-end professional photography style, premium German design studio Fly & Froth, gold accent, dark elegant mood, cinematic lighting, natural depth of field, no text in image, dynamic composition, looks like a real photograph not AI-generated, engaging and informative visual storytelling.
-
-SERVICE-SPECIFIC GOLD ACCENTS:
-- Webdesign posts: #d4a43a Classic Gold — subtle gold reflections on screens, warm golden ambient light
-- Logodesign posts: #c9a96e Pale Gold — softer, more refined gold, elegant paper textures
-- Flyerdesign posts: #b8943a Burnished Brass — warm brass tones, tactile paper feel
-- Druckdesign posts: #a08040 Bronze — deeper metallic, industrial yet premium
-- Brand/Insight posts: #d4a43a Classic Gold — authoritative gold, rich contrast
-- Local posts: #d4a43a Classic Gold — city skyline with warm golden glow
-- Reel covers: #d4a43a Classic Gold — bold, high-contrast, striking`;
+const DEFAULT_VISUAL = `Warm, natural, editorial photography style. Think Kinfolk or Monocle magazine meets professional German design studio.
+Fly & Froth brand colors: deep navy (#1A2340) as primary dark tone, steel blue (#8A9DC8) as accent.
+These colors appear as natural props in the scene — a navy notebook, a steel-blue ceramic mug — never as painted studio backgrounds.
+Surfaces: pale oak wood, warm concrete, linen, cotton paper. Natural daylight or warm-toned ambient light. No flash, no ring lights.
+The image must be photorealistic and indistinguishable from a real professional photograph.
+Shallow depth of field. Authentic, candid composition — not staged or stock-photo.
+No text, no watermarks, no logos in the image. Clean, considered, beautiful.`;
 
 const DEFAULT_TONE = `Du schreibst für Fly & Froth, ein Grafik- und Webdesignstudio in Karben (Frankfurt-Region). Inhaber: Mehmet Genco. Ton: kompetent, freundlich, präzise. Maximal 2 Emojis pro Beitrag. Hashtags am Ende, 5-8 Stück, Karben/Frankfurt-fokussiert. Verwende nicht 'günstig' oder 'billig' — stattdessen 'fair' oder 'transparent'. Schließe immer mit Call-to-Action.
 
@@ -76,7 +73,7 @@ export async function getBrandKit(): Promise<BrandKit> {
     ...logoDefaults,
     visual_style_guide: DEFAULT_VISUAL,
     text_tone_guide: DEFAULT_TONE,
-    brand_colors: ['#050912', '#d4a43a'],
+    brand_colors: ['#1A2340', '#8A9DC8'],
     negative_words: ['günstig', 'billig', 'schnellschuss'],
   };
   const [created] = await db.insert(brandKit).values(seed).returning();

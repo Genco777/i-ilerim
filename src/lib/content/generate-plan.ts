@@ -25,74 +25,155 @@ const WEEKLY_CALENDAR: {
   time: string;
   channel: 'feed' | 'reel' | 'story';
 }[] = [
-  // Monday
-  { day: 0, pillar: 'insight', time: '18:30', channel: 'feed' },
-  { day: 0, pillar: 'vitrine', time: '08:30', channel: 'story' },
-  // Tuesday
-  { day: 1, pillar: 'vitrine', time: '18:30', channel: 'feed' },
-  { day: 1, pillar: 'reel', time: '12:00', channel: 'reel' },
-  { day: 1, pillar: 'prozess', time: '12:30', channel: 'story' },
-  // Wednesday
-  { day: 2, pillar: 'lokal', time: '18:30', channel: 'feed' },
-  { day: 2, pillar: 'vitrine', time: '14:00', channel: 'story' },
-  // Thursday
-  { day: 3, pillar: 'vitrine', time: '18:30', channel: 'feed' },
-  { day: 3, pillar: 'reel', time: '12:00', channel: 'reel' },
-  { day: 3, pillar: 'prozess', time: '20:00', channel: 'story' },
-  // Friday
-  { day: 4, pillar: 'insight', time: '18:30', channel: 'feed' },
-  { day: 4, pillar: 'vitrine', time: '09:00', channel: 'story' },
-  // Saturday
-  { day: 5, pillar: 'vitrine', time: '18:30', channel: 'feed' },
-  { day: 5, pillar: 'reel', time: '12:00', channel: 'reel' },
-  { day: 5, pillar: 'vitrine', time: '19:00', channel: 'story' },
-  // Sunday
-  { day: 6, pillar: 'vitrine', time: '18:30', channel: 'feed' },
+  // Montag — Woche mit Wissen starten
+  { day: 0, pillar: 'insight',  time: '18:30', channel: 'feed'  }, //  1 insight feed
+  { day: 0, pillar: 'vitrine',  time: '08:30', channel: 'story' }, //  2 vitrine story
+  { day: 0, pillar: 'prozess',  time: '20:30', channel: 'story' }, //  3 prozess story
+
+  // Dienstag — Energie und Bewegung
+  { day: 1, pillar: 'vitrine',  time: '18:30', channel: 'feed'  }, //  4 vitrine feed
+  { day: 1, pillar: 'reel',     time: '12:00', channel: 'reel'  }, //  5 reel
+  { day: 1, pillar: 'insight',  time: '09:00', channel: 'story' }, //  6 insight story
+
+  // Mittwoch — Lokal und Prozess
+  { day: 2, pillar: 'lokal',    time: '18:30', channel: 'feed'  }, //  7 lokal feed
+  { day: 2, pillar: 'prozess',  time: '14:00', channel: 'story' }, //  8 prozess story
+  { day: 2, pillar: 'lokal',    time: '09:00', channel: 'story' }, //  9 lokal story
+
+  // Donnerstag — Prozess und Reel
+  { day: 3, pillar: 'prozess',  time: '18:30', channel: 'feed'  }, // 10 prozess feed
+  { day: 3, pillar: 'reel',     time: '12:00', channel: 'reel'  }, // 11 reel
+  { day: 3, pillar: 'vitrine',  time: '20:00', channel: 'story' }, // 12 vitrine story
+
+  // Freitag — Insight und Portfolio
+  { day: 4, pillar: 'insight',  time: '18:30', channel: 'feed'  }, // 13 insight feed
+  { day: 4, pillar: 'vitrine',  time: '09:00', channel: 'story' }, // 14 vitrine story
+  { day: 4, pillar: 'prozess',  time: '12:00', channel: 'story' }, // 15 prozess story
+
+  // Samstag — Lokal und Reel
+  { day: 5, pillar: 'lokal',    time: '18:30', channel: 'feed'  }, // 16 lokal feed
+  { day: 5, pillar: 'reel',     time: '12:00', channel: 'reel'  }, // 17 reel
+  { day: 5, pillar: 'insight',  time: '19:00', channel: 'story' }, // 18 insight story
+
+  // Sonntag — Wochenabschluss
+  { day: 6, pillar: 'vitrine',  time: '18:30', channel: 'feed'  }, // 19 vitrine feed
+  { day: 6, pillar: 'lokal',    time: '11:00', channel: 'story' }, // 20 lokal story
 ];
+// Distribution: vitrine 5 (25%) | insight 5 (25%) | prozess 5 (25%) | lokal 4 (20%) | reel 3 (15%)
 
 const GERMAN_DAYS = ['Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag', 'Samstag', 'Sonntag'];
 
-function systemPrompt(): string {
+// Rotating city list for lokal pillar — include specific business context
+const LOKAL_CITIES = [
+  'Karben', 'Frankfurt am Main', 'Bad Vilbel', 'Friedberg (Hessen)',
+  'Hanau', 'Bad Homburg', 'Oberursel', 'Kronberg im Taunus',
+  'Königstein im Taunus', 'Bad Soden am Taunus', 'Eschborn',
+  'Hofheim am Taunus', 'Bad Nauheim', 'Butzbach', 'Niddatal',
+  'Rosbach vor der Höhe', 'Wöllstadt', 'Nidderau', 'Bruchköbel',
+];
+
+function pickLokalCities(week: number, count: number): string[] {
+  const offset = (week * 3) % LOKAL_CITIES.length;
+  const result: string[] = [];
+  for (let i = 0; i < count; i++) {
+    result.push(LOKAL_CITIES[(offset + i) % LOKAL_CITIES.length]!);
+  }
+  return result;
+}
+
+function systemPrompt(week: number, year: number): string {
+  const slotCount = WEEKLY_CALENDAR.length;
   const slotPlan = WEEKLY_CALENDAR.map((s, i) => {
     const day = GERMAN_DAYS[s.day] ?? '??';
-    const type = s.channel === 'story' ? 'STORY (kurz, 50 Zeichen, zum Feed-Post passend)'
-      : s.channel === 'reel' ? 'REEL (Bewegung/Dynamik)' : 'FEED (80 Zeichen)';
-    return `${i + 1}. ${day} ${s.time} [${s.pillar}] ${type}`;
+    const type = s.channel === 'story'
+      ? 'STORY (max 60 Zeichen — schnell lesbar, ergänzt den Feed-Post des Tages)'
+      : s.channel === 'reel'
+        ? 'REEL (dynamisch, movement, vor/nachher, timelapse — kein statischer Inhalt)'
+        : 'FEED (Hauptbeitrag, Substanz, Mehrwert)';
+    return `${i + 1}. ${day} ${s.time} [${s.pillar.toUpperCase()}] ${type}`;
   }).join('\n');
 
-  return [
-    'Du bist der Content-Planer für Fly & Froth, ein Grafik- und Webdesign-Studio aus Karben (Deutschland).',
-    '',
-    'Inhaltliche Säulen:',
-    '- vitrine: Portfolio-Arbeiten zeigen (Webdesign, Logodesign, Flyer, Visitenkarten, Branding)',
-    '- prozess: Designprozess, Behind-the-Scenes, Workflow',
-    '- insight: Design-Tipps, Typografie, Farbtheorie, Trends',
-    '- lokal: Standort-bezogene Posts (19 Städte im Rhein-Main-Gebiet im Rotationsprinzip)',
-    '- reel: Kurze Video-Themen (Design-Timelapse, Before/After, Trends, Motion)',
-    '',
-    'STORY-REGELN:',
-    '- Story MUSS thematisch zum Feed-Post DES GLEICHEN TAGES passen',
-    '- Authentisch, kein Werbesprech, max 50 Zeichen',
-    '- Beispiele: Schreibtisch mit Skizzen, Screen-Ausschnitt, Skyline-Impression',
-    '',
-    'ABWECHSLUNG:',
-    '- KEINE Wiederholungen zwischen den 16 Themen',
-    '- Verschiedene Dienstleistungen und Designthemen rotieren',
-    '- Jede Woche andere Stadt aus: Karben, Frankfurt, Bad Vilbel, Friedberg, Hanau, Bad Homburg, Oberursel, Kronberg, Königstein, Bad Soden, Eschborn, Hofheim, Bad Nauheim, Butzbach, Niddatal, Rosbach, Wöllstadt, Nidderau, Bruchköbel',
-    '',
-    'Themen konkret und realistisch. Keine Fantasie-Projekte.',
-    '',
-    'GENAU 16 TOPICS — jedes für den entsprechenden Slot in der Liste unten:',
-    slotPlan,
-    '',
-    'Antworte NUR mit JSON:',
-    '{ "topics": ["Topic 1", "Topic 2", ... "Topic 16"] }',
-    'EXAKT 16 Einträge im Array. Keinen auslassen.',
-  ].join('\n');
+  const lokalSlotCount = WEEKLY_CALENDAR.filter(s => s.pillar === 'lokal').length;
+  const lokalCities = pickLokalCities(week, lokalSlotCount);
+
+  return `Du bist der Content-Stratege für Fly & Froth — Grafik- & Webdesignstudio, Karben (Rhein-Main). Inhaber: Mehmet Genco.
+Zielgruppe: Kleine Unternehmen, Selbstständige, Handwerker, Gastronomen, Dienstleister im Rhein-Main-Gebiet.
+
+═══ INHALTLICHE SÄULEN & ERWARTETE QUALITÄT ═══
+
+[VITRINE] — Portfolio zeigen, aber MIT Geschichte
+❌ SCHLECHT: "Logo für einen Kunden fertiggestellt"
+❌ SCHLECHT: "Neues Webdesign-Projekt"
+✅ GUT: "Bäckerei Hoffmann wollte ein Logo, das nach Tradition aussieht — aber auch auf Instagram funktioniert. Hier ist, was wir entwickelt haben."
+✅ GUT: "Visitenkarten für einen Elektriker aus Karben: Warum das Material genauso wichtig ist wie das Design."
+✅ GUT: "Before/After: Wie eine neue Website einem Friseur in Bad Vilbel 40% mehr Buchungen brachte."
+→ Dienstleistungen rotieren: Webdesign, Logodesign, Flyerdesign, Visitenkarten, Branding, CI-Paket, Drucksachen
+
+[INSIGHT] — Expertenwissen, das echten Mehrwert bietet
+❌ SCHLECHT: "Warum Design wichtig ist"
+❌ SCHLECHT: "Tipps für gutes Logo"
+✅ GUT: "Warum dein Logo in Schwarz-Weiß funktionieren MUSS — und wie du das in 2 Minuten testest."
+✅ GUT: "Der Schriftart-Fehler, der deine Website unprofessionell wirken lässt (und wie du ihn sofort behebst)."
+✅ GUT: "5 Zeichen, dass dein Logo ein Redesign braucht — #3 übersehen die meisten."
+✅ GUT: "Warum PDF-Dateien für dein Logo nicht ausreichen — was du stattdessen brauchst."
+→ Themen: Typografie, Farblehre, Logodesign-Prinzipien, Print vs. Digital, Webdesign-Fehler, CI-Aufbau, Druckformate
+
+[PROZESS] — Behind-the-Scenes, authentisch und persönlich
+❌ SCHLECHT: "So arbeiten wir"
+❌ SCHLECHT: "Design-Prozess bei Fly & Froth"
+✅ GUT: "Die ersten 20 Minuten mit einem neuen Kunden: Was ich immer als erstes frage — und warum."
+✅ GUT: "Ich mache immer 15 Skizzen, bevor ich den Computer anschalte. Hier sind die Rohversionen eines aktuellen Projekts."
+✅ GUT: "Kundenfeedback um 23 Uhr: 'Das ist nicht das, was ich wollte.' — So gehe ich damit um."
+✅ GUT: "Warum ich manchmal ein Projekt ablehne — und was das mit Qualität zu tun hat."
+→ Themen: Skizzier-Prozess, Kundengespräche, Revisionen, Tools, Arbeitsalltag, Freelancer-Leben, Entscheidungen
+
+[LOKAL] — Lokale Relevanz mit Geschäftsbezug (KEINE generischen Stadterwähnungen)
+❌ SCHLECHT: "Webdesign in Frankfurt"
+❌ SCHLECHT: "Logodesign für Unternehmen in Bad Vilbel"
+✅ GUT: "Warum immer mehr Restaurants in Frankfurt ihre Speisekarte auch als Website brauchen — und was das kostet."
+✅ GUT: "Handwerker in Bad Homburg: Wie ein professionelles Logo dazu beiträgt, mehr Aufträge zu bekommen."
+✅ GUT: "Eschborn ist das Büroviertel Frankfurts — aber wie sehen die Visitenkarten dort aus? (Spoiler: Oft überraschend schlecht.)"
+→ Diese Woche bitte folgende Städte verwenden (je nach Slot-Anzahl): ${lokalCities.join(', ')}
+→ Verbinde die Stadt mit einem spezifischen Geschäftsproblem, das Design lösen kann
+
+[REEL] — Dynamische Video-Inhalte (nicht statisch beschreibbar)
+✅ GUT: "Logo von Skizze bis fertig — 30 Sekunden Timelapse"
+✅ GUT: "Vorher/Nachher: Alte vs. neue Website in 15 Sekunden"
+✅ GUT: "Wie ich in 60 Sekunden erkläre, was Corporate Identity bedeutet"
+✅ GUT: "3 Schriftarten, die NIEMALS zusammenpassen — schneller Vergleich"
+
+═══ STORY-REGELN ═══
+- Story MUSS thematisch zum Feed-Post DES GLEICHEN TAGES passen
+- Max 60 Zeichen — kurzer Impuls, nicht der ganze Post nochmal
+- Beispiele: "Erste Skizzen gerade fertig 👀", "Kannst du den Unterschied sehen?", "Hinter den Kulissen heute"
+
+═══ VERBOTENE FORMULIERUNGEN ═══
+- Generische Sätze: "Wir helfen Unternehmen", "Professionelles Design für alle", "Kontaktiert uns"
+- Leere Versprechen: "Das beste Logo der Stadt", "Günstig und schnell"
+- Klischees: "Ihr Erfolg ist unser Auftrag", "Wir denken außerhalb der Box"
+
+═══ FORMAT ═══
+GENAU ${slotCount} TOPICS für die unten stehenden Slots. Jeder Topic ist eine konkrete, spezifische Idee — kein Schlagwort, sondern ein Winkel mit Geschichte oder Mehrwert.
+
+SLOT-LISTE:
+${slotPlan}
+
+Antworte NUR mit JSON:
+{ "topics": ["Topic 1", ..., "Topic ${slotCount}"] }
+EXAKT ${slotCount} Einträge. Keinen auslassen.`;
 }
 
 function userPrompt(week: number, year: number): string {
-  return `Erstelle 16 Social-Media-Themen für Kalenderwoche ${week}, ${year}. Exakt 16 Topics, keines auslassen.`;
+  const now = new Date();
+  const month = now.toLocaleString('de-DE', { month: 'long' });
+  const season = now.getMonth() >= 2 && now.getMonth() <= 4 ? 'Frühling'
+    : now.getMonth() >= 5 && now.getMonth() <= 7 ? 'Sommer'
+      : now.getMonth() >= 8 && now.getMonth() <= 10 ? 'Herbst'
+        : 'Winter';
+
+  return `Erstelle ${WEEKLY_CALENDAR.length} Social-Media-Themen für Kalenderwoche ${week}, ${year}.
+Aktueller Monat: ${month} (${season}) — nutze saisonale Anlässe wo sinnvoll (z.B. Sommerpause, Herbstmessen, Jahresendgeschäft).
+Jedes Thema soll konkret, spezifisch und mit klarem Blickwinkel sein. Exakt ${WEEKLY_CALENDAR.length} Topics — keines auslassen.`;
 }
 
 function parseTopicsJson(raw: string): string[] {
@@ -126,7 +207,7 @@ function callClaude(system: string, user: string): Promise<string> {
 }
 
 async function generateTopics(week: number, year: number): Promise<string[]> {
-  const sys = systemPrompt();
+  const sys = systemPrompt(week, year);
   const usr = userPrompt(week, year);
   const slotCount = WEEKLY_CALENDAR.length;
 
@@ -134,9 +215,8 @@ async function generateTopics(week: number, year: number): Promise<string[]> {
   const topics = parseTopicsJson(raw);
 
   if (topics.length < slotCount) {
-    // Retry once with explicit missing count
     const missing = slotCount - topics.length;
-    const retryUser = `${usr}\n\nFEHLER: Nur ${topics.length} Topics. Es fehlen ${missing}. LIEFERE EXAKT ${slotCount} TOPICS.`;
+    const retryUser = `${usr}\n\nFEHLER: Nur ${topics.length} Topics erhalten. Es fehlen ${missing}. Liefere EXAKT ${slotCount} Topics — alle konkret und spezifisch.`;
     const raw2 = await callClaude(sys, retryUser);
     const topics2 = parseTopicsJson(raw2);
     if (topics2.length < slotCount) {
