@@ -195,6 +195,7 @@ export async function handleTrendRegenVisual(
     slug: product.slug ?? '',
     turkishGapAngle: product.turkish_gap_angle ?? '',
     turkishSummary: product.turkish_summary ?? '',
+    pdfBody: (product.pdf_body as Record<string, unknown>) ?? {},
   };
 
   try {

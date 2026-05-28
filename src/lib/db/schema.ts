@@ -876,6 +876,8 @@ export const products = pgTable(
     // Etsy/shop content stays in English — these are for Mehmet to evaluate at a glance.
     turkish_gap_angle: text('turkish_gap_angle'),
     turkish_summary: text('turkish_summary'),
+    /** Type-specific PDF body content (prompts / stickers / sections) — Claude-generated */
+    pdf_body: jsonb('pdf_body').default({}),
     price_cents: integer('price_cents').notNull(),
     // Stripe references (Faz 4)
     stripe_product_id: text('stripe_product_id'),

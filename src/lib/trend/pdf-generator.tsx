@@ -1,18 +1,15 @@
 /**
- * PDF Generator — Faz 2-C MVP
+ * PDF Generator — Faz 2-C (content-rich rewrite)
  *
- * Per-product-type printable PDF templates rendered with @react-pdf/renderer.
- * Returns a Buffer ready to upload to Vercel Blob.
+ * Renders product-type-specific PDFs using Claude-generated `pdfBody`:
+ *   planner          → cover + 1 prompt-per-page (with reflection lines) + how-to-use
+ *   poster           → 1 page A4 poster + how-to-use
+ *   sticker          → cover + 9-cell sticker sheet + how-to-use
+ *   template         → cover + "what's inside" sections + how-to-use
+ *   social_template  → cover + sections + how-to-use
  *
- * Templates:
- *   planner          → cover + 2 weekly spread pages + "how to use"
- *   poster           → 1 A4 page, large typography, niche-derived phrase
- *   sticker          → 1 A4 sheet, 6-cell grid with dotted cut lines
- *   template         → cover + 2 instruction pages
- *   social_template  → cover + 1 instructions page
- *
- * Hero image (from Vercel Blob URL) is embedded in cover pages where the
- * product type benefits from showing it. react-pdf can fetch HTTPS images.
+ * No empty pages: each Page is sized to fit content. Layout is intentionally
+ * generous (white space) but never blank.
  */
 
 import {
@@ -27,16 +24,15 @@ import {
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { NicheCandidate } from './discovery';
-import type { ProductContent } from './content';
+import type { ProductContent, PdfBody } from './content';
 
-// ─── Fly & Froth logo (cached read from public/branding) ─────────────────────
+// ─── Fly & Froth logo (cached) ───────────────────────────────────────────────
 
 let cachedLogo: Buffer | null = null;
 function loadLogo(): Buffer | null {
   if (cachedLogo) return cachedLogo;
   try {
-    const path = join(process.cwd(), 'public', 'branding', 'logo-navy.png');
-    cachedLogo = readFileSync(path);
+    cachedLogo = readFileSync(join(process.cwd(), 'public', 'branding', 'logo-navy.png'));
     return cachedLogo;
   } catch (err) {
     console.error('[trend pdf] could not load logo', err);
@@ -44,7 +40,7 @@ function loadLogo(): Buffer | null {
   }
 }
 
-// ─── shared styles ───────────────────────────────────────────────────────────
+// ─── styles ─────────────────────────────────────────────────────────────────
 
 const COLORS = {
   ink: '#1c1916',
@@ -52,23 +48,24 @@ const COLORS = {
   rule: '#e0d8cc',
   cream: '#fbfaf6',
   accent: '#2b2620',
+  hint: '#cfcfcf',
 };
 
-const sharedStyles = StyleSheet.create({
+const styles = StyleSheet.create({
   page: {
-    paddingTop: 50,
-    paddingBottom: 50,
-    paddingHorizontal: 56,
+    paddingTop: 56,
+    paddingBottom: 60,
+    paddingHorizontal: 60,
     fontFamily: 'Helvetica',
-    fontSize: 10,
+    fontSize: 10.5,
     color: COLORS.ink,
     backgroundColor: '#ffffff',
-    lineHeight: 1.45,
+    lineHeight: 1.5,
   },
   coverPage: {
-    paddingTop: 80,
+    paddingTop: 70,
     paddingBottom: 80,
-    paddingHorizontal: 56,
+    paddingHorizontal: 60,
     backgroundColor: COLORS.cream,
     fontFamily: 'Helvetica',
     color: COLORS.ink,
@@ -79,25 +76,6 @@ const sharedStyles = StyleSheet.create({
     color: COLORS.muted,
     marginBottom: 24,
   },
-  coverTitle: {
-    fontFamily: 'Helvetica-Bold',
-    fontSize: 28,
-    lineHeight: 1.2,
-    marginBottom: 20,
-  },
-  coverSubtitle: {
-    fontSize: 14,
-    fontStyle: 'italic',
-    color: COLORS.muted,
-    marginBottom: 32,
-  },
-  heroImage: {
-    width: 380,
-    height: 380,
-    objectFit: 'cover',
-    alignSelf: 'center',
-    marginVertical: 24,
-  },
   coverLogo: {
     width: 110,
     height: 38,
@@ -105,84 +83,136 @@ const sharedStyles = StyleSheet.create({
     alignSelf: 'flex-start',
     marginBottom: 28,
   },
-  footerLogo: {
-    position: 'absolute',
-    bottom: 22,
-    right: 56,
-    width: 56,
-    height: 18,
-    objectFit: 'contain',
+  coverTitle: {
+    fontFamily: 'Helvetica-Bold',
+    fontSize: 28,
+    lineHeight: 1.2,
+    marginBottom: 18,
   },
-  posterCorner: {
+  coverSubtitle: {
+    fontSize: 14,
+    fontStyle: 'italic',
+    color: COLORS.muted,
+    marginBottom: 28,
+  },
+  heroImage: {
+    width: 360,
+    height: 360,
+    objectFit: 'cover',
+    alignSelf: 'center',
+    marginVertical: 18,
+  },
+  coverFooter: {
     position: 'absolute',
     bottom: 36,
-    right: 36,
-    width: 70,
-    height: 24,
-    objectFit: 'contain',
-    opacity: 0.85,
+    left: 60,
+    right: 60,
+    fontSize: 8.5,
+    color: COLORS.muted,
   },
   pageTitle: {
     fontFamily: 'Helvetica-Bold',
-    fontSize: 18,
-    marginBottom: 16,
+    fontSize: 17,
+    marginBottom: 12,
   },
-  body: { fontSize: 10.5, lineHeight: 1.6, marginBottom: 10 },
+  pageEyebrow: {
+    fontSize: 8,
+    letterSpacing: 1.5,
+    color: COLORS.muted,
+    marginBottom: 8,
+  },
+  rule: { borderBottomWidth: 0.5, borderBottomColor: COLORS.rule, marginVertical: 12 },
+  body: { fontSize: 10.5, lineHeight: 1.55, marginBottom: 8 },
   small: { fontSize: 8.5, color: COLORS.muted },
-  rule: {
-    borderBottomWidth: 0.5,
-    borderBottomColor: COLORS.rule,
-    marginVertical: 14,
-  },
   footer: {
     position: 'absolute',
-    bottom: 24,
-    left: 56,
-    right: 56,
-    textAlign: 'center',
-    fontSize: 8,
+    bottom: 26,
+    left: 60,
+    right: 120,
+    fontSize: 7.5,
     color: COLORS.muted,
   },
-  // Planner weekly grid
-  weekRow: {
-    flexDirection: 'row',
-    borderBottomWidth: 0.5,
-    borderBottomColor: COLORS.rule,
-    minHeight: 64,
-    paddingVertical: 8,
+  footerLogo: {
+    position: 'absolute',
+    bottom: 22,
+    right: 60,
+    width: 50,
+    height: 16,
+    objectFit: 'contain',
   },
-  weekDayCol: {
-    width: 70,
-    paddingRight: 8,
+  // Prompt page
+  promptNumber: {
     fontFamily: 'Helvetica-Bold',
-    fontSize: 11,
-  },
-  weekContentCol: { flex: 1, paddingLeft: 8 },
-  weekLineHint: {
-    borderBottomWidth: 0.25,
-    borderBottomColor: '#cfcfcf',
-    height: 18,
+    fontSize: 38,
+    color: COLORS.accent,
     marginBottom: 4,
   },
+  promptText: {
+    fontSize: 16,
+    lineHeight: 1.4,
+    fontFamily: 'Helvetica-Bold',
+    marginBottom: 22,
+  },
+  reflectLineLabel: {
+    fontSize: 8,
+    color: COLORS.muted,
+    letterSpacing: 1,
+    marginBottom: 10,
+  },
+  reflectLine: {
+    borderBottomWidth: 0.4,
+    borderBottomColor: COLORS.hint,
+    height: 26,
+  },
   // Sticker grid
+  stickerHeader: {
+    fontSize: 10,
+    color: COLORS.muted,
+    marginBottom: 14,
+  },
   stickerGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     justifyContent: 'space-between',
-    marginTop: 20,
   },
   stickerCell: {
     width: '32%',
-    aspectRatio: 1,
-    marginBottom: 14,
-    borderWidth: 0.5,
+    height: 150,
+    marginBottom: 12,
+    borderWidth: 0.6,
     borderColor: COLORS.muted,
     borderStyle: 'dashed',
-    padding: 12,
+    padding: 14,
     justifyContent: 'center',
     alignItems: 'center',
   },
-  stickerText: { fontSize: 11, textAlign: 'center', fontFamily: 'Helvetica-Bold' },
+  stickerText: {
+    fontSize: 12,
+    textAlign: 'center',
+    fontFamily: 'Helvetica-Bold',
+    color: COLORS.accent,
+  },
+  // Template sections
+  sectionHeading: {
+    fontFamily: 'Helvetica-Bold',
+    fontSize: 13,
+    marginTop: 16,
+    marginBottom: 8,
+    color: COLORS.accent,
+  },
+  sectionItem: {
+    flexDirection: 'row',
+    marginBottom: 6,
+  },
+  sectionBullet: {
+    width: 12,
+    color: COLORS.muted,
+  },
+  sectionItemText: {
+    flex: 1,
+    fontSize: 10.5,
+    lineHeight: 1.5,
+  },
   // Poster
   posterPage: {
     paddingTop: 60,
@@ -195,19 +225,28 @@ const sharedStyles = StyleSheet.create({
   },
   posterTitle: {
     fontFamily: 'Helvetica-Bold',
-    fontSize: 72,
+    fontSize: 88,
     color: COLORS.accent,
     textAlign: 'center',
-    letterSpacing: -2,
-    lineHeight: 1.05,
+    letterSpacing: -3,
+    lineHeight: 1,
     marginBottom: 24,
   },
   posterSubtitle: {
-    fontSize: 14,
+    fontSize: 12,
     color: COLORS.muted,
     textAlign: 'center',
     letterSpacing: 4,
     textTransform: 'uppercase',
+  },
+  posterCorner: {
+    position: 'absolute',
+    bottom: 36,
+    right: 36,
+    width: 70,
+    height: 24,
+    objectFit: 'contain',
+    opacity: 0.85,
   },
 });
 
@@ -217,27 +256,27 @@ function CoverPage({
   title,
   subtitle,
   heroUrl,
+  pageCount,
 }: {
   title: string;
   subtitle: string;
   heroUrl?: string | null;
+  pageCount: number;
 }) {
   const logo = loadLogo();
   return (
-    <Page size="A4" style={sharedStyles.coverPage}>
+    <Page size="A4" style={styles.coverPage}>
       {logo ? (
-        <Image src={logo} style={sharedStyles.coverLogo} />
+        <Image src={logo} style={styles.coverLogo} />
       ) : (
-        <Text style={sharedStyles.brand}>FLY & FROTH</Text>
+        <Text style={styles.brand}>FLY & FROTH</Text>
       )}
-      <Text style={sharedStyles.coverTitle}>{title}</Text>
-      <Text style={sharedStyles.coverSubtitle}>{subtitle}</Text>
-      {heroUrl ? <Image src={heroUrl} style={sharedStyles.heroImage} /> : null}
-      <View style={{ marginTop: 'auto' }}>
-        <Text style={sharedStyles.small}>
-          Printable PDF • A4 • Instant download • For personal use
-        </Text>
-      </View>
+      <Text style={styles.coverTitle}>{title}</Text>
+      <Text style={styles.coverSubtitle}>{subtitle}</Text>
+      {heroUrl ? <Image src={heroUrl} style={styles.heroImage} /> : null}
+      <Text style={styles.coverFooter}>
+        {pageCount} pages • A4 • Printable PDF • Instant download • For personal use
+      </Text>
     </Page>
   );
 }
@@ -245,225 +284,227 @@ function CoverPage({
 function HowToUsePage({ type }: { type: NicheCandidate['productHint'] }) {
   const tipsByType: Record<NicheCandidate['productHint'], string[]> = {
     planner: [
-      'Print at 100% scale on A4 paper, single-sided.',
-      'Use a sturdy paper (100-120 gsm) for repeated handling.',
-      'Re-print weekly sheets as needed — they are designed to be consumable.',
-      'Pair with a clipboard or thin binder for portable use.',
+      'Print at 100 % scale on A4 paper, single-sided. Re-print prompt pages as needed.',
+      'Use 100-120 gsm paper for a substantial, journal-like feel.',
+      'Work through prompts in order or jump to whichever calls to you — both work.',
+      'Keep finished sheets in a binder or scan for digital archive.',
     ],
     poster: [
-      'Print on matte or satin photo paper (A4 or A3).',
-      'For larger sizes use a local print shop with the original PDF — quality stays sharp.',
-      'Frame in a simple frame with a 2-3 cm matte border for an editorial look.',
+      'Print on matte or satin photo paper, A4 or A3.',
+      'For larger sizes send the original PDF to a print shop — quality stays sharp.',
+      'Frame with a 2-3 cm matte border for an editorial feel.',
     ],
     sticker: [
-      'Print on sticker paper (vinyl or paper sticker sheets, A4).',
-      'Cut along the dashed lines with a craft knife or scissors.',
-      'For waterproof stickers use vinyl + a clear laminate sheet on top.',
+      'Print on A4 sticker paper (vinyl for waterproof, paper for indoor use).',
+      'Cut along the dashed lines with a craft knife or sharp scissors.',
+      'Add a clear laminate sheet on top for vinyl + water resistance.',
     ],
     template: [
-      'Open the PDF for reference, then re-create the structure in your tool of choice.',
-      'A digital version (Notion / Google Docs) may be sent in a follow-up email.',
-      'Adjust headings to fit your workflow — this is a starting framework.',
+      'Read through each section to understand the structure.',
+      'Re-create the layout in Notion, Google Docs, or your tool of choice.',
+      'Adjust headings and items to fit your specific workflow.',
     ],
     social_template: [
-      'Use the layout in Canva, Figma or your editor of choice.',
-      'Keep the typography hierarchy: bold hook, supporting body, small CTA.',
-      'Maintain the colour palette across the series for brand consistency.',
+      'Open your editor of choice — Canva, Figma, or Adobe Express.',
+      'Recreate the layout: keep the hierarchy of hook → body → CTA.',
+      'Maintain the colour palette across your series for brand consistency.',
     ],
   };
 
   const tips = tipsByType[type] ?? tipsByType.planner;
   const logo = loadLogo();
   return (
-    <Page size="A4" style={sharedStyles.page}>
-      <Text style={sharedStyles.pageTitle}>How to use this download</Text>
-      <View style={sharedStyles.rule} />
+    <Page size="A4" style={styles.page}>
+      <Text style={styles.pageEyebrow}>USING THIS DOWNLOAD</Text>
+      <Text style={styles.pageTitle}>How to get the most out of it</Text>
+      <View style={styles.rule} />
       {tips.map((t, i) => (
-        <View key={i} style={{ flexDirection: 'row', marginBottom: 10 }}>
-          <Text style={{ width: 18 }}>{i + 1}.</Text>
-          <Text style={[sharedStyles.body, { flex: 1 }]}>{t}</Text>
+        <View key={i} style={{ flexDirection: 'row', marginBottom: 12 }}>
+          <Text style={{ width: 22, fontFamily: 'Helvetica-Bold' }}>{i + 1}.</Text>
+          <Text style={[styles.body, { flex: 1 }]}>{t}</Text>
         </View>
       ))}
-      <View style={sharedStyles.rule} />
-      <Text style={sharedStyles.small}>
+      <View style={styles.rule} />
+      <Text style={styles.small}>
         Need help or want a variant? Reply to the order email.
       </Text>
-      <Text style={sharedStyles.footer} fixed>
+      <Text style={styles.footer} fixed>
         Karben, Germany • www.fly-froth.com
       </Text>
-      {logo ? <Image src={logo} style={sharedStyles.footerLogo} fixed /> : null}
+      {logo ? <Image src={logo} style={styles.footerLogo} fixed /> : null}
     </Page>
   );
 }
 
-// ─── type-specific body pages ───────────────────────────────────────────────
+// ─── planner: prompt page ───────────────────────────────────────────────────
 
-function PlannerWeeklySpread({ weekNumber }: { weekNumber: number }) {
-  const days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+function PromptPage({
+  number,
+  total,
+  prompt,
+}: {
+  number: number;
+  total: number;
+  prompt: string;
+}) {
+  const logo = loadLogo();
   return (
-    <Page size="A4" style={sharedStyles.page}>
-      <Text style={sharedStyles.pageTitle}>Week {weekNumber} — Focus & flow</Text>
-      <Text style={[sharedStyles.small, { marginBottom: 12 }]}>
-        Date: ___________ • Theme of the week: ___________________________________
-      </Text>
-      <View style={sharedStyles.rule} />
-      {days.map((d) => (
-        <View key={d} style={sharedStyles.weekRow} wrap={false}>
-          <Text style={sharedStyles.weekDayCol}>{d}</Text>
-          <View style={sharedStyles.weekContentCol}>
-            <View style={sharedStyles.weekLineHint} />
-            <View style={sharedStyles.weekLineHint} />
-            <View style={sharedStyles.weekLineHint} />
-          </View>
-        </View>
+    <Page size="A4" style={styles.page}>
+      <Text style={styles.pageEyebrow}>PROMPT {number} OF {total}</Text>
+      <Text style={styles.promptNumber}>{String(number).padStart(2, '0')}</Text>
+      <Text style={styles.promptText}>{prompt}</Text>
+      <Text style={styles.reflectLineLabel}>WRITE HERE</Text>
+      {Array.from({ length: 14 }).map((_, i) => (
+        <View key={i} style={styles.reflectLine} />
       ))}
-      <View style={{ marginTop: 14 }}>
-        <Text style={[sharedStyles.body, { fontFamily: 'Helvetica-Bold' }]}>
-          End-of-week reflection
-        </Text>
-        <View style={sharedStyles.weekLineHint} />
-        <View style={sharedStyles.weekLineHint} />
-        <View style={sharedStyles.weekLineHint} />
-      </View>
-      <Text style={sharedStyles.footer} fixed>
-        Fly & Froth • Week {weekNumber}
+      <Text style={styles.footer} fixed>
+        Fly & Froth • Prompt {number}/{total}
       </Text>
+      {logo ? <Image src={logo} style={styles.footerLogo} fixed /> : null}
     </Page>
   );
 }
 
-function StickerSheetPage({ phrases }: { phrases: string[] }) {
-  // Take up to 9 phrases for a 3x3 visual grid
+// ─── sticker sheet ──────────────────────────────────────────────────────────
+
+function StickerSheet({ phrases }: { phrases: string[] }) {
   const cells = phrases.slice(0, 9);
   while (cells.length < 9) cells.push(' ');
+  const logo = loadLogo();
   return (
-    <Page size="A4" style={sharedStyles.page}>
-      <Text style={sharedStyles.pageTitle}>Sticker sheet — cut along dashed lines</Text>
-      <View style={sharedStyles.stickerGrid}>
+    <Page size="A4" style={styles.page}>
+      <Text style={styles.pageEyebrow}>STICKER SHEET</Text>
+      <Text style={styles.pageTitle}>Cut along the dashed lines</Text>
+      <Text style={styles.stickerHeader}>
+        3×3 grid • A4 sticker paper recommended • Vinyl + laminate for waterproof
+      </Text>
+      <View style={styles.stickerGrid}>
         {cells.map((p, i) => (
-          <View key={i} style={sharedStyles.stickerCell}>
-            <Text style={sharedStyles.stickerText}>{p.toUpperCase().slice(0, 22)}</Text>
+          <View key={i} style={styles.stickerCell}>
+            <Text style={styles.stickerText}>{p.toUpperCase().slice(0, 22)}</Text>
           </View>
         ))}
       </View>
-      <Text style={sharedStyles.footer} fixed>
-        Fly & Froth • Sticker sheet • A4
+      <Text style={styles.footer} fixed>
+        Fly & Froth • Sticker sheet
       </Text>
+      {logo ? <Image src={logo} style={styles.footerLogo} fixed /> : null}
     </Page>
   );
 }
 
-function TemplateOverviewPage({
+// ─── template "what's inside" ───────────────────────────────────────────────
+
+function TemplateSectionsPage({
+  sections,
   niche,
   content,
 }: {
+  sections: NonNullable<PdfBody['templateSections']>;
   niche: NicheCandidate;
   content: ProductContent;
 }) {
+  const logo = loadLogo();
   return (
-    <Page size="A4" style={sharedStyles.page}>
-      <Text style={sharedStyles.pageTitle}>What's included</Text>
-      <View style={sharedStyles.rule} />
-      <Text style={sharedStyles.body}>{content.shopDescription}</Text>
-      <View style={sharedStyles.rule} />
-      <Text style={[sharedStyles.body, { fontFamily: 'Helvetica-Bold' }]}>
-        Designed for
-      </Text>
-      <Text style={sharedStyles.body}>{niche.gapAngle}</Text>
-      <Text style={sharedStyles.footer} fixed>
+    <Page size="A4" style={styles.page}>
+      <Text style={styles.pageEyebrow}>OVERVIEW</Text>
+      <Text style={styles.pageTitle}>{content.shopTitle}</Text>
+      <View style={styles.rule} />
+      <Text style={styles.body}>{niche.gapAngle}</Text>
+      {sections.map((s, i) => (
+        <View key={i}>
+          <Text style={styles.sectionHeading}>{s.heading}</Text>
+          {s.items.map((item, j) => (
+            <View key={j} style={styles.sectionItem}>
+              <Text style={styles.sectionBullet}>·</Text>
+              <Text style={styles.sectionItemText}>{item}</Text>
+            </View>
+          ))}
+        </View>
+      ))}
+      <Text style={styles.footer} fixed>
         Fly & Froth • Template overview
       </Text>
+      {logo ? <Image src={logo} style={styles.footerLogo} fixed /> : null}
     </Page>
   );
 }
 
-function SocialTemplateMockPage({ content }: { content: ProductContent }) {
-  return (
-    <Page size="A4" style={sharedStyles.page}>
-      <Text style={sharedStyles.pageTitle}>Social post template</Text>
-      <View style={sharedStyles.rule} />
-      <View
-        style={{
-          borderWidth: 1,
-          borderColor: COLORS.rule,
-          padding: 24,
-          marginTop: 12,
-          minHeight: 340,
-        }}
-      >
-        <Text style={{ fontFamily: 'Helvetica-Bold', fontSize: 22, marginBottom: 12 }}>
-          {content.shopTitle.slice(0, 70)}
-        </Text>
-        <Text style={{ fontSize: 11, color: COLORS.muted, marginBottom: 8 }}>
-          Hook · body · soft CTA
-        </Text>
-        <Text style={sharedStyles.body}>
-          {content.shopDescription.slice(0, 320)}…
-        </Text>
-      </View>
-      <Text style={[sharedStyles.small, { marginTop: 16 }]}>
-        Replicate this layout in Canva at 1080×1080 or 1080×1350 (Instagram).
-      </Text>
-      <Text style={sharedStyles.footer} fixed>
-        Fly & Froth • Social template mock
-      </Text>
-    </Page>
-  );
-}
+// ─── poster page ────────────────────────────────────────────────────────────
 
 function PosterPage({ phrase, subline }: { phrase: string; subline: string }) {
   const logo = loadLogo();
   return (
-    <Page size="A4" style={sharedStyles.posterPage}>
-      <Text style={sharedStyles.posterTitle}>{phrase.toUpperCase()}</Text>
-      <Text style={sharedStyles.posterSubtitle}>{subline.slice(0, 60)}</Text>
-      {logo ? <Image src={logo} style={sharedStyles.posterCorner} /> : null}
+    <Page size="A4" style={styles.posterPage}>
+      <Text style={styles.posterTitle}>{phrase.toUpperCase()}</Text>
+      <Text style={styles.posterSubtitle}>{subline.slice(0, 60)}</Text>
+      {logo ? <Image src={logo} style={styles.posterCorner} /> : null}
     </Page>
   );
 }
 
-// ─── helpers for type-specific content extraction ───────────────────────────
+// ─── fallback content extractors (when Claude's pdfBody is empty) ───────────
 
-function extractPosterPhrase(content: ProductContent, niche: NicheCandidate): string {
-  // Use the shop_title's most evocative phrase (often after "The ... for ...")
-  // or fall back to the niche topic in 1-3 words.
-  const t = content.shopTitle;
-  const match = t.match(/for (.+?)(?:$|,|\.)/);
-  if (match && match[1]) return match[1].slice(0, 24);
-  return niche.topic.split(/[\s,]+/).slice(0, 3).join(' ').slice(0, 24);
+function fallbackPrompts(niche: NicheCandidate): string[] {
+  return [
+    `What does ${niche.topic.toLowerCase()} look like in your life right now? Be specific.`,
+    `Which belief about ${niche.topic.toLowerCase()} did you inherit, and from whom?`,
+    `When was the last time this pattern showed up? Describe the situation in detail.`,
+    `What story do you tell yourself when this comes up? Whose voice is it really?`,
+    `If a close friend brought this to you, what would you tell them?`,
+    `What is one small experiment you could try this week?`,
+    `What support do you need — and from whom — to make a shift?`,
+    `Imagine 12 months from now: what has changed?`,
+  ];
 }
 
-function extractStickerPhrases(content: ProductContent): string[] {
-  // Pull short evocative fragments from tags + key noun phrases
-  const fromTags = content.tags
-    .filter((t) => t.length >= 6 && t.length <= 18)
-    .slice(0, 6);
-  const extra = [
-    'focus',
-    'breathe',
-    'pause',
-    'reset',
+function fallbackStickers(): string[] {
+  return [
     'one thing',
     'soft start',
     'enough',
+    'pause',
     'this is fine',
+    'breathe',
     'slow down',
+    'reset',
+    'still here',
   ];
-  const combined: string[] = [...fromTags, ...extra];
-  // dedupe + cap to 9
-  const seen = new Set<string>();
-  const out: string[] = [];
-  for (const p of combined) {
-    if (out.length >= 9) break;
-    const k = p.toLowerCase();
-    if (seen.has(k)) continue;
-    seen.add(k);
-    out.push(p);
-  }
-  return out;
 }
 
-// ─── main entry: build full Document per type ───────────────────────────────
+function fallbackPosterPhrase(niche: NicheCandidate): { phrase: string; subline: string } {
+  const word = niche.topic.split(/[\s,]+/)[0]?.toUpperCase().slice(0, 24) ?? 'FOCUS';
+  return { phrase: word, subline: niche.topic.slice(0, 60) };
+}
+
+function fallbackTemplateSections(
+  niche: NicheCandidate,
+  content: ProductContent,
+): NonNullable<PdfBody['templateSections']> {
+  return [
+    {
+      heading: "What's included",
+      items: [
+        'Structured layout you can adapt to your workflow',
+        'Section headings + suggested fields',
+        'Guidance on customisation',
+      ],
+    },
+    {
+      heading: 'Best for',
+      items: [niche.gapAngle.slice(0, 160)],
+    },
+    {
+      heading: 'How to use',
+      items: [
+        'Recreate the structure in Notion, Google Docs, or your tool of choice',
+        'Adjust headings + items to your context',
+      ],
+    },
+  ];
+}
+
+// ─── main document builder ──────────────────────────────────────────────────
 
 function buildDocument(
   niche: NicheCandidate,
@@ -471,55 +512,65 @@ function buildDocument(
   heroUrl?: string | null,
 ) {
   const subtitle = `For ${niche.topic}`;
+  const body = content.pdfBody ?? {};
 
   switch (niche.productHint) {
-    case 'planner':
+    case 'planner': {
+      const prompts =
+        body.prompts && body.prompts.length > 0 ? body.prompts : fallbackPrompts(niche);
+      const totalPages = 1 + prompts.length + 1; // cover + N prompts + how-to-use
       return (
         <Document title={content.shopTitle}>
-          <CoverPage title={content.shopTitle} subtitle={subtitle} heroUrl={heroUrl} />
-          <PlannerWeeklySpread weekNumber={1} />
-          <PlannerWeeklySpread weekNumber={2} />
+          <CoverPage title={content.shopTitle} subtitle={subtitle} heroUrl={heroUrl} pageCount={totalPages} />
+          {prompts.map((p, i) => (
+            <PromptPage key={i} number={i + 1} total={prompts.length} prompt={p} />
+          ))}
           <HowToUsePage type="planner" />
         </Document>
       );
+    }
 
-    case 'poster':
+    case 'poster': {
+      const { phrase, subline } =
+        body.posterPhrase
+          ? { phrase: body.posterPhrase, subline: body.posterSubline ?? niche.topic }
+          : fallbackPosterPhrase(niche);
       return (
         <Document title={content.shopTitle}>
-          <PosterPage
-            phrase={extractPosterPhrase(content, niche)}
-            subline={niche.topic}
-          />
+          <PosterPage phrase={phrase} subline={subline} />
           <HowToUsePage type="poster" />
         </Document>
       );
+    }
 
-    case 'sticker':
+    case 'sticker': {
+      const phrases =
+        body.stickerTexts && body.stickerTexts.length > 0
+          ? body.stickerTexts
+          : fallbackStickers();
       return (
         <Document title={content.shopTitle}>
-          <CoverPage title={content.shopTitle} subtitle={subtitle} heroUrl={heroUrl} />
-          <StickerSheetPage phrases={extractStickerPhrases(content)} />
+          <CoverPage title={content.shopTitle} subtitle={subtitle} heroUrl={heroUrl} pageCount={3} />
+          <StickerSheet phrases={phrases} />
           <HowToUsePage type="sticker" />
         </Document>
       );
+    }
 
     case 'template':
+    case 'social_template': {
+      const sections =
+        body.templateSections && body.templateSections.length > 0
+          ? body.templateSections
+          : fallbackTemplateSections(niche, content);
       return (
         <Document title={content.shopTitle}>
-          <CoverPage title={content.shopTitle} subtitle={subtitle} heroUrl={heroUrl} />
-          <TemplateOverviewPage niche={niche} content={content} />
-          <HowToUsePage type="template" />
+          <CoverPage title={content.shopTitle} subtitle={subtitle} heroUrl={heroUrl} pageCount={3} />
+          <TemplateSectionsPage sections={sections} niche={niche} content={content} />
+          <HowToUsePage type={niche.productHint} />
         </Document>
       );
-
-    case 'social_template':
-      return (
-        <Document title={content.shopTitle}>
-          <CoverPage title={content.shopTitle} subtitle={subtitle} heroUrl={heroUrl} />
-          <SocialTemplateMockPage content={content} />
-          <HowToUsePage type="social_template" />
-        </Document>
-      );
+    }
   }
 }
 
@@ -528,10 +579,6 @@ export interface PdfResult {
   sizeBytes: number;
 }
 
-/**
- * Render the product-specific PDF to a Buffer.
- * Hero URL is fetched + embedded by react-pdf if provided.
- */
 export async function generateProductPdf(
   niche: NicheCandidate,
   content: ProductContent,

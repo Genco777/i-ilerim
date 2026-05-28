@@ -194,6 +194,7 @@ export async function runDailyTrendPipeline(
           shop_description: content.shopDescription,
           turkish_gap_angle: content.turkishGapAngle,
           turkish_summary: content.turkishSummary,
+          pdf_body: content.pdfBody,
           price_cents: content.priceCents,
         })
         .returning({ id: products.id });

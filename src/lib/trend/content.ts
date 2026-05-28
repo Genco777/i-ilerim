@@ -18,6 +18,23 @@ import type { NicheCandidate } from './discovery';
 
 const MODEL = 'claude-sonnet-4-6';
 
+/**
+ * Rich, type-specific content for the deliverable PDF.
+ * Different product types use different fields — Claude is asked to
+ * fill in only the relevant one based on `productHint`.
+ */
+export interface PdfBody {
+  /** planner: 8-12 niche-specific reflection prompts (each 1-2 sentences) */
+  prompts?: string[];
+  /** sticker: 9 short phrases for the sticker sheet (each ≤22 chars) */
+  stickerTexts?: string[];
+  /** poster: a single evocative phrase (≤24 chars) + subline */
+  posterPhrase?: string;
+  posterSubline?: string;
+  /** template + social_template: structured "what's inside" sections */
+  templateSections?: Array<{ heading: string; items: string[] }>;
+}
+
 export interface ProductContent {
   etsyTitle: string;
   etsyDescription: string;
@@ -29,6 +46,8 @@ export interface ProductContent {
   /** Turkish — operator-facing only (Telegram digest + approval UI). */
   turkishGapAngle: string;
   turkishSummary: string;
+  /** Rich PDF content (type-specific, see PdfBody). */
+  pdfBody: PdfBody;
 }
 
 let _client: Anthropic | null = null;
@@ -41,7 +60,7 @@ function getClient(): Anthropic {
   return _client;
 }
 
-const SYSTEM_PROMPT = `You are a digital-product copywriter specialising in Etsy SEO and own-shop conversion copy.
+const SYSTEM_PROMPT = `You are a digital-product copywriter specialising in Etsy SEO, own-shop conversion copy, AND the actual deliverable content (prompts, lists, phrases that go INSIDE the PDF the customer receives).
 
 OUTPUT FORMAT — strict JSON only, no markdown, no preamble.
 
@@ -54,15 +73,56 @@ Schema:
   "shop_description": "string, 80-200 words, brand-voice paragraph (NOT bullet list), why-it-matters + who-its-for + what-you-get",
   "price_cents": integer between 300 and 2500 (EUR cents), based on perceived value,
   "turkish_gap_angle": "string, 1 Turkish sentence (max 220 chars) — Türkçe olarak boşluk/farklılaşma açısını anlat. Operator (Türk satıcı) için, akıcı doğal Türkçe.",
-  "turkish_summary": "string, 1 Turkish sentence (max 180 chars) — Türkçe olarak 'bu ürün neden satar' özet. Hedef kitle + temel değer önerisi."
+  "turkish_summary": "string, 1 Turkish sentence (max 180 chars) — Türkçe olarak 'bu ürün neden satar' özet. Hedef kitle + temel değer önerisi.",
+  "pdf_body": { ...type-specific, see below... }
 }
+
+═══ pdf_body — REAL deliverable content for the buyer's PDF ═══
+
+Based on the product type, fill the RELEVANT field. Quality matters: the buyer paid for this, treat it like real product, not boilerplate.
+
+If product type is "planner":
+  pdf_body = {
+    "prompts": [
+      "10–12 deep, niche-specific reflection prompts.",
+      "Each prompt is 1–2 sentences, written in second person.",
+      "Each MUST be specifically about the niche topic, NOT generic 'how do you feel today'.",
+      "Order them as a coherent journey from surface → deeper.",
+      "Each will appear on its own page with response lines."
+    ]
+  }
+
+If product type is "sticker":
+  pdf_body = {
+    "sticker_texts": [
+      "exactly 9 short evocative phrases, each MAX 22 chars",
+      "must reflect the niche tone (e.g. shadow work, focus, anxiety)",
+      "punchy, quotable, designed to land — not corporate"
+    ]
+  }
+
+If product type is "poster":
+  pdf_body = {
+    "poster_phrase": "single bold phrase, MAX 24 chars, that captures the niche essence (e.g. 'BREATHE.', 'ENOUGH.', 'SLOW.')",
+    "poster_subline": "MAX 60 chars subtitle, sets context"
+  }
+
+If product type is "template" or "social_template":
+  pdf_body = {
+    "template_sections": [
+      { "heading": "What's included", "items": ["4-7 concrete deliverables specific to this product"] },
+      { "heading": "How to customise", "items": ["3-5 actionable steps to make it the buyer's own"] },
+      { "heading": "Best for", "items": ["3-4 specific use cases or audience snippets"] }
+    ]
+  }
 
 Constraints:
 - tags array must have EXACTLY 13 items
 - etsy_title and tags must not duplicate each other
 - shop_title must read like a magazine headline, not an Etsy listing
 - English content uses British English
-- Turkish fields use natural, fluent Turkish (not direct translation) — they help a Turkish-speaking operator evaluate the product quickly`;
+- Turkish fields use natural, fluent Turkish (not direct translation)
+- pdf_body MUST match the product type — only fill the relevant subfield`;
 
 function buildUserPrompt(niche: NicheCandidate, productType: string): string {
   return [
@@ -73,6 +133,8 @@ function buildUserPrompt(niche: NicheCandidate, productType: string): string {
     niche.sourceSignals.length
       ? `Market signals supporting demand:\n${niche.sourceSignals.map((s) => `- ${s}`).join('\n')}`
       : '',
+    '',
+    `IMPORTANT — fill pdf_body for the "${productType}" type only. The buyer will receive this PDF — make the deliverable content concrete and niche-specific, not generic. This is what they paid for.`,
     '',
     'Write the full sales-ready content package as JSON. The product is a DIGITAL DOWNLOAD (PDF / printable), no physical shipping.',
   ]
@@ -253,6 +315,55 @@ function validateAndNormalize(
       ? raw.turkish_summary.trim().slice(0, 300)
       : `${niche.topic} — pazar boşluğunu hedef alan dijital ürün önerisi.`;
 
+  // ── pdf_body — type-specific validation + sensible fallbacks ──
+  const pdfBodyRaw = (raw.pdf_body && typeof raw.pdf_body === 'object'
+    ? (raw.pdf_body as Record<string, unknown>)
+    : {});
+
+  const pdfBody: PdfBody = {};
+
+  // planner: prompts
+  if (Array.isArray(pdfBodyRaw.prompts)) {
+    pdfBody.prompts = pdfBodyRaw.prompts
+      .filter((p): p is string => typeof p === 'string' && p.trim().length > 8)
+      .map((p) => p.trim())
+      .slice(0, 14);
+  }
+
+  // sticker: stickerTexts
+  if (Array.isArray(pdfBodyRaw.sticker_texts)) {
+    pdfBody.stickerTexts = pdfBodyRaw.sticker_texts
+      .filter((s): s is string => typeof s === 'string' && s.trim().length > 0)
+      .map((s) => s.trim().slice(0, 22))
+      .slice(0, 9);
+  }
+
+  // poster
+  if (typeof pdfBodyRaw.poster_phrase === 'string') {
+    pdfBody.posterPhrase = pdfBodyRaw.poster_phrase.trim().slice(0, 24);
+  }
+  if (typeof pdfBodyRaw.poster_subline === 'string') {
+    pdfBody.posterSubline = pdfBodyRaw.poster_subline.trim().slice(0, 60);
+  }
+
+  // template / social_template: structured sections
+  if (Array.isArray(pdfBodyRaw.template_sections)) {
+    pdfBody.templateSections = pdfBodyRaw.template_sections
+      .filter((s): s is Record<string, unknown> => typeof s === 'object' && s !== null)
+      .map((s) => ({
+        heading:
+          typeof s.heading === 'string' ? s.heading.trim().slice(0, 80) : 'Section',
+        items: Array.isArray(s.items)
+          ? s.items
+              .filter((i): i is string => typeof i === 'string')
+              .map((i) => i.trim())
+              .slice(0, 8)
+          : [],
+      }))
+      .filter((s) => s.items.length > 0)
+      .slice(0, 5);
+  }
+
   return {
     etsyTitle,
     etsyDescription,
@@ -263,6 +374,7 @@ function validateAndNormalize(
     slug: slugify(`${niche.topic}-${shopTitle}`).slice(0, 80),
     turkishGapAngle,
     turkishSummary,
+    pdfBody,
   };
 }
 
