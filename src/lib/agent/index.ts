@@ -332,7 +332,7 @@ export async function runAgentTurn(
       // Execute all tools in parallel
       const toolResults = await Promise.all(
         finalToolBlocks.map((tb) =>
-          executeTool(tb.name, tb.id, (tb.input ?? {}) as Record<string, unknown>),
+          executeTool(tb.name, tb.id, (tb.input ?? {}) as Record<string, unknown>, { chatId }),
         ),
       );
 

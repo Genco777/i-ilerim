@@ -123,7 +123,7 @@ export async function createCampaign(opts: CreateCampaignOpts) {
     name: opts.name,
     subject: opts.subject,
     htmlContent: opts.htmlContent,
-    sender: opts.sender ? { name: opts.sender.name, email: opts.sender.email } : { name: 'Mehmet Genco', email: 'info@fly-froth.com' },
+    sender: opts.sender ? { name: opts.sender.name, email: opts.sender.email } : { name: 'Fly & Froth', email: 'info@fly-froth.com' },
     recipients: { listIds: opts.listIds },
     type: 'classic',
   };

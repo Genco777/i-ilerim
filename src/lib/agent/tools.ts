@@ -1,6 +1,6 @@
 import type { AgentTool, ToolExecutionResult } from './types';
 
-type ToolExecutor = (input: Record<string, unknown>) => Promise<unknown>;
+type ToolExecutor = (input: Record<string, unknown>, ctx?: { chatId?: number }) => Promise<unknown>;
 
 // ── Tool Definitions ──
 
@@ -1368,13 +1368,56 @@ async function execCheckInbox(input: Record<string, unknown>): Promise<unknown> 
   };
 }
 
-async function execSendMail(input: Record<string, unknown>): Promise<unknown> {
-  const { sendMail } = await import('@/lib/mail/smtp');
-  const { wrapMailHtml } = await import('@/lib/email/mail-html');
+async function execSendMail(input: Record<string, unknown>, ctx?: { chatId?: number }): Promise<unknown> {
   const to = String(input.to ?? '');
   const subject = String(input.subject ?? '');
   const body = String(input.body ?? '');
   if (!to || !subject || !body) return { error: 'to, subject, body gerekli.' };
+
+  const chatId = ctx?.chatId;
+
+  if (chatId) {
+    // Create a draft and send Telegram preview — user can add attachments before confirming
+    const { cancelActiveDrafts, createDraft, updateDraft } = await import('@/lib/db/queries/mail-drafts');
+    const { mailPreviewKeyboard } = await import('@/lib/telegram/mail-keyboard');
+    const { sendMessage } = await import('@/lib/telegram/bot');
+
+    await cancelActiveDrafts(chatId);
+    const draft = await createDraft({
+      to_email: to,
+      subject,
+      body,
+      instruction: String(input.instruction ?? ''),
+      telegram_chat_id: chatId,
+      status: 'drafting',
+    });
+
+    const previewText = [
+      `📧 Kime: ${draft.to_email}`,
+      `📝 Konu: ${draft.subject ?? '(yok)'}`,
+      '',
+      draft.body ?? '',
+    ].join('\n').slice(0, 4000);
+
+    const sent = await sendMessage({
+      chatId,
+      text: previewText,
+      replyMarkup: mailPreviewKeyboard(draft.id),
+    });
+    await updateDraft(draft.id, { telegram_preview_msg_id: sent.message_id });
+
+    return {
+      draft_created: true,
+      draft_id: draft.id,
+      to,
+      subject,
+      note: 'Mail taslağı oluşturuldu. Kullanıcı onaylayana kadar gönderilmeyecek. Ek dosya ekleyebilir.',
+    };
+  }
+
+  // Fallback: direct send (no Telegram session)
+  const { sendMail } = await import('@/lib/mail/smtp');
+  const { wrapMailHtml } = await import('@/lib/email/mail-html');
   const result = await sendMail({
     to,
     subject,
@@ -5656,6 +5699,7 @@ export async function executeTool(
   name: string,
   toolUseId: string,
   input: Record<string, unknown>,
+  ctx?: { chatId?: number },
 ): Promise<ToolExecutionResult> {
   const executor = EXECUTORS[name];
   if (!executor) {
@@ -5666,7 +5710,7 @@ export async function executeTool(
     };
   }
   try {
-    const result = await executor(input);
+    const result = await executor(input, ctx);
     return {
       toolUseId,
       content: JSON.stringify(result, null, 2),

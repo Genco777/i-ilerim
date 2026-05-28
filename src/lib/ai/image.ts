@@ -100,185 +100,241 @@ const SCENE_FALLBACK = [
   'The aesthetic is Kinfolk magazine meets German precision -- warm, considered, real.',
 ].join(' ');
 
-// -----------------------------------------------------------------------------
-// SERVICE MOCKUP SCENES — Real-product photography style
+// ─────────────────────────────────────────────────────────────────────────────
+// SERVICE MOCKUP SCENES — Behance / Smartmockups quality  +  INFO-CARD LAYOUT
 //
-// When a post topic matches a known Fly & Froth service, we show that service
-// as a physical mockup: a logo on a business card, a flyer on a cafe table,
-// a website on a laptop screen, etc.
-// Same warm editorial aesthetic — but now the product is the hero.
-// -----------------------------------------------------------------------------
+// Two visual modes are mixed in the weekly content plan:
+//
+//   MODE A — "Photo mockup"  (pure AI image, editorial photography)
+//     Uses hyper-realistic product/device photography prompts.
+//     Device screens are visible but text inside is intentionally blurry.
+//
+//   MODE B — "Info card"  (programmatic Sharp compositor, see compose-info-card.ts)
+//     Clean white background.  Readable bold headline + 3 bullet points.
+//     AI generates ONLY the content that fills the device screen.
+//     Sharp composes: white bg + SVG text + device frame + AI screen + logo.
+//     Triggered when channel === "info_card" in generatePost().
+//
+// Both modes use brand colors: navy #1A2340  ·  steel blue #8A9DC8
+// ─────────────────────────────────────────────────────────────────────────────
+
 const SERVICE_MOCKUP: Array<{ keywords: string[]; scene: string }> = [
   {
-    keywords: ['logo', 'logodesign', 'markenzeichen', 'brand mark', 'signet'],
+    keywords: ['logo', 'logodesign', 'markenzeichen', 'brand mark', 'signet', 'logo redesign'],
     scene: [
-      'A premium product photography scene on pale oak: a thick, high-quality business card lying flat',
-      'displaying a clean, minimal vector logo mark -- no readable brand name, just the geometric symbol',
-      'in deep navy (#1A2340) on a cream cotton-paper card.',
-      'Beside it: a dark navy hardcover brand guideline booklet, open to a logo usage page.',
-      'A steel-blue (#8A9DC8) rollerball pen rests diagonally across the corner.',
-      'Overhead flat-lay, soft diffused window light from the upper left.',
-      'The result: a designer logo presentation, editorial and premium. No text visible in the image.',
+      'Hyper-realistic product mockup photography, Behance Featured quality.',
+      'Hero object: one thick square business card (90×90 mm) propped at 30 ° on white marble.',
+      'Card face: a single strong geometric logo mark — vector-sharp, deep navy (#1A2340) on cream cotton paper.',
+      'No text, no readable words — only the abstract mark fills the card.',
+      'A second card lies flat behind, partially overlapping, back side showing a steel-blue (#8A9DC8) gradient field.',
+      'Prop: one brushed-nickel mechanical pencil lying diagonally. Nothing else.',
+      'Lighting: single large softbox upper-left, sharp specular highlight on card edge.',
+      'Camera: 45 ° top-front angle, 85 mm macro, shallow DOF — propped card tack-sharp.',
+      'Tone: clean, airy, slightly cool-white. Screams "premium brand identity studio."',
     ].join(' '),
   },
   {
     keywords: ['flyer', 'flyerdesign', 'werbeflyer', 'prospekt', 'leaflet'],
     scene: [
-      'Editorial product photography: a single A5 flyer lying flat on a warm concrete cafe table.',
-      'The flyer shows a clean, bold layout -- strong headline zone at top, minimal imagery, generous whitespace.',
-      'Beside it: a white porcelain espresso cup on a small saucer, a steel-blue ceramic coaster.',
-      'Shot from directly overhead, 50mm lens feel. Soft, even ambient cafe lighting.',
-      'The flyer design is unreadable -- just the layout structure, color blocks, and typographic hierarchy are visible.',
-      'The scene reads: "this is a professionally designed print piece." Warm, tactile, real.',
+      'Hyper-realistic print mockup photography, Smartmockups.com quality.',
+      'A single A5 flyer slightly bent at the edges — held between elegant fingers (hands only, no face).',
+      'Flyer layout: bold grid — strong headline zone top 1/3, clean image block center, generous white space.',
+      'Palette: deep navy (#1A2340) header, white body, steel-blue (#8A9DC8) accent rule. No readable text.',
+      'Background: softly blurred warm-wood cafe interior, ambient golden light.',
+      'Camera: eye-level 50 mm, natural hand-held feel, warm golden-right light.',
+      'The image says: "this flyer was designed by someone who knows what they are doing."',
     ].join(' '),
   },
   {
     keywords: ['visitenkarte', 'visitenkartendesign', 'business card', 'visitenkarten'],
     scene: [
-      'A fan-spread of six premium business cards on a pale oak surface.',
-      'The top card is angled to show the front -- minimal dark navy (#1A2340) background,',
-      'clean white typography, a small logo mark in the upper corner. No readable text.',
-      'One card is turned to show the back: a single steel-blue (#8A9DC8) geometric element.',
-      'The cards are thick -- 600gsm with a soft-touch matte laminate finish you can almost feel.',
-      'A slim navy mechanical pencil rests beside the spread.',
-      'Overhead shot, soft northern window light. The scene: a premium identity, physical and confident.',
+      'Premium business-card mockup, ultra-photorealistic product photography.',
+      'Five 600 gsm matte-laminate cards fanned perfectly on smooth white marble.',
+      'Top card angled toward camera: bold navy (#1A2340) background, clean white typography (too small to read), sharp logo mark top-right.',
+      'One card flipped to show back: single brushed steel-blue (#8A9DC8) gradient field.',
+      'Cards have visible soft-touch velvet texture you can almost feel through the screen.',
+      'Prop: slim brushed-nickel letter-opener at an angle. Nothing else.',
+      'Lighting: dual softbox — crisp highlights on card edges, deep clean shadows.',
+      'Camera: overhead 60 ° angle, 100 mm macro. The thickness and quality is unmistakable.',
     ].join(' '),
   },
   {
-    keywords: ['webdesign', 'website', 'homepage', 'webseite', 'web design', 'webentwicklung'],
+    keywords: ['webdesign', 'website', 'homepage', 'webseite', 'web design', 'webentwicklung', 'landing page', 'responsive'],
     scene: [
-      'An open modern laptop on a pale oak desk, screen glowing with a beautiful minimal website homepage.',
-      'The website shows: a bold hero section with clean typography and a high-quality hero image,',
-      'a navigation bar in deep navy, white body sections with generous spacing.',
-      'No real brand name visible -- just the layout and color palette.',
-      'Beside the laptop: a smartphone showing the mobile version of the same site.',
-      'A steel-blue ceramic mug steams gently in the upper corner of the frame.',
-      'Soft, warm window light from the left. The scene: a professional web design desk, polished and calm.',
+      'Premium device mockup photography, Behance top-shot quality.',
+      'Open MacBook Pro on pale oak desk, screen bright and sharp.',
+      'Screen shows a stunning minimal website homepage: bold hero section, clean navy (#1A2340) nav bar, large high-contrast typography, spacious white space.',
+      'No readable text on screen — only layout structure and color hierarchy.',
+      'In front of laptop: an iPhone showing the mobile-responsive version — pixel-perfect.',
+      'Phone propped at a slight angle against the laptop base.',
+      'Prop: a white ceramic mug steaming softly. A thin navy notebook closed beside it.',
+      'Lighting: large diffused natural window light from the left, warm afternoon quality.',
+      'Camera: front-overhead 45 °, 35 mm. The scene radiates: "I build websites that look this good."',
     ].join(' '),
   },
   {
     keywords: ['corporate identity', 'ci', 'corporate design', 'brand identity', 'markenidentitaet', 'branding'],
     scene: [
-      'An editorial flat-lay of a complete brand identity system on pale oak.',
-      'Center: a business card, a letterhead, a folded envelope, and a small brand guideline booklet',
-      'all arranged in a clean, geometric composition.',
-      'Every piece uses the same palette: deep navy (#1A2340) as primary, steel-blue (#8A9DC8) as accent.',
-      'A single navy fountain pen is placed diagonally across the lower corner.',
-      'Overhead shot, diffused northern light. The whole scene communicates systematic design thinking --',
-      'every touchpoint consistent, every element intentional.',
+      'Full brand-identity system mockup, editorial photography, Behance Featured quality.',
+      'Flat-lay on white marble: an open brand-guideline booklet (A4, open to logo-usage spread) at center.',
+      'Around it: one business card, one letterhead sheet, one folded A5 envelope, one small notebook.',
+      'Every piece: deep navy (#1A2340) dominant, steel-blue (#8A9DC8) accent. No readable text.',
+      'One brushed-steel rollerball pen placed diagonally lower-right.',
+      'Lighting: even overhead softbox, zero harsh shadows. Colors clean and accurate.',
+      'Camera: directly overhead, 50 mm. Perfect grid composition — symmetry communicates "this designer is excellent."',
     ].join(' '),
   },
   {
-    keywords: ['rollup', 'banner', 'aufsteller', 'roll-up', 'messestand', 'roll up'],
+    keywords: ['rollup', 'banner', 'aufsteller', 'roll-up', 'messestand', 'x-banner'],
     scene: [
-      'A premium roll-up banner standing in a bright, airy office reception area.',
-      'The banner: 2m tall, clean design -- bold graphic in upper third, minimal text below, strong visual hierarchy.',
-      'No readable text, just the layout structure and color zones in deep navy and warm white.',
-      'Warm oak herringbone floor, a white wall behind. Natural light from a large window to the right.',
-      'Shot from a slight 3/4 angle, 35mm lens feel. The banner looks professional and confident.',
-      'The scene: a first impression at a trade show or office entrance.',
+      'Photorealistic trade-show banner mockup in a real environment.',
+      'A premium roll-up banner (200 cm tall) in a bright minimalist office reception.',
+      'Banner design: full-bleed graphic — bold image zone top 60 %, clean unreadable text zone below.',
+      'Palette: deep navy (#1A2340) dominant, white, steel-blue accent line at bottom.',
+      'Environment: warm herringbone oak floor, white plaster wall, large window flooding soft natural light from right.',
+      'Shot from slight 3/4 front angle at eye level, 35 mm. Banner sharp and confident.',
     ].join(' '),
   },
   {
     keywords: ['stempel', 'firmenstempel', 'stamp', 'rubber stamp', 'siegel'],
     scene: [
-      'A premium rubber stamp lying beside a fresh ink impression on heavy cream cotton paper.',
-      'The ink impression: a clean, minimal monogram-style logo mark in deep navy (#1A2340) ink.',
-      'The stamp body: dark wood handle, professional quality.',
-      'The paper is 300gsm cotton, the impression is crisp and confident.',
-      'Beside them: a small open inkpad in navy blue, a sharp pencil.',
-      'Shot from a slight overhead angle on a pale oak desk. Warm, directional window light.',
-      'The scene: artisan craftsmanship meets modern graphic design.',
+      'Artisan product photography, premium print & identity focus.',
+      'On thick 350 gsm cotton-paper letterhead: a fresh, crisp logo stamp impression in deep navy (#1A2340) ink.',
+      'Impression: bold geometric monogram — clean edges, perfect coverage.',
+      'Stamp beside it: dark oiled-wood handle, clean rubber base.',
+      'Small open navy inkpad placed precisely behind the stamp.',
+      'Prop: fountain pen with steel nib, uncapped, resting diagonally.',
+      'Shot 45 ° overhead on pale oak, directional window light upper-left.',
     ].join(' '),
   },
   {
     keywords: ['schild', 'firmenschild', 'leuchtreklame', 'beschriftung', 'signage', 'firmenbeschriftung'],
     scene: [
-      'A modern business sign on an exterior sandstone wall, photographed in warm late-afternoon light.',
-      'The sign: laser-cut acrylic letters or a brushed-aluminum plate, showing a clean minimal logo mark.',
-      'No readable brand name -- just the geometric logo symbol, mounted precisely.',
-      'The wall is warm sandstone, typical of a German Altstadt building.',
-      'Shot from a slight upward angle, 50mm lens. The sign catches the golden-hour sun.',
-      'The scene: a local business that takes its identity seriously. Confident, permanent, local.',
+      'Architectural signage mockup, real-location photography quality.',
+      'Precision-cut acrylic or powder-coated aluminum sign mounted flush on exterior sandstone wall.',
+      'Sign: clean minimal logo mark — geometric, bold, no readable text.',
+      'Wall: warm Rhein-Main sandstone, typical Karben Altstadt building.',
+      'Golden-hour light (5 pm) catches the sign — metal edges catch the sun.',
+      'Camera: slight upward angle, 50 mm. Sign in sharp focus, stone wall softly blurred.',
     ].join(' '),
   },
   {
-    keywords: ['speisekarte', 'menuekarte', 'menue', 'menu', 'restaurant', 'gastro', 'online menu'],
+    keywords: ['speisekarte', 'menuekarte', 'menu', 'restaurant', 'gastro'],
     scene: [
-      'A premium menu card on a fine-dining restaurant table.',
-      'The menu: leather-bound, A4 size, open to reveal a clean interior spread --',
-      'elegant serif typography, generous whitespace, a minimal decorative rule in gold-tone.',
-      'Beside it: a wine glass catching warm ambient light, a white linen napkin folded crisply.',
-      'Shot from a slight overhead angle. The table surface is dark walnut.',
-      'Warm, intimate restaurant lighting -- candle-soft, not harsh.',
-      'The scene: a place where design and hospitality meet.',
+      'Fine-dining menu mockup photography, editorial restaurant quality.',
+      'Premium leather-bound A4 menu on a dark walnut restaurant table.',
+      'Menu open to a double-page spread: elegant serif typography, generous white space, minimal decorative rules. Individual words not readable.',
+      'Table setup: crystal wine glass catching warm candlelight right, white linen napkin folded sharp left.',
+      'Background: softly blurred dining room, warm amber light, fine-dining atmosphere.',
+      'Camera: slight overhead 30 °, 50 mm. The leather has visible grain and quality.',
     ].join(' '),
   },
   {
     keywords: ['aufkleber', 'sticker', 'etiketten', 'folie', 'folien', 'label'],
     scene: [
-      'A collection of premium die-cut stickers laid out on a pale oak surface.',
-      'Center sticker: a clean, minimal logo mark on a white base with deep navy (#1A2340) graphic.',
-      'Surrounding it: 3-4 variations in different shapes -- round, rectangular, shield-shaped.',
-      'Some are peeled slightly to show the glossy finish and the backing paper.',
-      'A steel-blue pen rests beside the spread.',
-      'Overhead flat-lay, even soft light. The stickers look precise, professional, and satisfying.',
+      'Premium product label mockup, packshot photography quality.',
+      'A cylindrical matte-white canister on white marble: clean die-cut label in navy (#1A2340) with strong logo mark, no readable text.',
+      'Beside it: the same label as a flat die-cut sticker floating above the surface casting a soft shadow.',
+      'One sticker shown half-peeled — the adhesive layer looks premium.',
+      'Lighting: dual softbox, studio packshot setup. Clean white highlights, controlled shadows.',
+      'Camera: front 3/4 angle, 85 mm macro. Every detail crisp — this is a studio packshot.',
     ].join(' '),
   },
   {
-    keywords: ['textil', 'shirt', 't-shirt', 'textildruck', 'merch', 'kleidung', 'bekleidung', 'hoodie'],
+    keywords: ['textil', 'shirt', 't-shirt', 'textildruck', 'merch', 'kleidung', 'hoodie'],
     scene: [
-      'A neatly folded premium white t-shirt on a pale oak surface.',
-      'On the chest: a clean, minimal logo print in deep navy (#1A2340) --',
-      'precise screen-print, sharp edges, professional quality.',
-      'Beside the folded shirt: the same t-shirt hanging on a slim wooden hanger against a warm white wall.',
-      'Shot in soft, even northern window light. The fabric has visible texture -- good quality cotton.',
-      'The scene: branded merchandise that people actually want to wear.',
+      'Premium apparel mockup, fashion editorial quality.',
+      'Heavyweight white 220 gsm organic-cotton t-shirt laid flat on white marble.',
+      'Chest print: bold logo in deep navy (#1A2340) — clean screen-print edges, perfect registration.',
+      'Fabric texture clearly visible — quality you can almost feel.',
+      'One corner of shirt slightly folded back revealing printed inner label area.',
+      'Prop: neatly folded navy tissue paper underneath one edge.',
+      'Lighting: overhead softbox, fashion packshot quality. Accurate white, clean shadows.',
     ].join(' '),
   },
   {
-    keywords: ['druckdesign', 'broschuere', 'broschure', 'broshuere', 'druck', 'printdesign', 'print'],
+    keywords: ['druckdesign', 'broschuere', 'broschure', 'druck', 'printdesign', 'print'],
     scene: [
-      'Premium printed materials arranged on a white marble surface.',
-      'Center: a tri-fold brochure open to its interior -- clean layout, strong typographic grid, quality imagery zones.',
-      'Beside it: a business card, a folded envelope, all in the same design system.',
-      'The palette: deep navy (#1A2340) headline blocks, clean white body, steel-blue (#8A9DC8) accents.',
-      'Shot from directly overhead. Even studio-quality lighting, no harsh shadows.',
-      'The scene: a complete print system designed with intention -- every piece cohesive.',
+      'Premium print collateral mockup, Behance portfolio quality.',
+      'White marble surface: tri-fold brochure open to full interior — three panels visible.',
+      'Design: strong typographic grid, image zones, bold header blocks navy (#1A2340), steel-blue (#8A9DC8) accents. No readable text.',
+      'Paper has visible quality — thick, slight gloss, crisp fold edges.',
+      'Beside it: a closed copy of same brochure exterior + one business card.',
+      'Camera: directly overhead, 50 mm. Deliberately geometric — a portfolio shot.',
     ].join(' '),
   },
   {
-    keywords: ['seo', 'google', 'ranking', 'suchmaschinenkunden', 'suchmaschine', 'auffindbar'],
+    keywords: ['seo', 'google', 'ranking', 'suchmaschine', 'auffindbar', 'google ranking'],
     scene: [
-      'A laptop on a pale oak desk, screen showing a clean analytics dashboard with upward-trending line graphs.',
-      'The dashboard shows position graphs, traffic curves, keyword rankings -- no real brand names visible.',
-      'Beside the laptop: a dark navy (#1A2340) notebook open to a page with handwritten keyword notes and arrows.',
-      'A steel-blue ceramic mug and a sharp pencil complete the desk.',
-      'Soft, focused window light from the left. The scene: a strategic, data-informed work session.',
+      'Digital-marketing desk mockup, Unsplash-quality editorial photography.',
+      'MacBook open on pale oak: clean SEO dashboard — upward-trending position graph left, keyword ranking table right, one large "Position 1" badge in steel-blue (#8A9DC8).',
+      'No real brand names or URLs — only graph shapes, color zones, position numbers.',
+      'Beside laptop: dark navy Moleskine notebook open to hand-drawn keyword mind-map.',
+      'Prop: tall glass of water, mechanical pencil.',
+      'Camera: front-overhead 40 °, 35 mm. Soft, clean window light from left.',
     ].join(' '),
   },
   {
     keywords: ['email marketing', 'newsletter', 'e-mail marketing', 'mailing', 'kampagne'],
     scene: [
-      'A laptop on a pale oak desk, screen showing a beautifully designed email newsletter layout --',
-      'clean header, bold hero image zone, structured content blocks, a clear call-to-action button.',
-      'No readable text, just the layout structure in deep navy and white.',
-      'A smartphone beside the laptop shows the same email rendered on mobile.',
-      'Steel-blue coffee mug, slim navy notebook. Soft directional window light.',
-      'The scene: digital marketing that looks as good as print.',
-    ].join(' '),
-  },
-  {
-    keywords: ['whatsapp', 'whatsapp business', 'messenger', 'chat'],
-    scene: [
-      'A smartphone propped at a slight angle on a pale oak desk, screen showing a WhatsApp Business chat interface.',
-      'The chat shows a professional auto-reply message in clean, friendly German.',
-      'No real names visible -- just the chat UI structure and message bubbles in the familiar green.',
-      'Beside the phone: a dark navy (#1A2340) notebook, a steel-blue pen.',
-      'Soft, warm ambient light. The scene: a small business that responds quickly and professionally.',
+      'Email-marketing mockup photography, device editorial quality.',
+      'MacBook Pro on pale oak: beautifully designed email template — clean masthead, bold hero section, structured content blocks, large CTA button in navy (#1A2340). No readable text.',
+      'Propped beside laptop: iPhone showing same email on mobile — pixel-perfect responsive.',
+      'Prop: steel-blue (#8A9DC8) ceramic mug, slim navy notebook closed.',
+      'Lighting: warm directional window light from left.',
+      'Camera: 45 ° front-overhead, 35 mm. Screens glow clean and bright.',
     ].join(' '),
   },
 ];
+
+// ─────────────────────────────────────────────────────────────────────────────
+// BEFORE / AFTER CONCEPT SCENES
+// These produce the "Vorher / Nachher" split-layout style the user referenced.
+// When channel === "info_card", the compositor handles the real rendering.
+// These prompts are used when generating AI-only photo content instead.
+// ─────────────────────────────────────────────────────────────────────────────
+const BEFORE_AFTER_KEYWORDS = [
+  'vorher nachher', 'before after', 'redesign', 'neugestaltung', 'rebrand',
+  'überarbeitung', 'auffrischung', 'modernisierung', 'vorher/nachher',
+  'transformation', 'verwandlung', 'verbesserung', 'upgrade',
+];
+
+const BEFORE_AFTER_SCENES: string[] = [
+  // Split business card
+  [
+    'Dramatic split-panel product mockup showing a brand-redesign transformation.',
+    'LEFT HALF (slightly desaturated, cooler): old business card — cluttered layout, mismatched fonts, cheap glossy finish, generic amateur logo mark. Clearly dated.',
+    'RIGHT HALF (warm, vibrant, sharp): new premium card — 600 gsm matte, clean minimal logo mark in deep navy (#1A2340), precise typography, quality you can feel.',
+    'A thin clean vertical dividing line separates the two halves like a reveal.',
+    'Background: white marble, even overhead lighting on both halves.',
+    'Camera: directly overhead 85 mm macro. The contrast is immediately powerful.',
+  ].join(' '),
+  // Split laptop screen
+  [
+    'Split-screen laptop mockup showing website before-and-after redesign.',
+    'MacBook Pro on pale oak, screen divided exactly in half vertically.',
+    'LEFT HALF of screen: old cluttered website — tiny text, dated 2010-era design, too many colors, no hierarchy.',
+    'RIGHT HALF of screen: new clean site — strong typography, bold navy (#1A2340) nav, spacious white space. Modern and confident.',
+    'A thin bright line divides screen halves like a reveal slider.',
+    'Camera: front-overhead 40 °, 35 mm. No readable text on either version.',
+  ].join(' '),
+  // Hands holding both cards
+  [
+    'Editorial lifestyle: two confident hands (no face) holding two business cards side by side.',
+    'Left hand holds OLD card: thin paper, bad printing, cluttered design — visibly cheap.',
+    'Right hand holds NEW card: 600 gsm cotton-paper, matte laminate, minimal navy (#1A2340) design — visibly premium.',
+    'Background: softly blurred warm cafe interior.',
+    'Camera: 50 mm, shallow DOF — cards sharp, background creamy.',
+  ].join(' '),
+];
+
+function detectBeforeAfter(topic: string): string | null {
+  const lower = topic.toLowerCase();
+  if (BEFORE_AFTER_KEYWORDS.some((kw) => lower.includes(kw))) {
+    return BEFORE_AFTER_SCENES[Math.floor(Math.random() * BEFORE_AFTER_SCENES.length)] ?? BEFORE_AFTER_SCENES[0]!;
+  }
+  return null;
+}
 
 function detectServiceMockup(topic: string): string | null {
   const lower = topic.toLowerCase();
@@ -324,10 +380,11 @@ export function buildImagePrompt(
     '',
     styleContext,
     '',
-    'PHOTOGRAPHY STYLE: Ultra-realistic, high-end commercial photography. Shot on a full-frame camera.',
-    'Cinematic lighting with strong shadows and rich highlights. Natural, film-like color grading.',
-    'The image must be indistinguishable from a real professional photograph.',
-    'Skin tones (if any) must look natural. No artificial or plastic-looking textures.',
+    'PHOTOGRAPHY STYLE: Ultra-photorealistic commercial mockup photography. Full-frame DSLR or medium-format quality.',
+    'The image must be indistinguishable from a real Smartmockups.com premium product photo or a Behance portfolio shot.',
+    'Cinematic lighting, clean highlights, controlled shadows. Natural film-like colour grade.',
+    'Every material must look physically real: paper grain, leather texture, screen glow, fabric weave.',
+    'Skin tones (if any) must look natural. No plastic, rendered, or AI-artifact textures.',
     '',
     'STRICTLY AVOID:',
     '- Any text, words, letters, numbers, or typography rendered anywhere in the image.',

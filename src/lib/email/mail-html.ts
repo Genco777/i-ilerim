@@ -2,12 +2,12 @@ import { baseLayout, TYPO } from './themes/base';
 
 const BG = '#FCFCFD';
 const CARD = '#FFFFFF';
-const ACCENT = '#5F6FB0';
-const ACCENT_HOVER = '#4658A0';
-const HEADING = '#1D2137';
-const BODY = '#6B728B';
-const MUTED = '#8B92A8';
-const BORDER = '#DCE1E9';
+const ACCENT = '#8A9DC8';
+const ACCENT_HOVER = '#6A82B8';
+const HEADING = '#1A2340';
+const BODY = '#4A5568';
+const MUTED = '#7A8BA8';
+const BORDER = '#C8D4E8';
 const FONT = 'Outfit, system-ui, sans-serif';
 
 export function wrapMailHtml(opts: {

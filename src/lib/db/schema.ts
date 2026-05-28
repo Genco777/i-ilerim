@@ -128,6 +128,9 @@ export const contentChannel = pgEnum('content_channel', [
   'feed',
   'story',
   'reel',
+  'info_card',
+  'info_card_phone',
+  'info_card_split',
 ]);
 
 // ───── Posts ─────
