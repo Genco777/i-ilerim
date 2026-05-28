@@ -1,7 +1,7 @@
 import type { ContentPillar } from '@/types';
 import { replicateGenerate, type FluxModel } from './image-replicate';
 import { recraftGenerate, type RecraftStyle } from './image-recraft';
-import { openaiGenerate, type ImageSize } from './image-openai';
+import { openaiGenerate, type ImageSize, type ImageQuality } from './image-openai';
 
 export type ImageTool = 'flux' | 'recraft' | 'openai';
 
@@ -26,7 +26,7 @@ function aspectRatioToSize(ratio?: string): ImageSize {
 export async function generateWithRouter(
   prompt: string,
   route: RouteResult,
-  opts?: { aspectRatio?: '1:1' | '9:16' | '16:9' | '4:5' },
+  opts?: { aspectRatio?: '1:1' | '9:16' | '16:9' | '4:5'; quality?: ImageQuality },
 ): Promise<{ buffer: Buffer; tool: ImageTool }> {
   if (route.tool === 'recraft') {
     const buffer = await recraftGenerate(prompt, { style: route.recraftStyle });
@@ -41,9 +41,10 @@ export async function generateWithRouter(
     return { buffer, tool: 'flux' };
   }
 
-  // OpenAI gpt-image-1 — pass correct size for aspect ratio
+  // OpenAI — pass correct size and quality
   const buffer = await openaiGenerate(prompt, {
     size: aspectRatioToSize(opts?.aspectRatio),
+    quality: opts?.quality,
   });
   return { buffer, tool: 'openai' };
 }

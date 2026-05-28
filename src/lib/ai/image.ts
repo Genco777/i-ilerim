@@ -414,6 +414,7 @@ export async function generateImageRouted(
   try {
     const { buffer, tool } = await generateWithRouter(prompt, route, {
       aspectRatio: opts?.aspectRatio,
+      quality: opts?.quality,
     });
     return {
       buffer,

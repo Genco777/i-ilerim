@@ -13,6 +13,7 @@ export interface GeneratePostOpts {
   telegramChatId?: string;
   telegramMessageId?: string;
   forceProvider?: ImageProvider;
+  imageQuality?: 'low' | 'medium' | 'high';
   noLogo?: boolean;
   manualImageBuffer?: Buffer;
   rawMode?: boolean;
@@ -88,6 +89,7 @@ export async function generatePost(opts: GeneratePostOpts): Promise<Post> {
         opts.topic,
         {
           forceProvider: opts.forceProvider,
+          quality: opts.imageQuality,
           aspectRatio: isStory ? '9:16' : '1:1',
         },
       );
@@ -96,6 +98,7 @@ export async function generatePost(opts: GeneratePostOpts): Promise<Post> {
     } else {
       const result = await generateImage(imagePrompt, {
         forceProvider: opts.forceProvider,
+        quality: opts.imageQuality,
         aspectRatio: isStory ? '9:16' : '1:1',
       });
       rawBuffer = result.buffer;

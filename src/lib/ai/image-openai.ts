@@ -11,9 +11,10 @@ function getClient(): OpenAI {
 }
 
 export type ImageModel = 'gpt-image-2' | 'dall-e-3' | 'gpt-image-1';
+export type ImageQuality = 'low' | 'medium' | 'high';
 
 // DALL-E 3 sizes: 1024x1024 | 1024x1792 (portrait 9:16) | 1792x1024 (landscape 16:9)
-// gpt-image-1 sizes: 1024x1024 | 1024x1536 (portrait) | 1536x1024 (landscape)
+// gpt-image-1/2 sizes: 1024x1024 | 1024x1536 (portrait) | 1536x1024 (landscape)
 export type ImageSize =
   | '1024x1024'
   | '1024x1792'
@@ -23,16 +24,21 @@ export type ImageSize =
 
 export async function openaiGenerate(
   prompt: string,
-  opts?: { size?: ImageSize; model?: ImageModel },
+  opts?: { size?: ImageSize; model?: ImageModel; quality?: ImageQuality },
 ): Promise<Buffer> {
   const model: ImageModel =
     opts?.model ??
     (process.env.IMAGE_MODEL as ImageModel | undefined) ??
     'gpt-image-2';
 
+  const quality: ImageQuality =
+    opts?.quality ??
+    (process.env.IMAGE_QUALITY as ImageQuality | undefined) ??
+    'high';
+
   const size = opts?.size ?? '1024x1024';
 
-  // gpt-image-2: same API as gpt-image-1 (b64_json, quality: low/medium/high)
+  // gpt-image-2 / gpt-image-1: b64_json response
   if (model === 'gpt-image-2' || model === 'gpt-image-1') {
     const gptSize = (
       size === '1024x1792' ? '1024x1536'
@@ -44,7 +50,7 @@ export async function openaiGenerate(
       model,
       prompt,
       size: gptSize,
-      quality: 'high',
+      quality,
       n: 1,
     });
 

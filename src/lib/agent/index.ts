@@ -179,7 +179,7 @@ export async function runAgentTurn(
   // Read operational config from DB (with fallbacks)
   const [maxTurns, safetyTimeoutMs, swarmEnabled] = await Promise.all([
     getConfigNumber('agent_max_tool_turns', MAX_TOOL_TURNS),
-    getConfigNumber('agent_safety_timeout_ms', 28_000),
+    getConfigNumber('agent_safety_timeout_ms', 55_000),
     getConfigBool('agent_swarm_enabled', true),
   ]);
 
