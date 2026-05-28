@@ -7,7 +7,7 @@ import { previewKeyboard } from '@/lib/telegram/keyboard';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
-export const maxDuration = 300;
+export const maxDuration = 800;
 
 const TELEGRAM_DELAY_MS = 1500;
 
@@ -62,6 +62,7 @@ export async function POST(req: Request) {
         channel: slot.channel === 'reel' || slot.channel === 'story' ? 'ig_story' : 'post',
         pillar: slot.pillar,
         scheduledAt,
+        imageQuality: 'medium', // ~15s vs ~2min for high — 21 posts fit within 800s limit
       });
 
       await updateSlot(slot.id, { post_id: post.id, status: 'approved' });
