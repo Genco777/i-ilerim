@@ -266,11 +266,10 @@ async function renderTypographyLayer(opts: CoverRenderOptions): Promise<Buffer> 
     </div>
   );
 
-  const response = new ImageResponse(cover, {
-    width: WIDTH,
-    height: HEIGHT,
-    fonts: fonts as Parameters<typeof ImageResponse>[1]['fonts'],
-  });
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const responseOpts: any = { width: WIDTH, height: HEIGHT };
+  if (fonts) responseOpts.fonts = fonts;
+  const response = new ImageResponse(cover, responseOpts);
   return Buffer.from(await response.arrayBuffer());
 }
 
