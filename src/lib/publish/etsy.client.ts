@@ -241,7 +241,7 @@ export interface EtsyFetchOptions {
   /** application/json body — will be JSON.stringified */
   json?: unknown;
   /** application/x-www-form-urlencoded body */
-  form?: Record<string, string | number | undefined>;
+  form?: Record<string, string | number | boolean | undefined>;
   /** Raw body (for multipart) — caller sets content-type */
   rawBody?: BodyInit;
   rawHeaders?: Record<string, string>;
