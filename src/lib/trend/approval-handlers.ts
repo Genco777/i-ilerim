@@ -64,8 +64,8 @@ async function getNicheForProduct(nicheId: string | null) {
 // ─────────────────────────────────────────────────────────────
 
 /**
- * ✅ Onayla → mark approved, clear keyboard, confirm.
- * Faz 3 publish pipeline will watch for status='approved'.
+ * ✅ Onayla → mark approved, sync to Stripe as Product + Price, list in /shop,
+ * clear keyboard, confirm with shop URL.
  */
 export async function handleTrendApprove(
   chatId: number,
@@ -78,16 +78,38 @@ export async function handleTrendApprove(
     return;
   }
 
+  // 1) Mark approved in our DB
   await db
     .update(products)
     .set({ status: 'approved', approved_at: new Date(), updated_at: new Date() })
     .where(eq(products.id, productId));
 
+  // 2) Sync to Stripe (creates Product + Price, sets is_public_in_shop=1)
+  let shopUrl: string | null = null;
+  let stripeError: string | null = null;
+  try {
+    const { ensureStripeProduct } = await import('@/lib/stripe/products');
+    const { getShopBaseUrl } = await import('@/lib/stripe/client');
+    await ensureStripeProduct(productId);
+    const base = getShopBaseUrl().replace(/\/+$/, '');
+    shopUrl = product.slug ? `${base}/${product.slug}` : null;
+  } catch (err) {
+    stripeError = err instanceof Error ? err.message.slice(0, 200) : String(err);
+    console.error('[trend] Stripe sync on approval failed', err);
+  }
+
+  // 3) Confirm in Telegram
   await editMessageReplyMarkup({ chatId, messageId, replyMarkup: clearedKeyboard() });
-  await sendMessage({
-    chatId,
-    text: `✅ Onaylandı: ${product.shop_title ?? product.etsy_title ?? productId}\n\n🚧 Faz 3 (Etsy + kendi shop yayını) henüz aktif değil — şimdilik DB'de 'approved' olarak işaretlendi.`,
-  });
+  const lines = [
+    `✅ Onaylandı: ${product.shop_title ?? product.etsy_title ?? productId}`,
+  ];
+  if (shopUrl) {
+    lines.push('', `🛍️ Shop'ta canlı: ${shopUrl}`);
+  } else if (stripeError) {
+    lines.push('', `⚠️ Stripe sync başarısız: ${stripeError}`);
+    lines.push('Manuel sync için /admin paneline gir veya tekrar onayla.');
+  }
+  await sendMessage({ chatId, text: lines.join('\n') });
 }
 
 /**

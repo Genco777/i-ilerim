@@ -216,6 +216,60 @@ export async function composePaperPrint(heroBuffer: Buffer): Promise<Buffer> {
   return composePaperProcedural(heroBuffer);
 }
 
+// ─── Scene 4 — Laptop / Desktop Screen ───────────────────────────────────────
+
+export async function composeLaptopScene(heroBuffer: Buffer): Promise<Buffer> {
+  // No procedural fallback for laptop — if no base PNG, return null-equivalent
+  // (caller should skip this variant). For now, fall back to tablet.
+  const base = loadBase('laptop-desk');
+  if (base) return composeWithBase(base, heroBuffer);
+  return composeTabletProcedural(heroBuffer);
+}
+
+// ─── Per-type variant selection ──────────────────────────────────────────────
+
+type ProductType = 'planner' | 'poster' | 'sticker' | 'template' | 'social_template';
+
+/**
+ * Returns the 3 most contextually-appropriate mockup composers for a product
+ * type. Examples:
+ *   planner → paper flatlay (primary) + frame on wall + tablet preview
+ *   poster  → frame on wall (primary) + paper proof + tablet preview
+ *   template → laptop (primary digital context) + tablet + frame
+ */
+function pickMockupComposers(
+  type: ProductType,
+): Array<(hero: Buffer) => Promise<Buffer>> {
+  switch (type) {
+    case 'planner':
+    case 'sticker':
+      // Print-first products: paper proof is most authentic, then framed, then tablet preview
+      return [composePaperPrint, composeWallFrame, composeTabletScene];
+    case 'poster':
+      // Wall art: framed is the natural sale image
+      return [composeWallFrame, composePaperPrint, composeTabletScene];
+    case 'template':
+    case 'social_template':
+      // Digital templates live on screens: laptop primary, then tablet, then framed
+      return [composeLaptopScene, composeTabletScene, composeWallFrame];
+    default:
+      return [composeWallFrame, composeTabletScene, composePaperPrint];
+  }
+}
+
+/**
+ * Convenience: compose 3 type-appropriate mockup variants in parallel and
+ * return them ready to feed into composeGallery.
+ */
+export async function composeProductMockups(
+  heroBuffer: Buffer,
+  type: ProductType,
+): Promise<[Buffer, Buffer, Buffer]> {
+  const composers = pickMockupComposers(type);
+  const [a, b, c] = await Promise.all(composers.map((fn) => fn(heroBuffer)));
+  return [a!, b!, c!];
+}
+
 // ─── Gallery — 2x2 grid composite ────────────────────────────────────────────
 
 export async function composeGallery(

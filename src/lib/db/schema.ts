@@ -927,3 +927,90 @@ export const nichePerformance = pgTable(
       .defaultNow(),
   },
 );
+
+// ═══════════════════════════════════════════════════════════════
+// FAZ 3 — Stripe Shop: sales, download tokens, channel listings
+// ═══════════════════════════════════════════════════════════════
+
+export const channelKind = pgEnum('channel_kind', [
+  'stripe_shop',
+  'etsy',
+  'pinterest',
+  'instagram',
+  'facebook',
+]);
+
+/**
+ * Every successful purchase creates one row. Source-of-truth for revenue,
+ * Kleinunternehmer §19 yearly cap tracking, and OSS (B2C EU) thresholds.
+ */
+export const productSales = pgTable(
+  'product_sales',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    product_id: uuid('product_id').references(() => products.id),
+    channel: channelKind('channel').notNull(),
+    external_order_id: text('external_order_id'), // Stripe checkout session id
+    amount_cents: integer('amount_cents').notNull(),
+    currency: text('currency').notNull().default('eur'),
+    buyer_email: text('buyer_email'),
+    buyer_country: text('buyer_country'), // ISO-2; needed for OSS/VAT
+    sold_at: timestamp('sold_at', { withTimezone: true }).notNull().defaultNow(),
+    raw_payload: jsonb('raw_payload'),
+  },
+  (t) => ({
+    productIdx: index('sales_product_idx').on(t.product_id),
+    soldAtIdx: index('sales_sold_at_idx').on(t.sold_at.desc()),
+    extOrderIdx: uniqueIndex('sales_external_order_uniq').on(t.external_order_id),
+  }),
+);
+
+/**
+ * Single-use download links sent to the buyer after purchase. Each token
+ * expires after 24h or 5 uses (whichever first) so a leaked URL has limited
+ * blast radius.
+ */
+export const downloadTokens = pgTable(
+  'download_tokens',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    token: text('token').notNull().unique(),
+    product_id: uuid('product_id')
+      .notNull()
+      .references(() => products.id),
+    sale_id: uuid('sale_id').references(() => productSales.id),
+    buyer_email: text('buyer_email'),
+    expires_at: timestamp('expires_at', { withTimezone: true }).notNull(),
+    used_count: integer('used_count').default(0).notNull(),
+    max_uses: integer('max_uses').default(5).notNull(),
+    created_at: timestamp('created_at', { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => ({
+    tokenIdx: uniqueIndex('download_token_uniq').on(t.token),
+  }),
+);
+
+/**
+ * Tracks where each product is published — Faz 4 will populate Pinterest/Meta.
+ * Faz 3 only uses stripe_shop entries.
+ */
+export const productListings = pgTable(
+  'product_listings',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    product_id: uuid('product_id')
+      .notNull()
+      .references(() => products.id),
+    channel: channelKind('channel').notNull(),
+    external_id: text('external_id'),
+    external_url: text('external_url'),
+    status: text('status').notNull().default('pending'),
+    error_log: text('error_log'),
+    published_at: timestamp('published_at', { withTimezone: true }),
+  },
+  (t) => ({
+    uniqProductChannel: unique('uniq_product_channel').on(t.product_id, t.channel),
+  }),
+);

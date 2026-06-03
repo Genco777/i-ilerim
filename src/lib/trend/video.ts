@@ -30,10 +30,11 @@ export interface ProductVideoResult {
 }
 
 const HIGGSFIELD_BASE = 'https://platform.higgsfield.ai';
-// Preview = higher quality tier per Higgsfield docs ("High-quality image animation")
-// DoP family chosen because it's camera-focused — minimises subject distortion
-// vs Kling/Seedance which can animate the subject itself.
-const DEFAULT_MODEL = 'higgsfield-ai/dop/preview';
+// DoP family is camera-focused (minimises subject distortion). Valid slugs
+// per the API enum: lite / standard / turbo (+ first-last-frame variants).
+// `preview` from the docs example is NOT a valid slug → was returning 422.
+// Standard is the quality sweet spot; turbo is faster/cheaper, lite is budget.
+const DEFAULT_MODEL = 'higgsfield-ai/dop/standard';
 
 function getCredentials(): { key: string; secret: string } {
   const key = process.env.HIGGSFIELD_API_KEY;

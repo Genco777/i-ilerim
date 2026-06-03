@@ -11,12 +11,7 @@
 
 import { generateWithRouter, routeImageTool } from '@/lib/ai/image-router';
 import { uploadImage } from '@/lib/blob';
-import {
-  composeWallFrame,
-  composeTabletScene,
-  composePaperPrint,
-  composeGallery,
-} from './mockup';
+import { composeProductMockups, composeGallery } from './mockup';
 import type { NicheCandidate } from './discovery';
 import type { ProductContent } from './content';
 
@@ -45,28 +40,33 @@ function buildImagePrompt(
   niche: NicheCandidate,
   content: ProductContent,
 ): string {
-  const typeFraming: Record<NicheCandidate['productHint'], string> = {
+  // ── Hero strategy ──
+  // The hero is the PRODUCT DESIGN ITSELF on a clean neutral background — NOT
+  // a lifestyle scene. Mockups (frame on wall, tablet, paper, laptop) add the
+  // scene context as separate composites. Without this we get "laptop inside
+  // laptop" recursion when mockup-compositing.
+  const designByType: Record<NicheCandidate['productHint'], string> = {
     planner:
-      'a top-down studio photo of an open printable planner on a clean linen-textured desk, soft morning light, with a ceramic coffee cup and a brass pen partially in frame',
+      'a top-down studio shot of the printable planner page design ITSELF, lying flat on a pure off-white seamless background, no desk, no props, no hands, no devices, no objects around it — only the printable sheet centered with breathing room',
     poster:
-      'a framed printable art poster hanging on a warm off-white wall in a minimalist interior, soft natural side-light, a small monstera leaf visible at the edge',
+      'the printable art poster design ITSELF presented flat on a pure off-white seamless background, centered with generous border, no frame, no wall, no objects around it — just the printable artwork',
     sticker:
-      'a flatlay of die-cut printable stickers on a soft pastel paper background, slight overhead shadow, designer studio aesthetic',
+      'a flat layout of the printable sticker sheet design ITSELF on a pure off-white seamless background, top-down view, no desk, no props, no shadow except a very subtle one under each sticker, just the printable sheet centered',
     template:
-      'a laptop screen on a clean wooden desk showing an organized Notion-style template, soft daylight, with a ceramic mug and notebook in frame',
+      'a top-down clean studio shot of the printable template page design ITSELF on a pure off-white seamless background, no laptop, no tablet, no desk, no props — only the template sheet centered with breathing room',
     social_template:
-      'a smartphone on a soft beige fabric surface showing an Instagram post carousel preview, soft window light, a coffee cup partially visible',
+      'the social media post template design ITSELF (a single 1:1 layout mockup with placeholder shapes for image + headline + body) on a pure off-white seamless background, no phone, no devices, no props — only the layout centered',
   };
-
-  const framing = typeFraming[niche.productHint] ?? typeFraming.planner;
+  const design = designByType[niche.productHint] ?? designByType.planner;
 
   return [
-    `Editorial product hero image for a digital download titled "${content.shopTitle}".`,
-    framing + '.',
-    `The product itself evokes the theme: "${niche.topic}" — ${niche.gapAngle.slice(0, 220)}`,
-    'Style: refined editorial product photography, restrained colour palette, slightly desaturated, magazine-quality composition, gentle film grain.',
-    'IMPORTANT: do not render any readable text, letters, words, or logos on the printed product — instead suggest typography with abstract lines, soft blocks, and tasteful symbols. No watermarks. No mockup-website overlay. Centered composition with breathing room.',
-    'Avoid: chaotic decoration, cluttered background, neon colours, cartoonish style, garish AI artefacts, distorted hands or text.',
+    `Editorial product hero for a digital download titled "${content.shopTitle}".`,
+    `${design}.`,
+    `The design itself evokes the theme: "${niche.topic}" — ${niche.gapAngle.slice(0, 220)}`,
+    'Visual style of the design: refined editorial, restrained pastel/earth-tone palette, magazine-quality typography hints, generous white space, minimal decoration.',
+    'CRITICAL — NO LIFESTYLE STAGING: this is the product design on a neutral background, NOT a scene. No desk, no cup, no plant, no hand, no device frame, no environmental lighting. Treat it like a vector mockup you would upload to Etsy as the primary product image.',
+    'IMPORTANT: do not render any readable text, letters, words, or logos on the printed product — instead suggest typography with abstract lines, soft blocks, dots, and tasteful symbols. No watermarks.',
+    'Avoid: lifestyle props, desk scenes, hands, devices, chaotic decoration, busy background, neon colours, cartoon style, garish AI artefacts, distorted text.',
   ].join(' ');
 }
 
@@ -100,20 +100,15 @@ export async function generateHeroVisual(
   const heroFilename = `trend/${productId}/hero-${ts}.png`;
   const uploadedHero = await uploadImage(heroBuffer, heroFilename, 'image/png');
 
-  // Mockups + gallery — best-effort. Failures don't break the hero return.
+  // Mockups + gallery — best-effort. Type-appropriate variants chosen by mockup module.
   try {
-    const [wallBuf, tabletBuf, paperBuf] = await Promise.all([
-      composeWallFrame(heroBuffer),
-      composeTabletScene(heroBuffer),
-      composePaperPrint(heroBuffer),
-    ]);
+    const mockups = await composeProductMockups(heroBuffer, niche.productHint);
+    const galleryBuf = await composeGallery(heroBuffer, mockups);
 
-    const galleryBuf = await composeGallery(heroBuffer, [wallBuf, tabletBuf, paperBuf]);
-
-    const [wallUp, tabletUp, paperUp, galleryUp] = await Promise.all([
-      uploadImage(wallBuf, `trend/${productId}/mockup-wall-${ts}.jpg`, 'image/jpeg'),
-      uploadImage(tabletBuf, `trend/${productId}/mockup-tablet-${ts}.jpg`, 'image/jpeg'),
-      uploadImage(paperBuf, `trend/${productId}/mockup-paper-${ts}.jpg`, 'image/jpeg'),
+    const [m1Up, m2Up, m3Up, galleryUp] = await Promise.all([
+      uploadImage(mockups[0], `trend/${productId}/mockup-1-${ts}.jpg`, 'image/jpeg'),
+      uploadImage(mockups[1], `trend/${productId}/mockup-2-${ts}.jpg`, 'image/jpeg'),
+      uploadImage(mockups[2], `trend/${productId}/mockup-3-${ts}.jpg`, 'image/jpeg'),
       uploadImage(galleryBuf, `trend/${productId}/gallery-${ts}.jpg`, 'image/jpeg'),
     ]);
 
@@ -121,7 +116,7 @@ export async function generateHeroVisual(
       url: uploadedHero.url,
       pathname: uploadedHero.pathname,
       promptUsed: prompt,
-      mockupUrls: [wallUp.url, tabletUp.url, paperUp.url],
+      mockupUrls: [m1Up.url, m2Up.url, m3Up.url],
       galleryUrl: galleryUp.url,
     };
   } catch (err) {
