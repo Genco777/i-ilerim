@@ -163,10 +163,16 @@ export type ProductHint = 'planner' | 'sticker' | 'poster' | 'template' | 'socia
  */
 export const MOCKUP_PROMPTS: Record<ProductHint, string[]> = {
   planner: [
-    'This printable planner page, printed on cream A4 paper, lying open on a warm wooden cafe table. A small cappuccino in a stoneware cup, a dried eucalyptus sprig, and a brass pen rest beside it. Soft morning sunlight from the left, shallow depth of field, editorial lifestyle photography, magazine-quality finish, warm neutral tones.',
-    'This printable planner displayed as the open-page spread on a 13-inch laptop screen, sitting on a linen-covered desk. A small terracotta plant pot, a ceramic mug, and a soft wool throw are visible in the soft-focus background. Clean Scandi minimal aesthetic, natural side light.',
-    'This printable planner printed and held by a woman\'s hands at a marble desk. She is wearing a beige cashmere sweater. A brass desk lamp, a leather journal, and a small vase with dried flowers complete the scene. Editorial portrait composition, soft golden hour light.',
-    'Flatlay top-down: this printable planner page printed on textured paper, surrounded by washi tape rolls, a gold paperclip, a small porcelain dish with paper clips, dried lavender, and a leather notebook. Magazine flatlay styling, even diffused light, warm beige and sage colour palette.',
+    // 1. Lifestyle hands-held — most engagement-positive scene
+    'TANRILAR editorial: a young womans hands in a cream cashmere sweater elegantly holding this printable planner cover. She sits at a sunlit wooden cafe table. A small white ceramic cappuccino, a sprig of dried lavender in a tiny vase, and a brass fountain pen complete the scene. Soft morning window light from left, dust particles floating in the beam, shallow depth of field (f/2.0), 50mm lens, Anthropologie commercial style, warm golden hour grading, photographed on Hasselblad. Magazine-quality, 8K detail.',
+    // 2. Flatlay coffee + botanicals
+    'TANRILAR editorial flatlay top-down view: this printable planner cover lying on natural cream linen tablecloth. Surrounded by a small white ceramic coffee cup with cappuccino foam, a brass pen, dried eucalyptus sprig, three small white roses, a folded linen napkin, and an antique brass key. Light hardwood floor texture barely visible at edges. Soft diffused morning light, deep warm shadows, editorial magazine flatlay styling, Architectural Digest aesthetic. Photo shot on medium format film, grain visible.',
+    // 3. Laptop on desk premium setup
+    'TANRILAR product photography: this printable planner cover displayed on a 13-inch MacBook screen, sitting on a clean white linen-covered desk in a sunlit home office. A small terracotta plant pot with trailing pothos, a ceramic mug, a leather journal, and a brass desk lamp create the scene. Floor-to-ceiling window left, warm afternoon light, soft long shadows, clean Scandi minimal aesthetic. Apple commercial-style product photography, 4K detail.',
+    // 4. Framed art on warm plaster wall
+    'TANRILAR home interior: this printable planner cover inside a thin oak wood frame with cream matting, hanging on a warm-toned plaster wall above a mid-century walnut sideboard. A ceramic vase with dried pampas grass, two stacked leather-bound books, and a small beeswax candle rest on the sideboard. Soft natural light from the right, deep brown shadows, Architectural Digest interior photography style.',
+    // 5. Close-up detail page open
+    'TANRILAR macro close-up: a woman\'s hand with a brass fountain pen pointing at one detail of this printable planner cover, paper texture clearly visible, soft cream linen background. Shallow depth of field (f/1.8), beautiful bokeh, morning soft natural light, editorial product detail photography, hands shot with extreme realism, fingernails clean and unpolished, sweater cuff slightly in frame. Magazine quality.',
   ],
   sticker: [
     'This printable sticker sheet design, freshly printed on glossy paper, placed on a cream linen tablecloth next to a journal, scissors, and rolls of washi tape. Top-down view, soft natural light, warm neutral tones, craft aesthetic.',
@@ -212,8 +218,9 @@ export async function generateMockupsForProduct(
   productHint: ProductHint,
   opts?: { model?: NanoBananaModel; aspectRatio?: NanoBananaAspect; resolution?: NanoBananaResolution },
 ): Promise<Buffer[]> {
-  // Take the top 3 prompts per type.
-  const prompts = (MOCKUP_PROMPTS[productHint] ?? MOCKUP_PROMPTS.planner).slice(0, 3);
+  // TANRILAR V-10: use all 5 editorial lifestyle scenes (was 3 for speed).
+  // Banana Pro 2K each ≈ 15-25 s, parallel → wall time ~25-30 s.
+  const prompts = (MOCKUP_PROMPTS[productHint] ?? MOCKUP_PROMPTS.planner).slice(0, 5);
 
   // Parallel: 3 × ~10s ≈ 10-15s wall time (Replicate may queue when busy).
   const results = await Promise.allSettled(

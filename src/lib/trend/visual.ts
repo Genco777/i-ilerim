@@ -163,20 +163,18 @@ export async function composeMockupsForHero(
   if (coverUrl) {
     try {
       const { generateMockupsForProduct } = await import('@/lib/publish/nano-banana');
-      // nano-banana-2 (Flash) — Gemini 3.1 Flash Image. ~$0.04/img, ~10s each.
-      // 4× $0.04 = $0.16/product, parallel ≈ 15-25s. Still magazine-quality.
-      // 1K = 1024×1024, sharp enough for Etsy/Stripe hero (Etsy max 3000px
-      // but compresses anyway). We stay well under the 800s function limit.
+      // TANRILAR V-10: nano-banana-pro (Gemini 3 Pro Image) at 2K. Hyper-
+      // realistic lifestyle scenes, $0.10×5 = $0.50/product. Parallel ≈ 25-40s.
+      // 2K resolution = 2048×2048 sharp enough for Etsy hero (Etsy max 3000px).
       const banana = await generateMockupsForProduct(coverUrl, productHint, {
-        model: 'nano-banana-2',
+        model: 'nano-banana-pro',
         aspectRatio: '1:1',
-        resolution: '1K',
+        resolution: '2K',
       });
 
       if (banana.length >= 2) {
-        // Compose gallery: PDF cover + top 3 Nano Banana mockups in 2×2.
-        // Pad with the first mockup if we got fewer than 3 (graceful degradation
-        // — gallery still renders even if 1-2 Banana calls failed).
+        // Compose 2×2 gallery: cover + top 3 lifestyle mockups (we now have
+        // up to 5 — extras are uploaded individually but not in gallery).
         const galleryMockups: [Buffer, Buffer, Buffer] = [
           banana[0]!,
           banana[1] ?? banana[0]!,

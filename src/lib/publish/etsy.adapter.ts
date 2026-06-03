@@ -260,8 +260,47 @@ export async function publishToEtsy(productRowId: string): Promise<PublishToEtsy
       // No throw — Mehmet can re-upload manually before activating.
     }
   }
+  // TANRILAR Module 4: GET-after-POST verification. The "listing created"
+  // confirmation has been misleading — fetch the listing back and confirm it
+  // actually exists with the files/images we expect.
+  let verifiedState: string = 'unknown';
+  let verifiedImageCount = 0;
+  let verifiedFileCount = 0;
+  try {
+    const verify = await etsyFetch<{
+      listing_id: number;
+      state: string;
+      url: string;
+      title: string;
+      num_favorers?: number;
+      has_variations?: boolean;
+    }>(`/application/shops/${shopId}/listings/${listingId}`);
+    verifiedState = verify.state;
+    console.log(
+      `[etsy-verify] listing ${listingId} VERIFIED — state=${verify.state} title="${verify.title.slice(0, 60)}"`,
+    );
+
+    // Verify image + file counts
+    const imgList = await etsyFetch<{ count: number; results: unknown[] }>(
+      `/application/shops/${shopId}/listings/${listingId}/images`,
+    );
+    verifiedImageCount = imgList.results.length;
+    const fileList = await etsyFetch<{ count: number; results: unknown[] }>(
+      `/application/shops/${shopId}/listings/${listingId}/files`,
+    );
+    verifiedFileCount = fileList.results.length;
+    console.log(
+      `[etsy-verify] listing ${listingId} content: ${verifiedImageCount} images, ${verifiedFileCount} files`,
+    );
+  } catch (verifyErr) {
+    console.error(
+      `[etsy-verify] FAILED to verify listing ${listingId} — it may not have been created properly:`,
+      verifyErr instanceof Error ? verifyErr.message : String(verifyErr),
+    );
+  }
+
   console.log(
-    `[etsy] published draft listing ${listingId} for product ${productRowId}: ${imageCount} imgs, ${videoUploaded ? '1' : '0'} video, ${fileCount} file`,
+    `[etsy] published draft listing ${listingId} for product ${productRowId}: created=${imageCount}imgs/${videoUploaded ? 1 : 0}video/${fileCount}file · VERIFIED=${verifiedImageCount}imgs/${verifiedFileCount}files state=${verifiedState}`,
   );
 
   // 7) Record in productListings (idempotent — uniq constraint)

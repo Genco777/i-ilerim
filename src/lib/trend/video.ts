@@ -169,40 +169,35 @@ export async function generateProductVideo(
   productId: string,
   heroUrl: string,
 ): Promise<ProductVideoResult> {
+  // TANRILAR V-10: switch from Higgsfield DoP (cinematic but abstract) to
+  // Google Veo 3 Fast (hyperrealistic editorial). User explicitly requested
+  // "%100 gerçek hissi" / no budget constraint. Veo 3 Fast on Replicate is
+  // image-to-video with shockingly real human hands + lighting + motion.
+  if (process.env.VIDEO_PROVIDER !== 'higgsfield') {
+    return generateProductVideoVeo3(niche, content, productId, heroUrl);
+  }
+
+  // Legacy Higgsfield path (kept behind env flag for emergency fallback).
   const model = resolveModel();
   const prompt = buildVideoPrompt(niche, content);
-
-  // Higgsfield DoP body. Field names follow the docs/examples.
-  // negative_prompt may or may not be honoured by all model variants — including
-  // it costs nothing and helps when supported.
   const created = await postCreate(model, {
     prompt,
     image_url: heroUrl,
     duration: 5,
     aspect_ratio: '9:16',
     negative_prompt:
-      'animated subject, rotating product, morphing text, changing letters, distorted geometry, AI artefacts, jittery motion, glitching, warped objects, additional elements appearing, subject deformation',
+      'animated subject, rotating product, morphing text, changing letters, distorted geometry, AI artefacts',
   });
-
-  // Poll every 5s, up to 6 minutes (72 attempts)
   const final = await waitForCompletion(created.request_id, created.status_url, {
     intervalMs: 5_000,
     maxAttempts: 72,
   });
-
-  if (!final.video?.url) {
-    throw new Error('Higgsfield completed but returned no video URL');
-  }
-
-  // Download → re-upload to OUR Blob (Higgsfield URLs may have short TTL).
+  if (!final.video?.url) throw new Error('Higgsfield returned no video URL');
   const fetched = await fetch(final.video.url);
-  if (!fetched.ok) {
-    throw new Error(`Failed to download Higgsfield MP4: ${fetched.status}`);
-  }
+  if (!fetched.ok) throw new Error(`Failed to download Higgsfield MP4: ${fetched.status}`);
   const buffer = Buffer.from(await fetched.arrayBuffer());
   const filename = `trend/${productId}/video-${Date.now()}.mp4`;
   const uploaded = await uploadImage(buffer, filename, 'video/mp4');
-
   return {
     url: uploaded.url,
     pathname: uploaded.pathname,
@@ -210,5 +205,76 @@ export async function generateProductVideo(
     modelUsed: model,
     promptUsed: prompt,
     requestId: created.request_id,
+  };
+}
+
+/**
+ * TANRILAR V-10 — Google Veo 3 Fast via Replicate. Hyperrealistic 8s b-roll.
+ * Cost ≈ $2/video (Replicate flat fee), result mimics top-end commercial
+ * cinematography: real lighting physics, dust particles, depth of field.
+ */
+async function generateProductVideoVeo3(
+  niche: NicheCandidate,
+  content: ProductContent,
+  productId: string,
+  heroUrl: string,
+): Promise<ProductVideoResult> {
+  const Replicate = (await import('replicate')).default;
+  const token = process.env.REPLICATE_API_TOKEN;
+  if (!token) throw new Error('REPLICATE_API_TOKEN is not set');
+  const replicate = new Replicate({ auth: token });
+
+  // Editorial b-roll prompt — narrative + cinematography cues. Veo 3 Fast
+  // reads these and produces commercial-quality motion.
+  const prompt = [
+    `Magazine editorial b-roll: a woman's hands in a cream cashmere sweater`,
+    `gently flipping through the pages of this printed planner on a light wooden cafe table.`,
+    `A small white ceramic coffee mug, a sprig of dried lavender, and a brass fountain pen`,
+    `rest beside it. Morning sunlight streams through a window from the left,`,
+    `casting soft long shadows. Visible dust particles float in the light beam.`,
+    `Shallow depth of field — only the planner and hands are sharp. Slow,`,
+    `deliberate finger movement. Anthropologie commercial aesthetic, warm`,
+    `golden hour colour grading, 4K cinematography, ARRI Alexa look.`,
+    `Topic context: ${niche.topic}.`,
+  ].join(' ');
+
+  const input = {
+    prompt,
+    image: heroUrl,
+    duration: 8,
+    aspect_ratio: '9:16',
+    resolution: '720p',
+  };
+
+  console.log('[veo-3] starting render', { model: 'google/veo-3-fast', productId });
+
+  // Replicate's run() blocks until completion. Veo 3 Fast ≈ 30-90 s.
+  const output = await replicate.run('google/veo-3-fast', { input });
+
+  // Output shape: either string URL, array with URL, or FileOutput.
+  let url: string | undefined;
+  if (typeof output === 'string') {
+    url = output;
+  } else if (Array.isArray(output) && typeof output[0] === 'string') {
+    url = output[0];
+  } else if (output && typeof output === 'object' && 'url' in output && typeof (output as { url: unknown }).url === 'function') {
+    url = (output as { url: () => string }).url();
+  }
+  if (!url) throw new Error('Veo 3 returned unexpected output shape');
+
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`Veo 3 fetch failed: ${res.status}`);
+  const buffer = Buffer.from(await res.arrayBuffer());
+  const filename = `trend/${productId}/video-${Date.now()}.mp4`;
+  const uploaded = await uploadImage(buffer, filename, 'video/mp4');
+
+  void content;
+  return {
+    url: uploaded.url,
+    pathname: uploaded.pathname,
+    durationSec: 8,
+    modelUsed: 'google/veo-3-fast',
+    promptUsed: prompt,
+    requestId: 'veo3-' + Date.now(),
   };
 }
