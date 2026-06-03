@@ -174,7 +174,14 @@ export async function composeMockupsForHero(
 
       if (banana.length >= 2) {
         // Compose gallery: PDF cover + top 3 Nano Banana mockups in 2×2.
-        const galleryBuf = await composeGallery(heroBuffer, banana.slice(0, 3));
+        // Pad with the first mockup if we got fewer than 3 (graceful degradation
+        // — gallery still renders even if 1-2 Banana calls failed).
+        const galleryMockups: [Buffer, Buffer, Buffer] = [
+          banana[0]!,
+          banana[1] ?? banana[0]!,
+          banana[2] ?? banana[1] ?? banana[0]!,
+        ];
+        const galleryBuf = await composeGallery(heroBuffer, galleryMockups);
 
         const uploads = await Promise.all([
           ...banana.map((buf, i) =>
