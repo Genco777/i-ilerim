@@ -246,10 +246,31 @@ async function generateProductVideoVeo3(
     resolution: '720p',
   };
 
-  console.log('[veo-3] starting render', { model: 'google/veo-3-fast', productId });
+  // Try multiple Replicate slugs in order — Replicate sometimes renames or
+  // versions Veo 3 endpoints. We try the latest first, then fall back.
+  const candidates: `${string}/${string}`[] = [
+    'google/veo-3-fast',
+    'google/veo-3',
+    'google/veo-3-fast:latest' as `${string}/${string}`,
+  ];
 
-  // Replicate's run() blocks until completion. Veo 3 Fast ≈ 30-90 s.
-  const output = await replicate.run('google/veo-3-fast', { input });
+  let output: unknown;
+  let usedSlug = '';
+  let lastErr: Error | undefined;
+  for (const slug of candidates) {
+    try {
+      console.log('[veo-3] trying slug', slug);
+      output = await replicate.run(slug, { input });
+      usedSlug = slug;
+      break;
+    } catch (e) {
+      lastErr = e instanceof Error ? e : new Error(String(e));
+      console.warn(`[veo-3] slug ${slug} failed: ${lastErr.message.slice(0, 200)}`);
+    }
+  }
+  if (!output || !usedSlug) {
+    throw lastErr ?? new Error('All Veo 3 slugs failed');
+  }
 
   // Output shape: either string URL, array with URL, or FileOutput.
   let url: string | undefined;
@@ -273,7 +294,7 @@ async function generateProductVideoVeo3(
     url: uploaded.url,
     pathname: uploaded.pathname,
     durationSec: 8,
-    modelUsed: 'google/veo-3-fast',
+    modelUsed: usedSlug,
     promptUsed: prompt,
     requestId: 'veo3-' + Date.now(),
   };

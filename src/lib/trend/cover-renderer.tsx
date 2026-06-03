@@ -110,6 +110,30 @@ async function fetchWatercolorBackground(theme: CoverTheme): Promise<Buffer | nu
 
 // ─── Typography layer via Satori (next/og) ───────────────────────────────────
 
+/** Smart truncation — never cut a word mid-letter. Tries to end at a sentence,
+ *  then at a punctuation mark, then at a word boundary. */
+function smartTruncate(text: string, maxChars: number): string {
+  const t = text.trim();
+  if (t.length <= maxChars) return t;
+  const window = t.slice(0, maxChars);
+  // Prefer ending at " — " or full stop / comma / colon
+  const lastBreak = Math.max(
+    window.lastIndexOf('. '),
+    window.lastIndexOf('? '),
+    window.lastIndexOf('! '),
+    window.lastIndexOf(' — '),
+    window.lastIndexOf(' – '),
+    window.lastIndexOf('; '),
+    window.lastIndexOf(', '),
+  );
+  if (lastBreak > maxChars * 0.6) {
+    return window.slice(0, lastBreak + 1).trim();
+  }
+  // Fall back to last word boundary
+  const lastSpace = window.lastIndexOf(' ');
+  return (lastSpace > maxChars * 0.5 ? window.slice(0, lastSpace) : window).trim() + '…';
+}
+
 async function renderTypographyLayer(opts: CoverRenderOptions): Promise<Buffer> {
   const c = THEME_COLORS[opts.theme] ?? THEME_COLORS.cream;
   const fonts = await loadFonts().catch((e) => {
@@ -118,6 +142,8 @@ async function renderTypographyLayer(opts: CoverRenderOptions): Promise<Buffer> 
   });
 
   const titleSize = opts.title.length > 80 ? 56 : opts.title.length > 50 ? 68 : 84;
+  // Smart subtitle truncation — ends at sentence/comma boundary, never mid-word
+  const subtitle = smartTruncate(opts.subtitle, 240);
   const pageMeta = opts.pageCount
     ? `${opts.pageCount} PAGES · A4 · PRINTABLE PDF · INSTANT DOWNLOAD`
     : 'A4 · PRINTABLE PDF · INSTANT DOWNLOAD';
@@ -199,16 +225,19 @@ async function renderTypographyLayer(opts: CoverRenderOptions): Promise<Buffer> 
             maxWidth: WIDTH - 180,
           }}
         >
-          {opts.subtitle.slice(0, 200)}
+          {subtitle}
         </div>
       </div>
 
-      {/* Bottom cream area (transparent, lets watercolour show through) */}
+      {/* Bottom cream area — semi-opaque cream tint over watercolour so the
+          meta text stays crisp. Watercolour still bleeds through subtly,
+          giving warmth without sacrificing legibility. */}
       <div
         style={{
           width: '100%',
           flex: 1,
           padding: '70px 90px',
+          backgroundColor: c.bg + 'D8', // 85% opacity cream tint
           display: 'flex',
           flexDirection: 'column',
           alignItems: 'center',

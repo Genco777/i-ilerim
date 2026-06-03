@@ -396,16 +396,41 @@ async function uploadListingFile(args: {
   sourceUrl: string;
   filename: string;
 }): Promise<EtsyListingFileResponse> {
-  const { blob } = await fetchAsBlob(args.sourceUrl);
+  // Fetch the PDF from Vercel Blob → re-upload to Etsy as multipart binary.
+  const { blob, contentType } = await fetchAsBlob(args.sourceUrl);
+  const sizeBytes = blob.size;
+  console.log(
+    `[etsy-file] PDF fetched from Blob: ${sizeBytes} bytes (${(sizeBytes / 1024).toFixed(0)}KB), content-type=${contentType}, filename=${args.filename}`,
+  );
+
+  // Etsy v3 listing files endpoint accepts multipart with field name "file".
+  // Some accounts/configurations reject the request unless content-type is
+  // application/pdf explicitly. Build a fresh Blob with the right MIME.
+  const pdfBlob = new Blob([await blob.arrayBuffer()], { type: 'application/pdf' });
   const fd = new FormData();
-  fd.append('file', blob, args.filename);
+  fd.append('file', pdfBlob, args.filename);
   fd.append('name', args.filename);
   fd.append('rank', '1');
 
-  return etsyFetch<EtsyListingFileResponse>(
-    `/application/shops/${args.shopId}/listings/${args.listingId}/files`,
-    { method: 'POST', rawBody: fd },
-  );
+  try {
+    const result = await etsyFetch<EtsyListingFileResponse>(
+      `/application/shops/${args.shopId}/listings/${args.listingId}/files`,
+      { method: 'POST', rawBody: fd },
+    );
+    console.log(
+      `[etsy-file] PDF upload OK → listing_file_id=${result.listing_file_id}, size_bytes=${result.size_bytes}`,
+    );
+    return result;
+  } catch (e) {
+    // Surface the FULL Etsy response body — the recurring "0 files" issue
+    // has been hidden by a swallowed error. Make it impossible to hide now.
+    const msg = e instanceof Error ? e.message : String(e);
+    console.error(
+      `[etsy-file] BINARY UPLOAD REJECTED — full response: ${msg}\n` +
+        `  shop_id=${args.shopId} listing_id=${args.listingId} filename=${args.filename} size=${sizeBytes}b`,
+    );
+    throw e;
+  }
 }
 
 // ─────────────────────────────────────────────────────────────
