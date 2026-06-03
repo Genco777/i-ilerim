@@ -84,32 +84,93 @@ export async function handleTrendApprove(
     .set({ status: 'approved', approved_at: new Date(), updated_at: new Date() })
     .where(eq(products.id, productId));
 
-  // 2) Sync to Stripe (creates Product + Price, sets is_public_in_shop=1)
-  let shopUrl: string | null = null;
-  let stripeError: string | null = null;
+  // 2) Sync to Stripe + Etsy in parallel — both are idempotent so a retry is safe.
+  const [stripeOutcome, etsyOutcome] = await Promise.all([
+    syncToStripe(productId, product.slug ?? null),
+    syncToEtsy(productId),
+  ]);
+
+  // 3) Confirm in Telegram with both channels' status
+  await editMessageReplyMarkup({ chatId, messageId, replyMarkup: clearedKeyboard() });
+  const lines = [
+    `✅ Onaylandı: ${product.shop_title ?? product.etsy_title ?? productId}`,
+  ];
+
+  // Stripe block
+  if (stripeOutcome.url) {
+    lines.push('', `🛍️ Shop (canlı): ${stripeOutcome.url}`);
+  } else if (stripeOutcome.error) {
+    lines.push('', `⚠️ Stripe sync başarısız: ${stripeOutcome.error}`);
+  }
+
+  // Etsy block
+  if (etsyOutcome.url) {
+    const tag = etsyOutcome.alreadyExisted ? '(zaten mevcuttu)' : '(draft — manuel aktive et)';
+    lines.push(
+      '',
+      `🟧 Etsy ${tag}: ${etsyOutcome.url}`,
+      `   ${etsyOutcome.imageCount} foto · ${etsyOutcome.fileCount} dosya yüklendi`,
+    );
+  } else if (etsyOutcome.error) {
+    lines.push('', `⚠️ Etsy sync başarısız: ${etsyOutcome.error}`);
+  }
+
+  await sendMessage({ chatId, text: lines.join('\n') });
+}
+
+// ─────────────────────────────────────────────────────────────
+// Per-channel sync helpers — kept small and well-typed so Promise.all
+// inference stays clean and one failure can't crash the other.
+// ─────────────────────────────────────────────────────────────
+
+interface ChannelOutcome {
+  url: string | null;
+  error: string | null;
+}
+
+interface EtsyOutcome extends ChannelOutcome {
+  imageCount: number;
+  fileCount: number;
+  alreadyExisted: boolean;
+}
+
+async function syncToStripe(productId: string, slug: string | null): Promise<ChannelOutcome> {
   try {
     const { ensureStripeProduct } = await import('@/lib/stripe/products');
     const { getShopBaseUrl } = await import('@/lib/stripe/client');
     await ensureStripeProduct(productId);
     const base = getShopBaseUrl().replace(/\/+$/, '');
-    shopUrl = product.slug ? `${base}/${product.slug}` : null;
+    return { url: slug ? `${base}/${slug}` : null, error: null };
   } catch (err) {
-    stripeError = err instanceof Error ? err.message.slice(0, 200) : String(err);
+    const msg = err instanceof Error ? err.message.slice(0, 200) : String(err);
     console.error('[trend] Stripe sync on approval failed', err);
+    return { url: null, error: msg };
   }
+}
 
-  // 3) Confirm in Telegram
-  await editMessageReplyMarkup({ chatId, messageId, replyMarkup: clearedKeyboard() });
-  const lines = [
-    `✅ Onaylandı: ${product.shop_title ?? product.etsy_title ?? productId}`,
-  ];
-  if (shopUrl) {
-    lines.push('', `🛍️ Shop'ta canlı: ${shopUrl}`);
-  } else if (stripeError) {
-    lines.push('', `⚠️ Stripe sync başarısız: ${stripeError}`);
-    lines.push('Manuel sync için /admin paneline gir veya tekrar onayla.');
+async function syncToEtsy(productId: string): Promise<EtsyOutcome> {
+  try {
+    const { publishToEtsy } = await import('@/lib/publish/etsy.adapter');
+    const r = await publishToEtsy(productId);
+    return {
+      url: r.url,
+      error: null,
+      imageCount: r.imageCount,
+      fileCount: r.fileCount,
+      alreadyExisted: r.alreadyExisted,
+    };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message.slice(0, 200) : String(err);
+    console.error('[trend] Etsy sync on approval failed', err);
+    // Best-effort: log to productListings.error_log so it's visible in admin.
+    try {
+      const { recordEtsyFailure } = await import('@/lib/publish/etsy.adapter');
+      await recordEtsyFailure(productId, msg);
+    } catch {
+      /* ignore — DB write failure is a tertiary error */
+    }
+    return { url: null, error: msg, imageCount: 0, fileCount: 0, alreadyExisted: false };
   }
-  await sendMessage({ chatId, text: lines.join('\n') });
 }
 
 /**
@@ -375,6 +436,131 @@ export function formatProductCaption(
   }
   if (product.shop_title) {
     lines.push(`🏪 Shop: ${product.shop_title.slice(0, 80)}${product.shop_title.length > 80 ? '…' : ''}`);
+  }
+
+  return lines.join('\n').slice(0, 1020);
+}
+  newTitle: string,
+): Promise<boolean> {
+  const productId = trendEditTitleSessions.get(chatId);
+  if (!productId) return false;
+
+  if (newTitle.trim().toLowerCase() === '/iptal') {
+    trendEditTitleSessions.delete(chatId);
+    await sendMessage({ chatId, text: 'İptal edildi.' });
+    return true;
+  }
+
+  trendEditTitleSessions.delete(chatId);
+  await db
+    .update(products)
+    .set({ shop_title: newTitle.trim().slice(0, 200), updated_at: new Date() })
+    .where(eq(products.id, productId));
+
+  await sendMessage({
+    chatId,
+    text: `✏️ Shop başlığı güncellendi:\n"${newTitle.trim().slice(0, 200)}"`,
+  });
+  return true;
+}
+
+// ─────────────────────────────────────────────────────────────
+// Caption formatter (used by orchestrator + regen handler)
+// ─────────────────────────────────────────────────────────────
+
+/**
+ * Telegram caption cap is 1024 chars — this stays under by truncating
+ * the longest fields. Markdown is intentionally avoided (Telegram's
+ * parse_mode is finicky with special chars in titles).
+ */
+export function formatProductCaption(
+  product: typeof products.$inferSelect,
+  niche: NicheCandidate,
+): string {
+  const eur = (product.price_cents / 100).toFixed(2);
+  const compIcon =
+    niche.competition === 'low' ? '🟢' : niche.competition === 'medium' ? '🟡' : '🔴';
+
+  const lines = [
+    `📌 ${niche.topic}`,
+    `📊 ${niche.score}/100  ${compIcon} ${niche.competition}`,
+  ];
+
+  if (product.turkish_summary) lines.push(`🇹🇷 ${product.turkish_summary}`);
+  if (product.turkish_gap_angle) lines.push(`🎯 ${product.turkish_gap_angle.slice(0, 250)}`);
+
+  lines.push(`🛍️ ${product.type} • €${eur}`);
+
+  if (product.etsy_title) {
+    lines.push(`📝 Etsy: ${product.etsy_title.slice(0, 100)}${product.etsy_title.length > 100 ? '…' : ''}`);
+  }
+  if (product.shop_title) {
+    lines.push(`🏪 Shop: ${product.shop_title.slice(0, 80)}${product.shop_title.length > 80 ? '…' : ''}`);
+  }
+
+  return lines.join('\n').slice(0, 1020);
+}
+
+  newTitle: string,
+): Promise<boolean> {
+  const productId = trendEditTitleSessions.get(chatId);
+  if (!productId) return false;
+
+  if (newTitle.trim().toLowerCase() === '/iptal') {
+    trendEditTitleSessions.delete(chatId);
+    await sendMessage({ chatId, text: 'İptal edildi.' });
+    return true;
+  }
+
+  trendEditTitleSessions.delete(chatId);
+  await db
+    .update(products)
+    .set({ shop_title: newTitle.trim().slice(0, 200), updated_at: new Date() })
+    .where(eq(products.id, productId));
+
+  await sendMessage({
+    chatId,
+    text: `✏️ Shop başlığı güncellendi:\n"${newTitle.trim().slice(0, 200)}"`,
+  });
+  return true;
+}
+
+// ─────────────────────────────────────────────────────────────
+// Caption formatter (used by orchestrator + regen handler)
+// ─────────────────────────────────────────────────────────────
+
+/**
+ * Telegram caption cap is 1024 chars — this stays under by truncating
+ * the longest fields. Markdown is intentionally avoided.
+ */
+export function formatProductCaption(
+  product: typeof products.$inferSelect,
+  niche: NicheCandidate,
+): string {
+  const eur = (product.price_cents / 100).toFixed(2);
+  const compIcon =
+    niche.competition === 'low' ? '🟢' : niche.competition === 'medium' ? '🟡' : '🔴';
+
+  const lines = [
+    `📌 ${niche.topic}`,
+    `📊 ${niche.score}/100  ${compIcon} ${niche.competition}`,
+  ];
+
+  if (product.turkish_summary) lines.push(`🇹🇷 ${product.turkish_summary}`);
+  if (product.turkish_gap_angle) lines.push(`🎯 ${product.turkish_gap_angle.slice(0, 250)}`);
+
+  lines.push(`🛍️ ${product.type} • €${eur}`);
+
+  if (product.etsy_title) {
+    lines.push(`📝 Etsy: ${product.etsy_title.slice(0, 100)}${product.etsy_title.length > 100 ? '…' : ''}`);
+  }
+  if (product.shop_title) {
+    lines.push(`🏪 Shop: ${product.shop_title.slice(0, 80)}${product.shop_title.length > 80 ? '…' : ''}`);
+  }
+
+  return lines.join('\n').slice(0, 1020);
+}
+ ? '…' : ''}`);
   }
 
   return lines.join('\n').slice(0, 1020);
