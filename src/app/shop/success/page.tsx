@@ -1,12 +1,9 @@
 /**
- * Post-checkout success page — /shop/success?session_id=cs_...
- *
- * Fetches the session from Stripe to confirm the buyer just paid, then
- * shows a thank-you with email-delivery note. The webhook independently
- * issues the download token + sends the email; this page is just human UX.
+ * Post-checkout success — /success?session_id=cs_... on shop.fly-froth.com
  */
 import Link from 'next/link';
 import { getStripe } from '@/lib/stripe/client';
+import { ShopHeader } from '@/components/shop/ShopHeader';
 import { StatementFooter } from '@/components/shop/StatementFooter';
 
 export const dynamic = 'force-dynamic';
@@ -29,52 +26,53 @@ export default async function SuccessPage(props: PageProps) {
       buyerEmail = session.customer_details?.email ?? null;
       productName = session.line_items?.data[0]?.description ?? null;
     } catch {
-      // Session not found or invalid — still render a friendly thank-you
+      /* silent */
     }
   }
 
   return (
-    <main className="min-h-screen bg-stone-50">
-      <header className="border-b border-stone-200 bg-white">
-        <div className="mx-auto max-w-3xl px-6 py-6">
-          <Link href="/shop" className="text-sm text-stone-500 hover:text-stone-900">
-            ← Shop
-          </Link>
-        </div>
-      </header>
+    <main className="min-h-screen bg-background">
+      <ShopHeader />
 
-      <section className="mx-auto max-w-2xl px-6 py-20 text-center">
-        <p className="text-sm uppercase tracking-widest text-stone-500">Payment received</p>
-        <h1 className="mt-4 text-3xl font-bold tracking-tight text-stone-900">
+      <section className="max-w-2xl mx-auto px-4 sm:px-6 py-20 sm:py-28 text-center">
+        <p className="text-xs tracking-[0.22em] uppercase text-muted-foreground">
+          Payment received
+        </p>
+        <h1 className="mt-4 text-3xl sm:text-4xl font-bold tracking-tight text-foreground leading-tight">
           Thanks — your download is on its way.
         </h1>
 
         {productName ? (
-          <p className="mt-4 text-stone-700">
+          <p className="mt-5 text-base text-foreground">
             <span className="font-medium">{productName}</span>
           </p>
         ) : null}
 
-        <div className="mt-10 space-y-4 text-sm leading-relaxed text-stone-700">
+        <div className="mt-10 rounded-xl border border-border bg-card p-6 text-left text-sm text-foreground leading-relaxed">
           <p>
-            We sent the download link to{' '}
-            <span className="font-medium text-stone-900">
-              {buyerEmail ?? 'your email address'}
-            </span>
-            . It works for 24 hours and up to 5 downloads.
+            We&apos;ve emailed the secure download link to{' '}
+            <span className="font-semibold">{buyerEmail ?? 'your email address'}</span>.
           </p>
-          <p>
-            Not in your inbox in a few minutes? Check spam, or reply to the order email
-            and we will resend.
+          <p className="mt-3 text-muted-foreground">
+            The link works for 24 hours and up to 5 downloads. Not in your inbox in a few minutes?
+            Check spam, or reply to the order email — we resend within 12 hours, weekends included.
           </p>
         </div>
 
-        <Link
-          href="/shop"
-          className="mt-12 inline-block rounded border border-stone-300 bg-white px-6 py-3 text-sm font-medium text-stone-900 hover:bg-stone-50"
-        >
-          Keep browsing
-        </Link>
+        <div className="mt-10 flex items-center justify-center gap-3">
+          <Link
+            href="/"
+            className="inline-flex items-center justify-center rounded-lg border border-border bg-card px-6 py-3 text-sm font-medium text-foreground hover:bg-muted transition-colors"
+          >
+            Keep browsing
+          </Link>
+          <a
+            href="mailto:info@fly-froth.com"
+            className="inline-flex items-center justify-center rounded-lg bg-primary text-primary-foreground px-6 py-3 text-sm font-medium hover:opacity-90 transition-opacity"
+          >
+            Email support
+          </a>
+        </div>
       </section>
 
       <StatementFooter />

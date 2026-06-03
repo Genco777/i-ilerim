@@ -1,9 +1,6 @@
 /**
- * Product detail page — /shop/[slug]
- *
- * Server component. Shows hero + gallery (mockups), title, description,
- * price, and a "Buy now" form that POSTs to /api/shop/checkout to create
- * a Stripe Checkout session and redirect to it.
+ * Product detail page — /[slug] on shop.fly-froth.com
+ * (internally /shop/[slug] via middleware rewrite)
  */
 import Image from 'next/image';
 import Link from 'next/link';
@@ -11,6 +8,7 @@ import { notFound } from 'next/navigation';
 import { db } from '@/lib/db';
 import { products } from '@/lib/db/schema';
 import { and, eq, or } from 'drizzle-orm';
+import { ShopHeader } from '@/components/shop/ShopHeader';
 import { StatementFooter } from '@/components/shop/StatementFooter';
 
 export const dynamic = 'force-dynamic';
@@ -43,21 +41,27 @@ export default async function ProductDetail(props: PageProps) {
     ...((product.mockup_image_urls as string[] | null) ?? []),
   ].filter((u): u is string => !!u);
 
+  const priceEur = (product.price_cents / 100).toFixed(2);
+
   return (
-    <main className="min-h-screen bg-stone-50">
-      <header className="border-b border-stone-200 bg-white">
-        <div className="mx-auto max-w-5xl px-6 py-6">
-          <Link href="/shop" className="text-sm text-stone-500 hover:text-stone-900">
-            ← Shop
+    <main className="min-h-screen bg-background">
+      <ShopHeader />
+
+      {/* Breadcrumb */}
+      <div className="border-b border-border bg-card/50">
+        <div className="max-w-6xl mx-auto px-4 sm:px-6 py-4 text-sm">
+          <Link href="/" className="text-muted-foreground hover:text-foreground transition-colors">
+            ← All printables
           </Link>
         </div>
-      </header>
+      </div>
 
-      <section className="mx-auto grid max-w-5xl gap-12 px-6 py-12 lg:grid-cols-2">
+      {/* Hero grid */}
+      <section className="max-w-6xl mx-auto px-4 sm:px-6 py-10 lg:py-14 grid grid-cols-1 lg:grid-cols-2 gap-10 lg:gap-16">
         {/* Gallery */}
         <div>
           {gallery[0] ? (
-            <div className="relative aspect-square overflow-hidden rounded-lg bg-stone-100">
+            <div className="relative aspect-square overflow-hidden rounded-xl bg-muted border border-border">
               <Image
                 src={gallery[0]}
                 alt={product.shop_title ?? 'Product'}
@@ -68,12 +72,15 @@ export default async function ProductDetail(props: PageProps) {
               />
             </div>
           ) : (
-            <div className="aspect-square rounded-lg bg-stone-200" />
+            <div className="aspect-square rounded-xl bg-muted border border-border" />
           )}
           {gallery.length > 1 ? (
-            <div className="mt-3 grid grid-cols-3 gap-3">
+            <div className="mt-4 grid grid-cols-3 gap-3">
               {gallery.slice(1, 4).map((url, i) => (
-                <div key={i} className="relative aspect-square overflow-hidden rounded-md bg-stone-100">
+                <div
+                  key={i}
+                  className="relative aspect-square overflow-hidden rounded-md bg-muted border border-border"
+                >
                   <Image src={url} alt="" fill sizes="20vw" className="object-cover" />
                 </div>
               ))}
@@ -81,46 +88,96 @@ export default async function ProductDetail(props: PageProps) {
           ) : null}
         </div>
 
-        {/* Details + Buy */}
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight text-stone-900">
+        {/* Detail + Buy */}
+        <div className="lg:pt-2">
+          <p className="text-[10px] uppercase tracking-[0.22em] text-muted-foreground">
+            {product.type.replace('_', ' ')} · printable PDF
+          </p>
+          <h1 className="mt-3 text-2xl sm:text-3xl font-bold tracking-tight text-foreground leading-tight">
             {product.shop_title}
           </h1>
-          <p className="mt-3 text-3xl font-light text-stone-900">
-            €{(product.price_cents / 100).toFixed(2)}
-          </p>
-          <p className="mt-1 text-xs text-stone-500">
-            Inkl. ges. Steuern · Instant download · {product.type.replace('_', ' ')}
-          </p>
+
+          <div className="mt-5 flex items-baseline gap-3">
+            <p className="text-3xl font-semibold text-foreground">€{priceEur}</p>
+            <p className="text-xs text-muted-foreground">
+              gem. §19 UStG keine USt · instant download
+            </p>
+          </div>
 
           {cancelled ? (
-            <div className="mt-4 rounded border border-stone-300 bg-stone-50 px-4 py-3 text-sm text-stone-700">
+            <div className="mt-5 rounded-lg border border-border bg-muted/50 px-4 py-3 text-sm text-foreground">
               Checkout cancelled — no payment was taken.
             </div>
           ) : null}
 
-          <form action="/api/shop/checkout" method="post" className="mt-6">
+          <form action="/api/shop/checkout" method="post" className="mt-7">
             <input type="hidden" name="slug" value={product.slug ?? ''} />
             <button
               type="submit"
-              className="w-full rounded bg-stone-900 px-8 py-4 text-base font-semibold text-white transition-colors hover:bg-stone-800"
+              className="w-full inline-flex items-center justify-center rounded-lg bg-primary text-primary-foreground px-8 py-4 text-base font-semibold tracking-tight hover:opacity-90 transition-opacity"
             >
-              Buy now · €{(product.price_cents / 100).toFixed(2)}
+              Buy now · €{priceEur}
             </button>
           </form>
 
-          <div className="mt-8 space-y-4 text-sm leading-relaxed text-stone-700">
-            <p className="whitespace-pre-line">{product.shop_description}</p>
+          {/* Reassurance row */}
+          <ul className="mt-5 grid grid-cols-2 gap-3 text-xs text-muted-foreground">
+            <li className="flex items-center gap-2">
+              <span aria-hidden>✓</span> Stripe-secured payment
+            </li>
+            <li className="flex items-center gap-2">
+              <span aria-hidden>✓</span> Card &amp; PayPal accepted
+            </li>
+            <li className="flex items-center gap-2">
+              <span aria-hidden>✓</span> Email delivery in &lt; 60 s
+            </li>
+            <li className="flex items-center gap-2">
+              <span aria-hidden>✓</span> Real human support (12 h)
+            </li>
+          </ul>
+
+          {/* Description */}
+          <div className="mt-8 prose prose-stone max-w-none">
+            <p className="text-sm leading-relaxed text-foreground whitespace-pre-line">
+              {product.shop_description}
+            </p>
           </div>
 
-          <div className="mt-8 rounded border border-stone-200 bg-white p-4 text-xs leading-relaxed text-stone-600">
-            <p className="font-semibold text-stone-800">What you get</p>
-            <ul className="mt-2 list-disc space-y-1 pl-5">
-              <li>Printable A4 PDF · instant download after checkout</li>
-              <li>Email with secure download link (24 h, 5 downloads)</li>
-              <li>For personal use</li>
+          {/* What you get */}
+          <div className="mt-8 rounded-xl border border-border bg-muted/40 p-5">
+            <p className="text-xs font-semibold tracking-widest uppercase text-foreground">
+              What you get
+            </p>
+            <ul className="mt-3 space-y-2 text-sm text-foreground">
+              <li className="flex items-start gap-2">
+                <span aria-hidden className="text-muted-foreground">·</span>
+                Printable A4 PDF · instant download after checkout
+              </li>
+              <li className="flex items-start gap-2">
+                <span aria-hidden className="text-muted-foreground">·</span>
+                Email with secure download link · 24 h, 5 downloads
+              </li>
+              <li className="flex items-start gap-2">
+                <span aria-hidden className="text-muted-foreground">·</span>
+                For personal use · re-print as many times as you like
+              </li>
+              <li className="flex items-start gap-2">
+                <span aria-hidden className="text-muted-foreground">·</span>
+                Lost the file? Reply to your order email — we resend within 12 h
+              </li>
             </ul>
           </div>
+
+          {/* Returns / digital goods note */}
+          <p className="mt-6 text-[11px] leading-relaxed text-muted-foreground">
+            Because this is a digital download delivered immediately, the statutory
+            14-day right of withdrawal does not apply once the file is sent (§356
+            Abs. 5 BGB). If anything is wrong with the file, email{' '}
+            <a href="mailto:info@fly-froth.com" className="underline text-foreground">
+              info@fly-froth.com
+            </a>{' '}
+            and we&apos;ll make it right.
+          </p>
         </div>
       </section>
 

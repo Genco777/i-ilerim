@@ -4,6 +4,9 @@
  * Creates a Stripe Checkout Session for a product slug and redirects the
  * buyer to Stripe's hosted checkout page. The session metadata carries
  * trend_product_id so the webhook can match the sale back to our row.
+ *
+ * Accepts both JSON ({slug:"..."}) and form-encoded posts. Reads the body
+ * exactly once based on Content-Type — Request body is a one-shot stream.
  */
 
 import { NextResponse } from 'next/server';
@@ -16,25 +19,31 @@ import { ensureStripeProduct } from '@/lib/stripe/products';
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 
-export async function POST(req: Request) {
-  let slug: string | null = null;
-  try {
-    const body = (await req.json()) as { slug?: string };
-    slug = body.slug ?? null;
-  } catch {
-    /* allow form posts too */
-  }
+async function extractSlug(req: Request): Promise<string | null> {
+  const contentType = (req.headers.get('content-type') ?? '').toLowerCase();
 
-  // Form-encoded fallback (HTML form with no JS)
-  if (!slug) {
+  // JSON body
+  if (contentType.includes('application/json')) {
     try {
-      const fd = await req.formData();
-      const s = fd.get('slug');
-      if (typeof s === 'string') slug = s;
+      const body = (await req.json()) as { slug?: unknown };
+      return typeof body.slug === 'string' && body.slug.length > 0 ? body.slug : null;
     } catch {
-      /* empty body */
+      return null;
     }
   }
+
+  // HTML form (default) — application/x-www-form-urlencoded or multipart/form-data
+  try {
+    const fd = await req.formData();
+    const s = fd.get('slug');
+    return typeof s === 'string' && s.length > 0 ? s : null;
+  } catch {
+    return null;
+  }
+}
+
+export async function POST(req: Request) {
+  const slug = await extractSlug(req);
 
   if (!slug) {
     return NextResponse.json({ error: 'slug required' }, { status: 400 });
@@ -65,15 +74,13 @@ export async function POST(req: Request) {
     success_url: `${base}/success?session_id={CHECKOUT_SESSION_ID}`,
     cancel_url: `${base}/${slug}?cancelled=1`,
     payment_method_types: ['card', 'paypal'],
-    // Collect minimum data — we only need email for delivery
-    customer_email: undefined, // Stripe will ask for it
-    billing_address_collection: 'required', // needed for buyer_country (KDV/OSS)
+    customer_email: undefined,
+    billing_address_collection: 'required',
     locale: 'auto',
     metadata: {
       trend_product_id: product.id,
       product_slug: product.slug ?? '',
     },
-    // Kleinunternehmer §19 — no tax to add; price is gross/net
     automatic_tax: { enabled: false },
   });
 
