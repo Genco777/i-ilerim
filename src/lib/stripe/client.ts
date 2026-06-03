@@ -16,7 +16,7 @@ export function getStripe(): Stripe {
   const key = process.env.STRIPE_SECRET_KEY;
   if (!key) throw new Error('STRIPE_SECRET_KEY is not set');
   _client = new Stripe(key, {
-    apiVersion: '2025-09-30.clover',
+    apiVersion: '2026-05-27.dahlia',
     typescript: true,
     appInfo: { name: 'fly-froth-trend-engine', version: '0.1.0' },
   });
