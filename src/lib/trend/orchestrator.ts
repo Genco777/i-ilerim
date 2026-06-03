@@ -286,7 +286,9 @@ export async function runDailyTrendPipeline(
             }
           }
 
-          // Step 4 — mockups composited around the REAL hero (PDF cover render)
+          // Step 4 — mockups via Nano Banana Pro (V-2). The cover URL is the
+          // public Blob URL we just uploaded, passed as the reference image
+          // so the model can naturally place our actual product into scenes.
           let mockupUrls: string[] = [];
           let galleryUrl: string | null = null;
           try {
@@ -294,6 +296,7 @@ export async function runDailyTrendPipeline(
               mockupHeroBuffer,
               candidate.productHint,
               insertedProduct.id,
+              realHeroUrl, // ← Nano Banana reference image (V-2)
             );
             mockupUrls = mockups.mockupUrls;
             galleryUrl = mockups.galleryUrl;

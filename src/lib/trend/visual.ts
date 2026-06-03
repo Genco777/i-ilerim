@@ -133,19 +133,69 @@ export async function generateAiHeroForPdfCover(
 }
 
 /**
- * Mockup compositing for any hero buffer (AI-generated OR rendered from PDF).
- * Produces 3 type-appropriate mockup scenes + a 2×2 gallery composite, uploads
- * everything to Vercel Blob.
+ * V-2 mockup pipeline (Nano Banana 2 / Gemini 3.1 Flash Image).
  *
- * Failures here are non-fatal — caller should fall back to plain hero if
- * mockup compositing crashes (e.g., Sharp OOM on Vercel).
+ * Strategy: each mockup is a separate Nano Banana call where the V-1 PDF cover
+ * render is passed as a REFERENCE IMAGE alongside a lifestyle scene prompt.
+ * The model naturally places the actual product into the scene with correct
+ * perspective, lighting, and shadow — no Sharp coordinate hardcoding.
+ *
+ * Architecture:
+ *   coverUrl (V-1 PDF render) → Nano Banana 2 × 4 in parallel → 4 photoreal mockups
+ *   → Sharp 2×2 composite (gallery) → upload all → return URLs
+ *
+ * Cost: 4 × $0.04 = $0.16 per product. Roughly 8-15s wall time per mockup,
+ * parallelised → total ~15s (vs Sharp 3s, but ~10× quality jump).
+ *
+ * Failures: best-effort. If <2 mockups succeed we fall back to Sharp
+ * procedural composite of the cover image so the pipeline never crashes.
  */
 export async function composeMockupsForHero(
   heroBuffer: Buffer,
   productHint: NicheCandidate['productHint'],
   productId: string,
+  /** V-1 PDF cover URL (public Blob URL — required for Nano Banana 2). */
+  coverUrl?: string,
 ): Promise<{ mockupUrls: string[]; galleryUrl: string }> {
   const ts = Date.now();
+
+  // Path A — Nano Banana 2 (V-2 default, when we have a public cover URL).
+  if (coverUrl) {
+    try {
+      const { generateMockupsForProduct } = await import('@/lib/publish/nano-banana');
+      // nano-banana-pro = Gemini 3 Pro Image. Premium tier (~$0.10/img,
+      // 4 × $0.10 = $0.40/product). Highest fidelity, magazine-grade output.
+      // 2K resolution for crisp Etsy listing images.
+      const banana = await generateMockupsForProduct(coverUrl, productHint, {
+        model: 'nano-banana-pro',
+        aspectRatio: '1:1',
+        resolution: '2K',
+      });
+
+      if (banana.length >= 2) {
+        // Compose gallery: PDF cover + top 3 Nano Banana mockups in 2×2.
+        const galleryBuf = await composeGallery(heroBuffer, banana.slice(0, 3));
+
+        const uploads = await Promise.all([
+          ...banana.map((buf, i) =>
+            uploadImage(buf, `trend/${productId}/mockup-${i + 1}-${ts}.jpg`, 'image/jpeg'),
+          ),
+          uploadImage(galleryBuf, `trend/${productId}/gallery-${ts}.jpg`, 'image/jpeg'),
+        ]);
+
+        const mockupUrls = uploads.slice(0, banana.length).map((u) => u.url);
+        const galleryUrl = uploads[uploads.length - 1]!.url;
+        return { mockupUrls, galleryUrl };
+      }
+      console.warn(
+        `[mockup] Nano Banana returned only ${banana.length}/4 mockups, falling back to Sharp`,
+      );
+    } catch (err) {
+      console.error('[mockup] Nano Banana pipeline failed, falling back to Sharp', err);
+    }
+  }
+
+  // Path B — legacy Sharp procedural composite (fallback).
   const mockups = await composeProductMockups(heroBuffer, productHint);
   const galleryBuf = await composeGallery(heroBuffer, mockups);
 
