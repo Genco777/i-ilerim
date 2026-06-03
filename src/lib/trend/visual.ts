@@ -238,3 +238,29 @@ export async function generateRealHeroFromPdf(
   const uploaded = await uploadImage(coverPng, filename, 'image/png');
   return { buffer: coverPng, url: uploaded.url, pathname: uploaded.pathname };
 }
+
+/**
+ * V-5: Generate the V-4 illustrated cover via Nano Banana Pro and use it as
+ * the single source of truth for the product visual everywhere. Returns
+ * buffer + uploaded URL so the orchestrator can:
+ *   • use the URL as the marketing hero
+ *   • pass the URL to Nano Banana mockup gen as reference image
+ *   • pass the URL to Higgsfield video gen as the input frame
+ *   • pass the buffer to PDF gen (embedded as the actual PDF cover)
+ *
+ * Result: what the buyer sees in the Etsy gallery, the Telegram preview,
+ * the cinematic video, and the PDF first page are LITERALLY the same image.
+ */
+export async function generateCoverHeroImage(
+  niche: NicheCandidate,
+  content: ProductContent,
+  themeKey: string,
+  productId: string,
+): Promise<{ buffer: Buffer; url: string; pathname: string }> {
+  const { generateCoverImageOnly } = await import('./pdf-ai-pages');
+  const buffer = await generateCoverImageOnly({ niche, content, theme: themeKey });
+  const ts = Date.now();
+  const filename = `trend/${productId}/cover-hero-${ts}.jpg`;
+  const uploaded = await uploadImage(buffer, filename, 'image/jpeg');
+  return { buffer, url: uploaded.url, pathname: uploaded.pathname };
+}

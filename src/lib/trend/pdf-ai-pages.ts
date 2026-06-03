@@ -111,8 +111,37 @@ export interface AiPageBuffers {
 }
 
 /**
+ * V-5: standalone cover image generator. Same prompt as the PDF cover so the
+ * SAME illustrated cover ends up as: marketing hero · Nano Banana mockup
+ * reference image · Higgsfield video input · PDF embedded cover.
+ *
+ * Single source of truth → no inconsistency between what the customer sees
+ * in mockups, in the video, and what they download.
+ */
+export async function generateCoverImageOnly(args: {
+  niche: NicheCandidate;
+  content: ProductContent;
+  theme: string;
+}): Promise<Buffer> {
+  return nanoBananaGenerate({
+    prompt: buildCoverPrompt({
+      title: args.content.shopTitle ?? args.niche.topic,
+      subtitle: args.niche.gapAngle,
+      theme: args.theme,
+    }),
+    aspectRatio: '3:4',
+    resolution: '2K',
+    outputFormat: 'jpg',
+    model: 'nano-banana-pro',
+  });
+}
+
+/**
  * Generate the three illustrated pages in parallel. Each returns null on
  * failure so the caller can fall back to V-3 themed react-pdf pages.
+ *
+ * V-5 mode: if `presetCover` is passed, skip the cover gen (cover already
+ * created earlier in the pipeline as the marketing hero).
  *
  * Resolution: 2K (2048×2560) for crisp print at A4 200dpi.
  * Aspect: 3:4 (closest Nano Banana ratio to A4's 1:1.414).
@@ -123,12 +152,8 @@ export async function generateAiPages(args: {
   theme: string;
   dividerEyebrow: string;
   dividerTitle: string;
+  presetCover?: Buffer | null;
 }): Promise<AiPageBuffers> {
-  const coverPrompt = buildCoverPrompt({
-    title: args.content.shopTitle ?? args.niche.topic,
-    subtitle: args.niche.gapAngle,
-    theme: args.theme,
-  });
   const dividerPrompt = buildDividerPrompt({
     eyebrow: args.dividerEyebrow,
     title: args.dividerTitle,
@@ -136,14 +161,24 @@ export async function generateAiPages(args: {
   });
   const backPrompt = buildBackCoverPrompt({ theme: args.theme });
 
+  // V-5: if the cover was generated upstream as the marketing hero, reuse it
+  // instead of paying for another Nano Banana call.
+  const coverPromise: Promise<Buffer> = args.presetCover
+    ? Promise.resolve(args.presetCover)
+    : nanoBananaGenerate({
+        prompt: buildCoverPrompt({
+          title: args.content.shopTitle ?? args.niche.topic,
+          subtitle: args.niche.gapAngle,
+          theme: args.theme,
+        }),
+        aspectRatio: '3:4',
+        resolution: '2K',
+        outputFormat: 'jpg',
+        model: 'nano-banana-pro',
+      });
+
   const [coverR, dividerR, backR] = await Promise.allSettled([
-    nanoBananaGenerate({
-      prompt: coverPrompt,
-      aspectRatio: '3:4',
-      resolution: '2K',
-      outputFormat: 'jpg',
-      model: 'nano-banana-pro',
-    }),
+    coverPromise,
     nanoBananaGenerate({
       prompt: dividerPrompt,
       aspectRatio: '3:4',

@@ -18,7 +18,11 @@ import { niches, products } from '@/lib/db/schema';
 import { eq } from 'drizzle-orm';
 import { discoverNiches, type NicheCandidate } from './discovery';
 import { generateProductContent, type ProductContent } from './content';
-import { generateAiHeroForPdfCover, composeMockupsForHero } from './visual';
+import {
+  generateAiHeroForPdfCover,
+  composeMockupsForHero,
+  generateCoverHeroImage,
+} from './visual';
 import { generateProductPdf } from './pdf-generator';
 import { generateProductVideo } from './video';
 import { uploadImage } from '@/lib/blob';
@@ -64,6 +68,23 @@ export interface OrchestratorOptions {
    * ALLOWED_TELEGRAM_USER_IDS env (same as notifyAdmins).
    */
   approvalChatIds?: number[];
+}
+
+/**
+ * V-5: same theme keyword logic as pdf-generator.tsx's pickTheme, but returns
+ * the string key directly (we pass it to Nano Banana as a prompt style cue).
+ */
+function pickPdfThemeKey(topic: string, type: NicheCandidate['productHint']): string {
+  const t = (topic ?? '').toLowerCase();
+  if (/shadow|dark|moon|dream|anxious|attach|trauma|grief|bound|toxic|inner child|borderline|narciss|abuse/.test(t))
+    return 'noir';
+  if (/menopau|hrt|perimeno|hormone|cycle|pcos|fertility|woman|mother|matern|pregnan|postpart/.test(t))
+    return 'rose';
+  if (/deep work|focus|adhd|productiv|planner|time block|work session|async/.test(t))
+    return 'forest';
+  if (type === 'template' || type === 'social_template') return 'slate';
+  if (/template|social|instagram|content|business|brand|seo|market|launch/.test(t)) return 'slate';
+  return 'cream';
 }
 
 function getDailyCap(): number {
@@ -231,19 +252,36 @@ export async function runDailyTrendPipeline(
       //   Consequence: what buyer sees in Etsy listing = what they download
       if (generateVisuals && approvalChatIds.length > 0) {
         try {
-          // Step 1 — AI hero (used only inside the PDF cover)
-          const aiHero = await generateAiHeroForPdfCover(
-            candidate,
-            content,
-            insertedProduct.id,
-          );
+          // V-5 — generate the ONE cover image first. This single image becomes
+          // the marketing hero, the Nano Banana mockup reference, the Higgsfield
+          // video input, and the embedded PDF cover. Single source of truth.
+          let coverBuffer: Buffer;
+          let coverUrl: string;
+          try {
+            const themeKey = pickPdfThemeKey(candidate.topic, candidate.productHint);
+            const cover = await generateCoverHeroImage(
+              candidate,
+              content,
+              themeKey,
+              insertedProduct.id,
+            );
+            coverBuffer = cover.buffer;
+            coverUrl = cover.url;
+          } catch (coverErr) {
+            // Fallback: gpt-image-2 hero so the pipeline can still produce
+            // *something* if Nano Banana Pro is down or quota-exhausted.
+            console.warn('[trend-v5] cover gen via Nano Banana failed, falling back to gpt-image-2', coverErr);
+            const aiHero = await generateAiHeroForPdfCover(candidate, content, insertedProduct.id);
+            coverBuffer = aiHero.buffer;
+            coverUrl = aiHero.url;
+          }
 
-          // Step 2 — PDF generation (embeds aiHero.url)
+          // Step 2 — PDF generation (re-uses the same cover buffer as cover page)
           let pdfUrl: string | null = null;
           let pdfSize: number | null = null;
           let pdfBuffer: Buffer | null = null;
           try {
-            const pdfResult = await generateProductPdf(candidate, content, aiHero.url);
+            const pdfResult = await generateProductPdf(candidate, content, coverUrl, coverBuffer);
             const pdfFilename = `trend/${insertedProduct.id}/product-${Date.now()}.pdf`;
             const uploadedPdf = await uploadImage(
               pdfResult.buffer,
@@ -262,14 +300,13 @@ export async function runDailyTrendPipeline(
             );
           }
 
-          // Step 3 — Marketing hero is the AI image directly. (Earlier we tried
-          // rendering the PDF cover to PNG via pdfjs-dist, but @napi-rs/canvas
-          // crashes on Vercel Lambda. The AI hero is already a clean "product
-          // on white background" — it serves both as PDF cover embed AND the
-          // marketing image, and Nano Banana naturally composites it into
-          // photoreal scenes from that reference.)
-          const realHeroUrl = aiHero.url;
-          const mockupHeroBuffer: Buffer = aiHero.buffer;
+          // Step 3 — V-5: cover IS the hero. Nano Banana mockup compositing
+          // will place this exact illustrated cover into lifestyle scenes,
+          // and Higgsfield video below will animate this exact cover —
+          // perfect 1:1 between what the customer sees marketing-side and
+          // what they download.
+          const realHeroUrl = coverUrl;
+          const mockupHeroBuffer: Buffer = coverBuffer;
 
           // Step 4 — mockups via Nano Banana Pro (V-2). The cover URL is the
           // public Blob URL we just uploaded, passed as the reference image

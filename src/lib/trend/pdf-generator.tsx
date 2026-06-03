@@ -839,162 +839,9 @@ function fallbackTemplateSections(
   ];
 }
 
-// ─── main document builder ──────────────────────────────────────────────────
-
-function buildDocument(niche: NicheCandidate, content: ProductContent) {
-  const theme = pickTheme(niche.topic, niche.productHint);
-  const styles = buildStyles(theme);
-  const subtitle = niche.gapAngle.slice(0, 200);
-  const body = content.pdfBody ?? {};
-
-  switch (niche.productHint) {
-    case 'planner': {
-      const prompts =
-        body.prompts && body.prompts.length > 0 ? body.prompts : fallbackPrompts(niche);
-      const totalPages = 1 + 1 + prompts.length + 1 + 1; // cover + divider + N prompts + how-to + back
-      return (
-        <Document title={content.shopTitle}>
-          <CoverPage styles={styles} theme={theme} title={content.shopTitle} subtitle={subtitle} pageCount={totalPages} />
-          <SectionDividerPage styles={styles} eyebrow="Part one" title="The prompts that surface the pattern." />
-          {prompts.map((p, i) => (
-            <PromptPage key={i} styles={styles} number={i + 1} total={prompts.length} prompt={p} />
-          ))}
-          <HowToUsePage styles={styles} type="planner" />
-          <BackCoverPage styles={styles} niche={niche} />
-        </Document>
-      );
-    }
-
-    case 'poster': {
-      const { phrase, subline } =
-        body.posterPhrase
-          ? { phrase: body.posterPhrase, subline: body.posterSubline ?? niche.topic }
-          : fallbackPosterPhrase(niche);
-      return (
-        <Document title={content.shopTitle}>
-          <PosterPage styles={styles} phrase={phrase} subline={subline} />
-          <HowToUsePage styles={styles} type="poster" />
-          <BackCoverPage styles={styles} niche={niche} />
-        </Document>
-      );
-    }
-
-    case 'sticker': {
-      const phrases =
-        body.stickerTexts && body.stickerTexts.length > 0
-          ? body.stickerTexts
-          : fallbackStickers();
-      return (
-        <Document title={content.shopTitle}>
-          <CoverPage styles={styles} theme={theme} title={content.shopTitle} subtitle={subtitle} pageCount={4} />
-          <StickerSheet styles={styles} phrases={phrases} />
-          <HowToUsePage styles={styles} type="sticker" />
-          <BackCoverPage styles={styles} niche={niche} />
-        </Document>
-      );
-    }
-
-    case 'template':
-    case 'social_template': {
-      const sections =
-        body.templateSections && body.templateSections.length > 0
-          ? body.templateSections
-          : fallbackTemplateSections(niche, content);
-      const isSocial = niche.productHint === 'social_template';
-      return (
-        <Document title={content.shopTitle}>
-          <CoverPage styles={styles} theme={theme} title={content.shopTitle} subtitle={subtitle} pageCount={3} />
-          <SectionDividerPage styles={styles} eyebrow="Overview" title="What's inside, and how to use it." />
-          <TemplateSectionsPage
-            styles={styles}
-            sections={sections}
-            niche={niche}
-            content={content}
-            isSocial={isSocial}
-          />
-          <BackCoverPage styles={styles} niche={niche} />
-        </Document>
-      );
-    }
-  }
-}
-
-export interface PdfResult {
-  buffer: Buffer;
-  sizeBytes: number;
-}
-
-/**
- * V-3: heroUrl no longer embedded in cover (cover is now a designed colour-block
- * page that doesn't need a product photo). Argument kept for backward-compat
- * with orchestrator + regen flow — value ignored.
- */
-export async function generateProductPdf(
-  niche: NicheCandidate,
-  content: ProductContent,
-  _heroUrl?: string | null,
-): Promise<PdfResult> {
-  const doc = buildDocument(niche, content);
-  const blob = await pdf(doc).toBlob();
-  const arrayBuffer = await blob.arrayBuffer();
-  const buffer = Buffer.from(arrayBuffer);
-  return { buffer, sizeBytes: buffer.byteLength };
-}
-eCandidate;
-  content: ProductContent;
-  isSocial: boolean;
-}) {
-  const logo = loadLogo();
-  const footerNote = isSocial
-    ? 'Recreate this layout in Canva or Figma at 1080×1080 (feed) or 1080×1350 (reels). Keep the hierarchy: hook → body → soft CTA. Maintain colour palette across the series for brand recognition.'
-    : 'Print at 100 % scale on A4. For repeated handling use 100–120 gsm paper. To rebuild in Notion or Google Docs, follow the section headings above as your top-level structure.';
-  return (
-    <Page size="A4" style={styles.page}>
-      <Text style={styles.pageEyebrow}>OVERVIEW</Text>
-      <Text style={styles.pageTitle}>{content.shopTitle}</Text>
-      <View style={styles.rule} />
-      <Text style={styles.body}>{niche.gapAngle}</Text>
-      {sections.map((s, i) => (
-        <View key={i} wrap={false}>
-          <Text style={styles.sectionHeading}>{s.heading}</Text>
-          {s.items.map((item, j) => (
-            <View key={j} style={styles.sectionItem}>
-              <Text style={styles.sectionBullet}>·</Text>
-              <Text style={styles.sectionItemText}>{item}</Text>
-            </View>
-          ))}
-        </View>
-      ))}
-      <Text style={styles.templateFooterNote}>{footerNote}</Text>
-      <Text style={styles.footer} fixed>
-        Fly &amp; Froth · Template overview
-      </Text>
-      {logo ? <Image src={logo} style={styles.footerLogo} fixed /> : null}
-    </Page>
-  );
-}
-
-function PosterPage({
-  styles,
-  phrase,
-  subline,
-}: {
-  styles: ReturnType<typeof buildStyles>;
-  phrase: string;
-  subline: string;
-}) {
-  const logo = loadLogo();
-  return (
-    <Page size="A4" style={styles.posterPage}>
-      <View style={styles.posterAccentFrame} />
-      <Text style={styles.posterTitle}>{phrase.toUpperCase()}</Text>
-      <Text style={styles.posterSubtitle}>{subline.slice(0, 60)}</Text>
-      {logo ? <Image src={logo} style={styles.posterCorner} /> : null}
-    </Page>
-  );
-}
-
 // ─── V-4 AI full-bleed pages ────────────────────────────────────────────────
+
+import type { AiPageBuffers } from './pdf-ai-pages';
 
 const fullBleedPageStyle = { padding: 0, margin: 0 };
 const fullBleedImageStyle = { width: '100%', height: '100%', objectFit: 'cover' as const };
@@ -1027,9 +874,10 @@ function AiBackCoverPage({
   const logo = loadLogo();
   return (
     <Page size="A4" style={fullBleedPageStyle}>
-      {/* AI illustration as full-bleed background */}
-      <Image src={buffer} style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', objectFit: 'cover' }} />
-      {/* react-pdf overlay so the text remains selectable + crisp */}
+      <Image
+        src={buffer}
+        style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', objectFit: 'cover' }}
+      />
       <View style={{ padding: 60, paddingTop: 120, position: 'relative' }}>
         <View style={styles.backAccentBlock} />
         <Text style={styles.backTitle}>
@@ -1044,7 +892,7 @@ function AiBackCoverPage({
           Real humans reply within 12 hours, weekends included.
         </Text>
         <Text style={styles.backCreditLine}>
-          Originated from a study on “{niche.topic}”
+          Originated from a study on &ldquo;{niche.topic}&rdquo;
         </Text>
         {logo ? <Image src={logo} style={styles.backLogo} /> : null}
         <Text style={styles.coverMeta}>fly-froth.com · info@fly-froth.com</Text>
@@ -1053,56 +901,23 @@ function AiBackCoverPage({
   );
 }
 
-// ─── fallback content extractors ────────────────────────────────────────────
-
-function fallbackPrompts(niche: NicheCandidate): string[] {
-  return [
-    `What does ${niche.topic.toLowerCase()} look like in your life right now? Be specific.`,
-    `Which belief about ${niche.topic.toLowerCase()} did you inherit, and from whom?`,
-    `When was the last time this pattern showed up? Describe the situation in detail.`,
-    `What story do you tell yourself when this comes up? Whose voice is it really?`,
-    `If a close friend brought this to you, what would you tell them?`,
-    `What is one small experiment you could try this week?`,
-    `What support do you need — and from whom — to make a shift?`,
-    `Imagine 12 months from now: what has changed?`,
-  ];
-}
-
-function fallbackStickers(): string[] {
-  return ['one thing','soft start','enough','pause','this is fine','breathe','slow down','reset','still here'];
-}
-
-function fallbackPosterPhrase(niche: NicheCandidate): { phrase: string; subline: string } {
-  const word = niche.topic.split(/[\s,]+/)[0]?.toUpperCase().slice(0, 24) ?? 'FOCUS';
-  return { phrase: word, subline: niche.topic.slice(0, 60) };
-}
-
-function fallbackTemplateSections(
-  niche: NicheCandidate,
-  _content: ProductContent,
-): NonNullable<PdfBody['templateSections']> {
-  return [
-    { heading: "What's included", items: ['Structured layout you can adapt to your workflow','Section headings + suggested fields','Guidance on customisation'] },
-    { heading: 'Best for', items: [niche.gapAngle.slice(0, 160)] },
-    { heading: 'How to use', items: ['Recreate the structure in Notion, Google Docs, or your tool of choice','Adjust headings + items to your context'] },
-  ];
+/** Reverse-lookup the theme key from a Theme object (passed to AI prompt builders). */
+function themeKeyFromTheme(t: Theme): string {
+  for (const [k, v] of Object.entries(THEMES)) {
+    if (v === t) return k;
+  }
+  return 'cream';
 }
 
 // ─── main document builder (V-4 hybrid) ─────────────────────────────────────
 
-import type { AiPageBuffers } from './pdf-ai-pages';
-
-function buildDocument(
-  niche: NicheCandidate,
-  content: ProductContent,
-  ai: AiPageBuffers,
-) {
+function buildDocument(niche: NicheCandidate, content: ProductContent, ai: AiPageBuffers = { cover: null, divider: null, backCover: null }) {
   const theme = pickTheme(niche.topic, niche.productHint);
   const styles = buildStyles(theme);
   const subtitle = niche.gapAngle.slice(0, 200);
   const body = content.pdfBody ?? {};
 
-  // Choose AI cover if available, fall back to V-3 themed cover
+  // V-4: pick AI page if available, otherwise V-3 themed react-pdf render
   const Cover = (pageCount: number) =>
     ai.cover
       ? <AiCoverPage buffer={ai.cover} />
@@ -1114,12 +929,13 @@ function buildDocument(
   const BackCover = () =>
     ai.backCover
       ? <AiBackCoverPage styles={styles} buffer={ai.backCover} niche={niche} />
-      : <SectionDividerPage styles={styles} eyebrow="Thank you" title="Fly & Froth · Karben, DE" />;
+      : <BackCoverPage styles={styles} niche={niche} />;
 
   switch (niche.productHint) {
     case 'planner': {
-      const prompts = body.prompts && body.prompts.length > 0 ? body.prompts : fallbackPrompts(niche);
-      const totalPages = 1 + 1 + prompts.length + 1 + 1;
+      const prompts =
+        body.prompts && body.prompts.length > 0 ? body.prompts : fallbackPrompts(niche);
+      const totalPages = 1 + 1 + prompts.length + 1 + 1; // cover + divider + N prompts + how-to + back
       return (
         <Document title={content.shopTitle}>
           {Cover(totalPages)}
@@ -1132,10 +948,12 @@ function buildDocument(
         </Document>
       );
     }
+
     case 'poster': {
-      const { phrase, subline } = body.posterPhrase
-        ? { phrase: body.posterPhrase, subline: body.posterSubline ?? niche.topic }
-        : fallbackPosterPhrase(niche);
+      const { phrase, subline } =
+        body.posterPhrase
+          ? { phrase: body.posterPhrase, subline: body.posterSubline ?? niche.topic }
+          : fallbackPosterPhrase(niche);
       return (
         <Document title={content.shopTitle}>
           <PosterPage styles={styles} phrase={phrase} subline={subline} />
@@ -1144,8 +962,12 @@ function buildDocument(
         </Document>
       );
     }
+
     case 'sticker': {
-      const phrases = body.stickerTexts && body.stickerTexts.length > 0 ? body.stickerTexts : fallbackStickers();
+      const phrases =
+        body.stickerTexts && body.stickerTexts.length > 0
+          ? body.stickerTexts
+          : fallbackStickers();
       return (
         <Document title={content.shopTitle}>
           {Cover(4)}
@@ -1155,11 +977,13 @@ function buildDocument(
         </Document>
       );
     }
+
     case 'template':
     case 'social_template': {
-      const sections = body.templateSections && body.templateSections.length > 0
-        ? body.templateSections
-        : fallbackTemplateSections(niche, content);
+      const sections =
+        body.templateSections && body.templateSections.length > 0
+          ? body.templateSections
+          : fallbackTemplateSections(niche, content);
       const isSocial = niche.productHint === 'social_template';
       return (
         <Document title={content.shopTitle}>
@@ -1185,23 +1009,29 @@ export interface PdfResult {
 }
 
 /**
- * V-4: generates AI cover + divider + back cover in parallel, then builds
- * the document with those buffers. If AI gen fails for a page, the V-3
- * themed react-pdf version is used as fallback for that specific page.
+ * V-4: generates AI cover + divider + back cover in parallel (Nano Banana Pro),
+ * then builds the document with those buffers. If a specific AI page fails,
+ * its V-3 themed react-pdf counterpart renders instead. Functional pages
+ * (prompts, sticker grid, template sections, how-to-use) are always react-pdf.
  */
 export async function generateProductPdf(
   niche: NicheCandidate,
   content: ProductContent,
   _heroUrl?: string | null,
+  presetCover?: Buffer | null,
 ): Promise<PdfResult> {
   const theme = pickTheme(niche.topic, niche.productHint);
 
-  // Pick a divider title that fits the product type
-  const dividerCfg = niche.productHint === 'planner'
-    ? { eyebrow: 'Part one', title: 'The prompts that surface the pattern.' }
-    : { eyebrow: 'Overview', title: "What's inside, and how to use it." };
+  // Divider eyebrow + title depend on product type
+  const dividerCfg =
+    niche.productHint === 'planner'
+      ? { eyebrow: 'Part one', title: 'The prompts that surface the pattern.' }
+      : { eyebrow: 'Overview', title: "What's inside, and how to use it." };
 
-  // V-4 AI pages — best-effort, falls back per-page
+  // V-4/V-5 AI pages — best-effort, fallback per-page.
+  // presetCover (V-5): reuse the cover already generated as the marketing
+  // hero (single source of truth for what the customer sees in mockups,
+  // video, marketing card, and PDF first page).
   let ai: AiPageBuffers = { cover: null, divider: null, backCover: null };
   try {
     const { generateAiPages } = await import('./pdf-ai-pages');
@@ -1211,9 +1041,10 @@ export async function generateProductPdf(
       theme: themeKeyFromTheme(theme),
       dividerEyebrow: dividerCfg.eyebrow,
       dividerTitle: dividerCfg.title,
+      presetCover,
     });
   } catch (err) {
-    console.warn('[trend pdf] V-4 AI pages unavailable, V-3 fallback rendering', err);
+    console.warn('[trend pdf] V-4 AI pages unavailable, V-3 themed fallback rendering', err);
   }
 
   const doc = buildDocument(niche, content, ai);
@@ -1221,12 +1052,4 @@ export async function generateProductPdf(
   const arrayBuffer = await blob.arrayBuffer();
   const buffer = Buffer.from(arrayBuffer);
   return { buffer, sizeBytes: buffer.byteLength };
-}
-
-/** Reverse-lookup the theme key from a Theme object (uses background colour). */
-function themeKeyFromTheme(t: Theme): string {
-  for (const [k, v] of Object.entries(THEMES)) {
-    if (v === t) return k;
-  }
-  return 'cream';
 }
