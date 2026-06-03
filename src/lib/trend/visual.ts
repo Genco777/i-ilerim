@@ -163,13 +163,14 @@ export async function composeMockupsForHero(
   if (coverUrl) {
     try {
       const { generateMockupsForProduct } = await import('@/lib/publish/nano-banana');
-      // nano-banana-pro = Gemini 3 Pro Image. Premium tier (~$0.10/img,
-      // 4 × $0.10 = $0.40/product). Highest fidelity, magazine-grade output.
-      // 2K resolution for crisp Etsy listing images.
+      // nano-banana-2 (Flash) — Gemini 3.1 Flash Image. ~$0.04/img, ~10s each.
+      // 4× $0.04 = $0.16/product, parallel ≈ 15-25s. Still magazine-quality.
+      // 1K = 1024×1024, sharp enough for Etsy/Stripe hero (Etsy max 3000px
+      // but compresses anyway). We stay well under the 800s function limit.
       const banana = await generateMockupsForProduct(coverUrl, productHint, {
-        model: 'nano-banana-pro',
+        model: 'nano-banana-2',
         aspectRatio: '1:1',
-        resolution: '2K',
+        resolution: '1K',
       });
 
       if (banana.length >= 2) {

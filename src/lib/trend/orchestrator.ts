@@ -277,11 +277,16 @@ export async function runDailyTrendPipeline(
               realHeroUrl = real.url;
               mockupHeroBuffer = real.buffer;
             } catch (renderErr) {
-              console.error('[trend] PDF cover render failed, hero fell back to AI image', renderErr);
+              // Verbose error so Vercel log surfaces the real cause (Lambda
+              // bundler issues / native binding errors are often deep in the
+              // stack and truncated by the default Error.message).
+              const errMsg =
+                renderErr instanceof Error
+                  ? `${renderErr.name}: ${renderErr.message}\n${renderErr.stack ?? ''}`
+                  : String(renderErr);
+              console.error('[trend-v1] PDF cover render FAILED — falling back to AI hero. Full error:', errMsg.slice(0, 2000));
               summary.errors.push(
-                `PDF render → hero failed for "${candidate.topic}": ${
-                  renderErr instanceof Error ? renderErr.message.slice(0, 200) : String(renderErr)
-                }`,
+                `PDF render → hero failed for "${candidate.topic}": ${errMsg.slice(0, 400)}`,
               );
             }
           }

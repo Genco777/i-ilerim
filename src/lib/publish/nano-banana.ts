@@ -195,21 +195,27 @@ export const MOCKUP_PROMPTS: Record<ProductHint, string[]> = {
 };
 
 /**
- * Generate 4 lifestyle mockups for a product, in parallel.
+ * Generate 3 lifestyle mockups for a product, in parallel.
  *
- * @param coverImageUrl Public URL of the V-1 PDF cover render (the reference image)
+ * Originally 4, dropped to 3 to stay under Vercel's 800s function timeout
+ * (cron must finish discovery + content + hero + pdf + render + mockups +
+ * video + 2× products all together — every second counts). Three premium
+ * scenes still gives Etsy a strong gallery (hero + 3 mockups = 4 photos).
+ *
+ * @param coverImageUrl Public URL of the V-1 PDF cover render (reference)
  * @param productHint Picks the matching prompt set
  * @param opts Override model/aspect/resolution
- * @returns 4 buffers (one per prompt), order matches MOCKUP_PROMPTS
+ * @returns Up to 3 buffers, order matches MOCKUP_PROMPTS[0..2]
  */
 export async function generateMockupsForProduct(
   coverImageUrl: string,
   productHint: ProductHint,
   opts?: { model?: NanoBananaModel; aspectRatio?: NanoBananaAspect; resolution?: NanoBananaResolution },
 ): Promise<Buffer[]> {
-  const prompts = MOCKUP_PROMPTS[productHint] ?? MOCKUP_PROMPTS.planner;
+  // Take the top 3 prompts per type.
+  const prompts = (MOCKUP_PROMPTS[productHint] ?? MOCKUP_PROMPTS.planner).slice(0, 3);
 
-  // Parallel so 4 × ~10s = ~10s total (vs 40s serial).
+  // Parallel: 3 × ~10s ≈ 10-15s wall time (Replicate may queue when busy).
   const results = await Promise.allSettled(
     prompts.map((prompt) =>
       nanoBananaGenerate({
