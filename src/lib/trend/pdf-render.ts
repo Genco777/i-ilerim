@@ -133,8 +133,9 @@ export async function renderPdfCoverToPng(
   scale = 3.0,
 ): Promise<Buffer> {
   const renders = await renderPdfPagesToPng(pdfBuffer, { pages: [1], scale });
-  if (renders.length === 0) {
+  const first = renders[0];
+  if (!first) {
     throw new Error('PDF cover render produced no pages');
   }
-  return renders[0].buffer;
+  return first.buffer;
 }
