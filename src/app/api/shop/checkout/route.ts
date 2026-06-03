@@ -73,7 +73,7 @@ export async function POST(req: Request) {
     line_items: [{ price: priceId, quantity: 1 }],
     success_url: `${base}/success?session_id={CHECKOUT_SESSION_ID}`,
     cancel_url: `${base}/${slug}?cancelled=1`,
-    payment_method_types: ['card', 'paypal'],
+    payment_method_types: ['card'],
     customer_email: undefined,
     billing_address_collection: 'required',
     locale: 'auto',
