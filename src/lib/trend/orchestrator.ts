@@ -18,11 +18,7 @@ import { niches, products } from '@/lib/db/schema';
 import { eq } from 'drizzle-orm';
 import { discoverNiches, type NicheCandidate } from './discovery';
 import { generateProductContent, type ProductContent } from './content';
-import {
-  generateAiHeroForPdfCover,
-  composeMockupsForHero,
-  generateRealHeroFromPdf,
-} from './visual';
+import { generateAiHeroForPdfCover, composeMockupsForHero } from './visual';
 import { generateProductPdf } from './pdf-generator';
 import { generateProductVideo } from './video';
 import { uploadImage } from '@/lib/blob';
@@ -266,30 +262,14 @@ export async function runDailyTrendPipeline(
             );
           }
 
-          // Step 3 — Render PDF cover as the REAL hero (V-1 fix). If PDF gen
-          // failed for whatever reason, fall back to the AI hero so we still
-          // have something to show in Telegram + Stripe.
-          let realHeroUrl = aiHero.url;
-          let mockupHeroBuffer: Buffer = aiHero.buffer;
-          if (pdfBuffer) {
-            try {
-              const real = await generateRealHeroFromPdf(pdfBuffer, insertedProduct.id);
-              realHeroUrl = real.url;
-              mockupHeroBuffer = real.buffer;
-            } catch (renderErr) {
-              // Verbose error so Vercel log surfaces the real cause (Lambda
-              // bundler issues / native binding errors are often deep in the
-              // stack and truncated by the default Error.message).
-              const errMsg =
-                renderErr instanceof Error
-                  ? `${renderErr.name}: ${renderErr.message}\n${renderErr.stack ?? ''}`
-                  : String(renderErr);
-              console.error('[trend-v1] PDF cover render FAILED — falling back to AI hero. Full error:', errMsg.slice(0, 2000));
-              summary.errors.push(
-                `PDF render → hero failed for "${candidate.topic}": ${errMsg.slice(0, 400)}`,
-              );
-            }
-          }
+          // Step 3 — Marketing hero is the AI image directly. (Earlier we tried
+          // rendering the PDF cover to PNG via pdfjs-dist, but @napi-rs/canvas
+          // crashes on Vercel Lambda. The AI hero is already a clean "product
+          // on white background" — it serves both as PDF cover embed AND the
+          // marketing image, and Nano Banana naturally composites it into
+          // photoreal scenes from that reference.)
+          const realHeroUrl = aiHero.url;
+          const mockupHeroBuffer: Buffer = aiHero.buffer;
 
           // Step 4 — mockups via Nano Banana Pro (V-2). The cover URL is the
           // public Blob URL we just uploaded, passed as the reference image

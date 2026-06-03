@@ -51,6 +51,22 @@ function getKeystring(): string {
   return k;
 }
 
+function getSharedSecret(): string {
+  const s = process.env.ETSY_API_SHARED_SECRET;
+  if (!s) throw new Error('ETSY_API_SHARED_SECRET is not set');
+  return s;
+}
+
+/**
+ * Etsy v3 Personal / Trial Access mode requires the x-api-key header to
+ * contain both keystring AND shared_secret joined by ":". This is the same
+ * format Etsy uses for OAuth2 client_credentials Basic auth. Full / public
+ * production access only needs the keystring, but we don't have that yet.
+ */
+function xApiKeyHeader(): string {
+  return `${getKeystring()}:${getSharedSecret()}`;
+}
+
 export function getEtsyShopId(): number {
   const s = process.env.ETSY_SHOP_ID;
   if (!s) throw new Error('ETSY_SHOP_ID is not set');
@@ -289,7 +305,8 @@ async function rawEtsyFetch(
   }
 
   const headers: Record<string, string> = {
-    'x-api-key': getKeystring(),
+    // Personal/Trial Access mode: x-api-key must contain keystring:shared_secret
+    'x-api-key': xApiKeyHeader(),
     authorization: `Bearer ${access}`,
     ...(opts.rawHeaders ?? {}),
   };

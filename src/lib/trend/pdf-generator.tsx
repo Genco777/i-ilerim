@@ -925,9 +925,9 @@ export interface PdfResult {
 }
 
 /**
- * V-3: heroUrl is no longer embedded in the cover (the cover is now a designed
- * colour-block page that doesn't need a product photo). Argument kept for
- * backward compatibility with the orchestrator + regen flow — value ignored.
+ * V-3: heroUrl no longer embedded in cover (cover is now a designed colour-block
+ * page that doesn't need a product photo). Argument kept for backward-compat
+ * with orchestrator + regen flow — value ignored.
  */
 export async function generateProductPdf(
   niche: NicheCandidate,
