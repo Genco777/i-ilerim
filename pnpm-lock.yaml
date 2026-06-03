@@ -38,6 +38,9 @@ importers:
       google-ads-api:
         specifier: ^23.0.0
         version: 23.0.0
+      google-auth-library:
+        specifier: ^9.14.1
+        version: 9.15.1
       imapflow:
         specifier: ^1.3.3
         version: 1.3.3
