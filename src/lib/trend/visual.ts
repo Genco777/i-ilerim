@@ -12,6 +12,7 @@
 import { generateWithRouter, routeImageTool } from '@/lib/ai/image-router';
 import { uploadImage } from '@/lib/blob';
 import { composeProductMockups, composeGallery } from './mockup';
+import { renderPdfCoverToPng } from './pdf-render';
 import type { NicheCandidate } from './discovery';
 import type { ProductContent } from './content';
 
@@ -88,43 +89,94 @@ export async function generateHeroVisual(
   content: ProductContent,
   productId: string,
 ): Promise<HeroVisualResult> {
+  // Legacy entry point — kept for the regen-visual handler. New pipeline
+  // should call generateAiHeroForPdfCover + composeMockupsForHero separately
+  // (see orchestrator.ts after V-1 refactor).
+  const ai = await generateAiHeroForPdfCover(niche, content, productId);
+  const mockups = await composeMockupsForHero(ai.buffer, niche.productHint, productId);
+  return {
+    url: ai.url,
+    pathname: ai.pathname,
+    promptUsed: ai.promptUsed,
+    mockupUrls: mockups.mockupUrls,
+    galleryUrl: mockups.galleryUrl,
+  };
+}
+
+/**
+ * AI-generated hero image used ONLY as the cover image embedded inside the
+ * generated PDF. The customer never sees this as a standalone marketing hero
+ * (V-1 architecture: the real marketing hero is a render of the actual PDF
+ * cover page — see generateRealHeroFromPdf below).
+ *
+ * Kept separate so the regen flow can still regenerate the AI cover image
+ * without having to regenerate the entire pipeline.
+ */
+export async function generateAiHeroForPdfCover(
+  niche: NicheCandidate,
+  content: ProductContent,
+  productId: string,
+): Promise<{ buffer: Buffer; url: string; pathname: string; promptUsed: string }> {
   const prompt = buildImagePrompt(niche, content);
   const route = routeImageTool('vitrine', niche.topic);
 
-  const { buffer: heroBuffer } = await generateWithRouter(prompt, route, {
+  const { buffer } = await generateWithRouter(prompt, route, {
     aspectRatio: '1:1',
     quality: 'high', // user prefers quality over cost; ~90s but premium detail
   });
 
   const ts = Date.now();
-  const heroFilename = `trend/${productId}/hero-${ts}.png`;
-  const uploadedHero = await uploadImage(heroBuffer, heroFilename, 'image/png');
+  const filename = `trend/${productId}/ai-cover-${ts}.png`;
+  const uploaded = await uploadImage(buffer, filename, 'image/png');
 
-  // Mockups + gallery — best-effort. Type-appropriate variants chosen by mockup module.
-  try {
-    const mockups = await composeProductMockups(heroBuffer, niche.productHint);
-    const galleryBuf = await composeGallery(heroBuffer, mockups);
+  return { buffer, url: uploaded.url, pathname: uploaded.pathname, promptUsed: prompt };
+}
 
-    const [m1Up, m2Up, m3Up, galleryUp] = await Promise.all([
-      uploadImage(mockups[0], `trend/${productId}/mockup-1-${ts}.jpg`, 'image/jpeg'),
-      uploadImage(mockups[1], `trend/${productId}/mockup-2-${ts}.jpg`, 'image/jpeg'),
-      uploadImage(mockups[2], `trend/${productId}/mockup-3-${ts}.jpg`, 'image/jpeg'),
-      uploadImage(galleryBuf, `trend/${productId}/gallery-${ts}.jpg`, 'image/jpeg'),
-    ]);
+/**
+ * Mockup compositing for any hero buffer (AI-generated OR rendered from PDF).
+ * Produces 3 type-appropriate mockup scenes + a 2×2 gallery composite, uploads
+ * everything to Vercel Blob.
+ *
+ * Failures here are non-fatal — caller should fall back to plain hero if
+ * mockup compositing crashes (e.g., Sharp OOM on Vercel).
+ */
+export async function composeMockupsForHero(
+  heroBuffer: Buffer,
+  productHint: NicheCandidate['productHint'],
+  productId: string,
+): Promise<{ mockupUrls: string[]; galleryUrl: string }> {
+  const ts = Date.now();
+  const mockups = await composeProductMockups(heroBuffer, productHint);
+  const galleryBuf = await composeGallery(heroBuffer, mockups);
 
-    return {
-      url: uploadedHero.url,
-      pathname: uploadedHero.pathname,
-      promptUsed: prompt,
-      mockupUrls: [m1Up.url, m2Up.url, m3Up.url],
-      galleryUrl: galleryUp.url,
-    };
-  } catch (err) {
-    console.error('[trend] mockup compositing failed, falling back to hero only', err);
-    return {
-      url: uploadedHero.url,
-      pathname: uploadedHero.pathname,
-      promptUsed: prompt,
-    };
-  }
+  const [m1Up, m2Up, m3Up, galleryUp] = await Promise.all([
+    uploadImage(mockups[0], `trend/${productId}/mockup-1-${ts}.jpg`, 'image/jpeg'),
+    uploadImage(mockups[1], `trend/${productId}/mockup-2-${ts}.jpg`, 'image/jpeg'),
+    uploadImage(mockups[2], `trend/${productId}/mockup-3-${ts}.jpg`, 'image/jpeg'),
+    uploadImage(galleryBuf, `trend/${productId}/gallery-${ts}.jpg`, 'image/jpeg'),
+  ]);
+
+  return {
+    mockupUrls: [m1Up.url, m2Up.url, m3Up.url],
+    galleryUrl: galleryUp.url,
+  };
+}
+
+/**
+ * V-1: Render the FIRST page of the just-generated PDF to a high-res PNG and
+ * upload it. This becomes the actual marketing hero — consistent with what the
+ * customer downloads.
+ *
+ * scale=3 → ~1750×2475 for A4 (≈216dpi). Plenty for Etsy hero (3000px max) and
+ * Stripe shop card.
+ */
+export async function generateRealHeroFromPdf(
+  pdfBuffer: Buffer,
+  productId: string,
+): Promise<{ buffer: Buffer; url: string; pathname: string }> {
+  const coverPng = await renderPdfCoverToPng(pdfBuffer, 3.0);
+  const ts = Date.now();
+  const filename = `trend/${productId}/hero-${ts}.png`;
+  const uploaded = await uploadImage(coverPng, filename, 'image/png');
+  return { buffer: coverPng, url: uploaded.url, pathname: uploaded.pathname };
 }

@@ -18,7 +18,11 @@ import { niches, products } from '@/lib/db/schema';
 import { eq } from 'drizzle-orm';
 import { discoverNiches, type NicheCandidate } from './discovery';
 import { generateProductContent, type ProductContent } from './content';
-import { generateHeroVisual } from './visual';
+import {
+  generateAiHeroForPdfCover,
+  composeMockupsForHero,
+  generateRealHeroFromPdf,
+} from './visual';
 import { generateProductPdf } from './pdf-generator';
 import { generateProductVideo } from './video';
 import { uploadImage } from '@/lib/blob';
@@ -223,17 +227,27 @@ export async function runDailyTrendPipeline(
         turkishSummary: content.turkishSummary,
       });
 
-      // ── Faz 2-A + 2-B + 2-C: hero + mockups + PDF + Telegram approval card ──
+      // ── V-1 architecture: real PDF render = marketing hero ──
+      //   1. AI image (used only as cover image inside PDF)
+      //   2. Generate PDF (embeds AI image in cover)
+      //   3. Render PDF cover page → THIS becomes hero_image_url
+      //   4. Composite mockups around the real PDF render
+      //   Consequence: what buyer sees in Etsy listing = what they download
       if (generateVisuals && approvalChatIds.length > 0) {
         try {
-          const hero = await generateHeroVisual(candidate, content, insertedProduct.id);
+          // Step 1 — AI hero (used only inside the PDF cover)
+          const aiHero = await generateAiHeroForPdfCover(
+            candidate,
+            content,
+            insertedProduct.id,
+          );
 
-          // ── Faz 2-C: generate PDF (best-effort, hero already exists) ──
+          // Step 2 — PDF generation (embeds aiHero.url)
           let pdfUrl: string | null = null;
           let pdfSize: number | null = null;
           let pdfBuffer: Buffer | null = null;
           try {
-            const pdfResult = await generateProductPdf(candidate, content, hero.url);
+            const pdfResult = await generateProductPdf(candidate, content, aiHero.url);
             const pdfFilename = `trend/${insertedProduct.id}/product-${Date.now()}.pdf`;
             const uploadedPdf = await uploadImage(
               pdfResult.buffer,
@@ -252,6 +266,46 @@ export async function runDailyTrendPipeline(
             );
           }
 
+          // Step 3 — Render PDF cover as the REAL hero (V-1 fix). If PDF gen
+          // failed for whatever reason, fall back to the AI hero so we still
+          // have something to show in Telegram + Stripe.
+          let realHeroUrl = aiHero.url;
+          let mockupHeroBuffer: Buffer = aiHero.buffer;
+          if (pdfBuffer) {
+            try {
+              const real = await generateRealHeroFromPdf(pdfBuffer, insertedProduct.id);
+              realHeroUrl = real.url;
+              mockupHeroBuffer = real.buffer;
+            } catch (renderErr) {
+              console.error('[trend] PDF cover render failed, hero fell back to AI image', renderErr);
+              summary.errors.push(
+                `PDF render → hero failed for "${candidate.topic}": ${
+                  renderErr instanceof Error ? renderErr.message.slice(0, 200) : String(renderErr)
+                }`,
+              );
+            }
+          }
+
+          // Step 4 — mockups composited around the REAL hero (PDF cover render)
+          let mockupUrls: string[] = [];
+          let galleryUrl: string | null = null;
+          try {
+            const mockups = await composeMockupsForHero(
+              mockupHeroBuffer,
+              candidate.productHint,
+              insertedProduct.id,
+            );
+            mockupUrls = mockups.mockupUrls;
+            galleryUrl = mockups.galleryUrl;
+          } catch (mockupErr) {
+            console.error('[trend] mockup composite failed', mockupErr);
+            summary.errors.push(
+              `Mockup compose failed for "${candidate.topic}": ${
+                mockupErr instanceof Error ? mockupErr.message.slice(0, 200) : String(mockupErr)
+              }`,
+            );
+          }
+
           // ── Faz 2-D: generate cinematic video (best-effort) ──
           let videoUrl: string | null = null;
           try {
@@ -261,7 +315,7 @@ export async function runDailyTrendPipeline(
                 candidate,
                 content,
                 insertedProduct.id,
-                hero.url,
+                realHeroUrl,
               );
               videoUrl = videoResult.url;
             }
@@ -273,6 +327,9 @@ export async function runDailyTrendPipeline(
               }`,
             );
           }
+
+          // Shape used by the caption formatter + DB / Telegram payload
+          const hero = { url: realHeroUrl, mockupUrls, galleryUrl };
 
           await db
             .update(products)
