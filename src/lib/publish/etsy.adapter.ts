@@ -234,17 +234,29 @@ export async function publishToEtsy(productRowId: string): Promise<PublishToEtsy
 
   // 6) Upload digital file (the PDF)
   let fileCount = 0;
-  if (product.digital_file_url) {
+  if (!product.digital_file_url) {
+    console.error(
+      `[etsy] CRITICAL: product ${productRowId} has NO digital_file_url — PDF gen must have failed during cron. Etsy listing will have 0 files. URL: ${product.digital_file_url}`,
+    );
+  } else {
     try {
-      await uploadListingFile({
+      const result = await uploadListingFile({
         shopId,
         listingId,
         sourceUrl: product.digital_file_url,
         filename: `${product.slug ?? 'product'}.pdf`,
       });
       fileCount = 1;
+      console.log(
+        `[etsy] PDF uploaded OK → listing_file_id=${result.listing_file_id} size=${result.size_bytes}b`,
+      );
     } catch (e) {
-      console.error('[etsy] digital file upload failed', e);
+      const msg = e instanceof Error ? `${e.name}: ${e.message}` : String(e);
+      console.error(
+        `[etsy] DIGITAL FILE UPLOAD FAILED for listing ${listingId} product ${productRowId}.\n` +
+          `  source_url: ${product.digital_file_url}\n` +
+          `  full error: ${msg}`,
+      );
       // No throw — Mehmet can re-upload manually before activating.
     }
   }

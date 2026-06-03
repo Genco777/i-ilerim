@@ -111,28 +111,29 @@ export interface AiPageBuffers {
 }
 
 /**
- * V-5: standalone cover image generator. Same prompt as the PDF cover so the
- * SAME illustrated cover ends up as: marketing hero · Nano Banana mockup
- * reference image · Higgsfield video input · PDF embedded cover.
+ * V-6: standalone cover image — Sharp-rendered deterministic layout. Same
+ * cover ends up as: marketing hero · Nano Banana mockup reference image ·
+ * Higgsfield video input · PDF embedded cover.
  *
- * Single source of truth → no inconsistency between what the customer sees
- * in mockups, in the video, and what they download.
+ * Single source of truth → 100 % consistent between what the customer sees
+ * in mockups, in the video, on the listing, and what they download. AND
+ * the cover composition is GUARANTEED — no "minimal/empty" probabilistic
+ * outputs from a creative model.
+ *
+ * Hybrid: an optional Nano Banana centerpiece can be composited into the
+ * cream lower half for added warmth (opt-in via env or future param).
  */
 export async function generateCoverImageOnly(args: {
   niche: NicheCandidate;
   content: ProductContent;
   theme: string;
 }): Promise<Buffer> {
-  return nanoBananaGenerate({
-    prompt: buildCoverPrompt({
-      title: args.content.shopTitle ?? args.niche.topic,
-      subtitle: args.niche.gapAngle,
-      theme: args.theme,
-    }),
-    aspectRatio: '3:4',
-    resolution: '2K',
-    outputFormat: 'jpg',
-    model: 'nano-banana-pro',
+  const { renderCoverImage } = await import('./cover-renderer');
+  return renderCoverImage({
+    title: args.content.shopTitle ?? args.niche.topic,
+    subtitle: args.niche.gapAngle,
+    pageCount: undefined, // could be derived from PDF body once known
+    theme: (args.theme as 'cream' | 'noir' | 'forest' | 'rose' | 'slate') ?? 'cream',
   });
 }
 
