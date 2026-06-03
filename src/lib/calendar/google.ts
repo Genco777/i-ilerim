@@ -41,10 +41,8 @@ async function getAccessToken(): Promise<string> {
     iat: now,
   };
 
-  // Use simple JWT-based approach if google-auth-library is not available
-  // For production, install: npm install google-auth-library
+  // google-auth-library is now a regular dependency (see package.json)
   try {
-    // @ts-expect-error - google-auth-library optional dependency
     const { JWT } = await import('google-auth-library');
     const jwt = new JWT({
       email: clientEmail,
