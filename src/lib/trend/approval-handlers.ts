@@ -84,13 +84,14 @@ export async function handleTrendApprove(
     .set({ status: 'approved', approved_at: new Date(), updated_at: new Date() })
     .where(eq(products.id, productId));
 
-  // 2) Sync to Stripe + Etsy in parallel — both are idempotent so a retry is safe.
-  const [stripeOutcome, etsyOutcome] = await Promise.all([
+  // 2) Sync to Stripe + Etsy + Pinterest in parallel — all idempotent so retry is safe.
+  const [stripeOutcome, etsyOutcome, pinterestOutcome] = await Promise.all([
     syncToStripe(productId, product.slug ?? null),
     syncToEtsy(productId),
+    syncToPinterest(productId),
   ]);
 
-  // 3) Confirm in Telegram with both channels' status
+  // 3) Confirm in Telegram with channels' status
   await editMessageReplyMarkup({ chatId, messageId, replyMarkup: clearedKeyboard() });
   const lines = [
     `✅ Onaylandı: ${product.shop_title ?? product.etsy_title ?? productId}`,
@@ -115,7 +116,70 @@ export async function handleTrendApprove(
     lines.push('', `⚠️ Etsy sync başarısız: ${etsyOutcome.error}`);
   }
 
+  // Pinterest block (only show if relevant — not connected = silent)
+  if (pinterestOutcome.pinCount > 0) {
+    lines.push('', `📌 Pinterest: ${pinterestOutcome.pinCount} board'a pin atıldı`);
+  } else if (pinterestOutcome.error && !pinterestOutcome.error.includes('not connected')) {
+    lines.push('', `⚠️ Pinterest sync başarısız: ${pinterestOutcome.error}`);
+  }
+
   await sendMessage({ chatId, text: lines.join('\n') });
+}
+
+// ─────────────────────────────────────────────────────────────
+// P0.5 — Pinterest sync helper
+// ─────────────────────────────────────────────────────────────
+
+async function syncToPinterest(productId: string): Promise<{ pinCount: number; error: string | null }> {
+  try {
+    const { isPinterestConnected, listBoards, pickBoardsForNiche, createPin } =
+      await import('@/lib/publish/pinterest');
+    if (!(await isPinterestConnected())) {
+      return { pinCount: 0, error: 'not connected' };
+    }
+
+    // Re-fetch product + niche to get the latest hero, slug, niche topic
+    const rows = await db.select().from(products).where(eq(products.id, productId)).limit(1);
+    const product = rows[0];
+    if (!product || !product.hero_image_url) return { pinCount: 0, error: null };
+
+    const niche = await getNicheForProduct(product.niche_id);
+    if (!niche) return { pinCount: 0, error: null };
+
+    const boards = await listBoards();
+    if (boards.length === 0) return { pinCount: 0, error: 'no boards' };
+
+    const target = pickBoardsForNiche(boards, {
+      topic: niche.topic,
+      gapAngle: niche.gap_angle,
+      productHint: product.type,
+    });
+
+    const link = product.slug ? `https://shop.fly-froth.com/${product.slug}` : 'https://shop.fly-froth.com';
+    const title = (product.shop_title ?? product.etsy_title ?? 'Fly & Froth printable').slice(0, 100);
+    const description =
+      (product.etsy_description ?? product.shop_description ?? niche.gap_angle).slice(0, 480) +
+      '\n\nFly & Froth · printable PDF · instant download.';
+
+    const results = await Promise.allSettled(
+      target.map((board) =>
+        createPin({
+          boardId: board.id,
+          imageUrl: product.hero_image_url!,
+          title,
+          description,
+          link,
+          altText: title,
+        }),
+      ),
+    );
+    const pinCount = results.filter((r) => r.status === 'fulfilled').length;
+    return { pinCount, error: null };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message.slice(0, 200) : String(err);
+    console.error('[trend] Pinterest sync failed', err);
+    return { pinCount: 0, error: msg };
+  }
 }
 
 // ─────────────────────────────────────────────────────────────

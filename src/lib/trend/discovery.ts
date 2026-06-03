@@ -212,7 +212,97 @@ export async function discoverNiches(
     }
   }
 
+  // P1.4 — Sales-driven feedback loop. Boost niches whose keywords appear in
+  // products that actually sold in the last 60 days. Penalise rejected niches.
+  // The boosting is "soft": ±20 points max, capped to [0, 100].
+  try {
+    const adjustments = await getSalesAdjustments();
+    for (const niche of dedup.values()) {
+      const delta = scoreDelta(niche.topic, adjustments);
+      niche.score = Math.max(0, Math.min(100, niche.score + delta));
+    }
+  } catch (err) {
+    // Non-fatal: scoring still works without the feedback signal.
+    console.warn('[discovery] sales feedback unavailable, using raw scores', err);
+  }
+
   return Array.from(dedup.values())
     .sort((a, b) => b.score - a.score)
     .slice(0, maxNiches);
+}
+
+// ─────────────────────────────────────────────────────────────
+// P1.4 — Sales-driven feedback loop
+// ─────────────────────────────────────────────────────────────
+
+interface SalesAdjustments {
+  /** Keywords from sold products (lowercase tokens, last 60d). */
+  sellerKeywords: Map<string, number>; // keyword → sales count
+  /** Keywords from rejected/zero-sale niches (last 60d). */
+  rejectedKeywords: Set<string>;
+}
+
+async function getSalesAdjustments(): Promise<SalesAdjustments> {
+  const { db } = await import('@/lib/db');
+  const { sql } = await import('drizzle-orm');
+
+  // Last 60 days of sales — pull product topic via join.
+  const salesQ = await db.execute(sql`
+    SELECT n.topic
+    FROM product_sales ps
+    JOIN products p ON p.id = ps.product_id
+    JOIN niches n ON n.id = p.niche_id
+    WHERE ps.sold_at > NOW() - INTERVAL '60 days'
+  `);
+  const sales = ((salesQ as unknown as { rows?: { topic: string }[] }).rows
+    ?? (salesQ as unknown as { topic: string }[])) ?? [];
+
+  const sellerKeywords = new Map<string, number>();
+  for (const row of sales) {
+    for (const tok of tokenize(row.topic)) {
+      sellerKeywords.set(tok, (sellerKeywords.get(tok) ?? 0) + 1);
+    }
+  }
+
+  // Rejected niches in last 60 days
+  const rejectedQ = await db.execute(sql`
+    SELECT n.topic
+    FROM products p
+    JOIN niches n ON n.id = p.niche_id
+    WHERE p.status = 'rejected' AND p.created_at > NOW() - INTERVAL '60 days'
+  `);
+  const rejected = ((rejectedQ as unknown as { rows?: { topic: string }[] }).rows
+    ?? (rejectedQ as unknown as { topic: string }[])) ?? [];
+  const rejectedKeywords = new Set<string>();
+  for (const row of rejected) {
+    for (const tok of tokenize(row.topic)) rejectedKeywords.add(tok);
+  }
+
+  return { sellerKeywords, rejectedKeywords };
+}
+
+function scoreDelta(topic: string, adj: SalesAdjustments): number {
+  const toks = tokenize(topic);
+  let delta = 0;
+  for (const t of toks) {
+    const salesHits = adj.sellerKeywords.get(t) ?? 0;
+    if (salesHits > 0) delta += Math.min(8, 3 + salesHits * 2); // +5 first hit, capped
+    if (adj.rejectedKeywords.has(t)) delta -= 4;
+  }
+  // Clamp to ±20 so the LLM score still dominates
+  return Math.max(-20, Math.min(20, delta));
+}
+
+const STOPWORDS = new Set([
+  'a', 'an', 'the', 'and', 'or', 'for', 'with', 'in', 'on', 'of', 'to',
+  'is', 'it', 'be', 'are', 'this', 'that', 'your', 'my', 'i', 'you', 'we',
+  'planner', 'tracker', 'template', 'journal', 'guide', 'pdf', 'printable',
+]);
+
+function tokenize(s: string): string[] {
+  return s
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .split(/\s+/)
+    .filter((t) => t.length >= 4 && !STOPWORDS.has(t));
 }

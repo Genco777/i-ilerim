@@ -957,11 +957,15 @@ export const productSales = pgTable(
     buyer_country: text('buyer_country'), // ISO-2; needed for OSS/VAT
     sold_at: timestamp('sold_at', { withTimezone: true }).notNull().defaultNow(),
     raw_payload: jsonb('raw_payload'),
+    // P1.6 — Reviews automation cron sets this 14 days after sold_at
+    review_ask_sent_at: timestamp('review_ask_sent_at', { withTimezone: true }),
   },
   (t) => ({
     productIdx: index('sales_product_idx').on(t.product_id),
     soldAtIdx: index('sales_sold_at_idx').on(t.sold_at.desc()),
     extOrderIdx: uniqueIndex('sales_external_order_uniq').on(t.external_order_id),
+    // partial index for review-ask cron — fast scan of "due" sales
+    reviewDueIdx: index('sales_review_due_idx').on(t.sold_at),
   }),
 );
 

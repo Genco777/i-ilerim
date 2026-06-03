@@ -155,22 +155,35 @@ export async function publishToEtsy(productRowId: string): Promise<PublishToEtsy
     .filter((t) => t.length > 0)
     .slice(0, 13);
 
-  const listingPayload = {
+  // P0.2 — Etsy SEO maxing: materials (long-tail keywords Etsy weights heavily)
+  // + shop_section_id (organization → faster trust + filtered search)
+  // + production_partner_ids omitted (we make it ourselves)
+  const materials = inferMaterials(product.type);
+  let shopSectionId: number | null = null;
+  try {
+    shopSectionId = await ensureShopSection(shopId, product.type);
+  } catch (e) {
+    console.warn('[etsy] could not resolve shop_section_id, continuing without', e);
+  }
+
+  const listingPayload: Record<string, string | number | boolean | undefined> = {
     quantity: 999, // digital downloads are unlimited
     title,
     description,
     price: priceEur,
-    who_made: 'i_did' as const,
-    when_made: 'made_to_order' as const,
+    who_made: 'i_did',
+    when_made: 'made_to_order',
     taxonomy_id: taxonomyId,
-    type: 'download' as const,
-    state: 'draft' as const,
+    type: 'download',
+    state: 'draft',
     is_supply: false,
     tags: tags.join(','),
+    materials: materials.join(','),
     is_taxable: true, // §19 Kleinunternehmer handled outside Etsy
     is_personalizable: false,
     should_auto_renew: false,
   };
+  if (shopSectionId) listingPayload.shop_section_id = shopSectionId;
 
   // 4) Create the listing
   const listing = await etsyFetch<EtsyListingResponse>(
@@ -203,6 +216,22 @@ export async function publishToEtsy(productRowId: string): Promise<PublishToEtsy
     }
   }
 
+  // 5.b) Upload cinematic video (P0.1) — Etsy boosts listings with video by ~20%.
+  let videoUploaded = false;
+  if (product.video_url) {
+    try {
+      await uploadListingVideo({
+        shopId,
+        listingId,
+        sourceUrl: product.video_url,
+        name: `${product.slug ?? 'product'}.mp4`,
+      });
+      videoUploaded = true;
+    } catch (e) {
+      console.error('[etsy] listing video upload failed (non-fatal)', e);
+    }
+  }
+
   // 6) Upload digital file (the PDF)
   let fileCount = 0;
   if (product.digital_file_url) {
@@ -219,6 +248,9 @@ export async function publishToEtsy(productRowId: string): Promise<PublishToEtsy
       // No throw — Mehmet can re-upload manually before activating.
     }
   }
+  console.log(
+    `[etsy] published draft listing ${listingId} for product ${productRowId}: ${imageCount} imgs, ${videoUploaded ? '1' : '0'} video, ${fileCount} file`,
+  );
 
   // 7) Record in productListings (idempotent — uniq constraint)
   await db
@@ -323,4 +355,115 @@ async function uploadListingFile(args: {
     `/application/shops/${args.shopId}/listings/${args.listingId}/files`,
     { method: 'POST', rawBody: fd },
   );
+}
+
+// ─────────────────────────────────────────────────────────────
+// P0.1 — Listing video upload
+// ─────────────────────────────────────────────────────────────
+
+interface EtsyListingVideoResponse {
+  video_id: number;
+  height: number;
+  width: number;
+  thumbnail_url: string;
+  video_state: 'active' | 'inactive' | 'deleted' | 'flagged';
+}
+
+async function uploadListingVideo(args: {
+  shopId: number;
+  listingId: number;
+  sourceUrl: string;
+  name: string;
+}): Promise<EtsyListingVideoResponse> {
+  const { blob } = await fetchAsBlob(args.sourceUrl);
+  // Etsy limits: max 100MB, max 15s, max 1080×1080. Our Higgsfield video is
+  // 5s and well under both, so we just pass through.
+  const fd = new FormData();
+  fd.append('video', blob, args.name);
+  fd.append('name', args.name);
+
+  return etsyFetch<EtsyListingVideoResponse>(
+    `/application/shops/${args.shopId}/listings/${args.listingId}/videos`,
+    { method: 'POST', rawBody: fd },
+  );
+}
+
+// ─────────────────────────────────────────────────────────────
+// P0.2 — Materials, shop section, attribute helpers
+// ─────────────────────────────────────────────────────────────
+
+/**
+ * Per-product-type materials list. Etsy weights these in long-tail search —
+ * a printable planner found for "PDF planner" gains rank from "PDF" being
+ * declared as a material, not just a tag.
+ */
+function inferMaterials(type: string): string[] {
+  const base = ['PDF', 'Digital Download', 'Printable'];
+  const per: Record<string, string[]> = {
+    planner: [...base, 'A4', 'Letter', 'Journal'],
+    sticker: [...base, 'Sticker Paper', 'Vinyl', 'A4'],
+    poster: [...base, 'Wall Art', 'Print at Home', 'A4'],
+    template: [...base, 'Editable', 'Template', 'A4'],
+    social_template: [...base, 'Canva Template', 'Social Media', 'Instagram'],
+  };
+  return (per[type] ?? base).slice(0, 13);
+}
+
+interface EtsyShopSection {
+  shop_section_id: number;
+  title: string;
+  rank: number;
+  user_id: number;
+  active_listing_count: number;
+}
+
+interface EtsyShopSectionsResponse {
+  count: number;
+  results: EtsyShopSection[];
+}
+
+/**
+ * Resolve (or create) the Etsy shop section for a given product type.
+ * Cached in-memory for the lifetime of the lambda so we don't re-list every
+ * call. Falls back to null on any error — listing creation still works.
+ */
+const sectionCache = new Map<string, number>();
+
+async function ensureShopSection(shopId: number, productType: string): Promise<number> {
+  const cacheKey = `${shopId}:${productType}`;
+  const cached = sectionCache.get(cacheKey);
+  if (cached) return cached;
+
+  const wantedTitle = sectionTitleForType(productType);
+
+  // List existing sections
+  const sections = await etsyFetch<EtsyShopSectionsResponse>(
+    `/application/shops/${shopId}/sections`,
+  );
+  const match = sections.results.find(
+    (s) => s.title.toLowerCase() === wantedTitle.toLowerCase(),
+  );
+  if (match) {
+    sectionCache.set(cacheKey, match.shop_section_id);
+    return match.shop_section_id;
+  }
+
+  // Create new section. Etsy create-section is a simple POST with `title`.
+  const created = await etsyFetch<EtsyShopSection>(
+    `/application/shops/${shopId}/sections`,
+    { method: 'POST', form: { title: wantedTitle } },
+  );
+  sectionCache.set(cacheKey, created.shop_section_id);
+  return created.shop_section_id;
+}
+
+function sectionTitleForType(productType: string): string {
+  const map: Record<string, string> = {
+    planner: 'Printable Planners',
+    sticker: 'Sticker Sheets',
+    poster: 'Wall Art & Posters',
+    template: 'Templates',
+    social_template: 'Social Media Templates',
+  };
+  return map[productType] ?? 'Printables';
 }
