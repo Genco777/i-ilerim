@@ -196,27 +196,25 @@ export async function composeMockupsForHero(
         return { mockupUrls, galleryUrl };
       }
       console.warn(
-        `[mockup] Nano Banana returned only ${banana.length}/4 mockups, falling back to Sharp`,
+        `[mockup] Nano Banana returned only ${banana.length}/4 mockups — no Sharp fallback (V-7 design)`,
       );
     } catch (err) {
-      console.error('[mockup] Nano Banana pipeline failed, falling back to Sharp', err);
+      console.error('[mockup] Nano Banana pipeline failed — no Sharp fallback (V-7 design)', err);
     }
   }
 
-  // Path B — legacy Sharp procedural composite (fallback).
-  const mockups = await composeProductMockups(heroBuffer, productHint);
-  const galleryBuf = await composeGallery(heroBuffer, mockups);
-
-  const [m1Up, m2Up, m3Up, galleryUp] = await Promise.all([
-    uploadImage(mockups[0], `trend/${productId}/mockup-1-${ts}.jpg`, 'image/jpeg'),
-    uploadImage(mockups[1], `trend/${productId}/mockup-2-${ts}.jpg`, 'image/jpeg'),
-    uploadImage(mockups[2], `trend/${productId}/mockup-3-${ts}.jpg`, 'image/jpeg'),
-    uploadImage(galleryBuf, `trend/${productId}/gallery-${ts}.jpg`, 'image/jpeg'),
-  ]);
-
+  // V-7: Sharp procedural fallback removed. If Nano Banana failed entirely,
+  // surface the hero as both the only mockup AND the gallery so the Telegram
+  // photo card still has something. The old PSD-like procedural composite
+  // produced unrealistic mockups that hurt buyer trust more than they helped.
+  const heroUpload = await uploadImage(
+    heroBuffer,
+    `trend/${productId}/hero-only-${ts}.jpg`,
+    'image/jpeg',
+  );
   return {
-    mockupUrls: [m1Up.url, m2Up.url, m3Up.url],
-    galleryUrl: galleryUp.url,
+    mockupUrls: [heroUpload.url],
+    galleryUrl: heroUpload.url,
   };
 }
 

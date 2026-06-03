@@ -128,7 +128,7 @@ export async function generateCoverImageOnly(args: {
   content: ProductContent;
   theme: string;
 }): Promise<Buffer> {
-  const { renderCoverImage } = await import('./cover-renderer');
+  const { renderCoverImage } = await import('./cover-renderer.tsx');
   return renderCoverImage({
     title: args.content.shopTitle ?? args.niche.topic,
     subtitle: args.niche.gapAngle,
