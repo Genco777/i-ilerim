@@ -940,3 +940,293 @@ export async function generateProductPdf(
   const buffer = Buffer.from(arrayBuffer);
   return { buffer, sizeBytes: buffer.byteLength };
 }
+eCandidate;
+  content: ProductContent;
+  isSocial: boolean;
+}) {
+  const logo = loadLogo();
+  const footerNote = isSocial
+    ? 'Recreate this layout in Canva or Figma at 1080×1080 (feed) or 1080×1350 (reels). Keep the hierarchy: hook → body → soft CTA. Maintain colour palette across the series for brand recognition.'
+    : 'Print at 100 % scale on A4. For repeated handling use 100–120 gsm paper. To rebuild in Notion or Google Docs, follow the section headings above as your top-level structure.';
+  return (
+    <Page size="A4" style={styles.page}>
+      <Text style={styles.pageEyebrow}>OVERVIEW</Text>
+      <Text style={styles.pageTitle}>{content.shopTitle}</Text>
+      <View style={styles.rule} />
+      <Text style={styles.body}>{niche.gapAngle}</Text>
+      {sections.map((s, i) => (
+        <View key={i} wrap={false}>
+          <Text style={styles.sectionHeading}>{s.heading}</Text>
+          {s.items.map((item, j) => (
+            <View key={j} style={styles.sectionItem}>
+              <Text style={styles.sectionBullet}>·</Text>
+              <Text style={styles.sectionItemText}>{item}</Text>
+            </View>
+          ))}
+        </View>
+      ))}
+      <Text style={styles.templateFooterNote}>{footerNote}</Text>
+      <Text style={styles.footer} fixed>
+        Fly &amp; Froth · Template overview
+      </Text>
+      {logo ? <Image src={logo} style={styles.footerLogo} fixed /> : null}
+    </Page>
+  );
+}
+
+function PosterPage({
+  styles,
+  phrase,
+  subline,
+}: {
+  styles: ReturnType<typeof buildStyles>;
+  phrase: string;
+  subline: string;
+}) {
+  const logo = loadLogo();
+  return (
+    <Page size="A4" style={styles.posterPage}>
+      <View style={styles.posterAccentFrame} />
+      <Text style={styles.posterTitle}>{phrase.toUpperCase()}</Text>
+      <Text style={styles.posterSubtitle}>{subline.slice(0, 60)}</Text>
+      {logo ? <Image src={logo} style={styles.posterCorner} /> : null}
+    </Page>
+  );
+}
+
+// ─── V-4 AI full-bleed pages ────────────────────────────────────────────────
+
+const fullBleedPageStyle = { padding: 0, margin: 0 };
+const fullBleedImageStyle = { width: '100%', height: '100%', objectFit: 'cover' as const };
+
+function AiCoverPage({ buffer }: { buffer: Buffer }) {
+  return (
+    <Page size="A4" style={fullBleedPageStyle}>
+      <Image src={buffer} style={fullBleedImageStyle} />
+    </Page>
+  );
+}
+
+function AiDividerPage({ buffer }: { buffer: Buffer }) {
+  return (
+    <Page size="A4" style={fullBleedPageStyle}>
+      <Image src={buffer} style={fullBleedImageStyle} />
+    </Page>
+  );
+}
+
+function AiBackCoverPage({
+  styles,
+  buffer,
+  niche,
+}: {
+  styles: ReturnType<typeof buildStyles>;
+  buffer: Buffer;
+  niche: NicheCandidate;
+}) {
+  const logo = loadLogo();
+  return (
+    <Page size="A4" style={fullBleedPageStyle}>
+      {/* AI illustration as full-bleed background */}
+      <Image src={buffer} style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', objectFit: 'cover' }} />
+      {/* react-pdf overlay so the text remains selectable + crisp */}
+      <View style={{ padding: 60, paddingTop: 120, position: 'relative' }}>
+        <View style={styles.backAccentBlock} />
+        <Text style={styles.backTitle}>
+          Made for the specific question the generic version never quite answers.
+        </Text>
+        <Text style={styles.backBody}>
+          Fly &amp; Froth is a small editorial studio in Karben, Germany.
+          We design considered printables for the people generic templates never quite fit.
+        </Text>
+        <Text style={styles.backBody}>
+          If something here landed: tell us. If something missed: tell us.
+          Real humans reply within 12 hours, weekends included.
+        </Text>
+        <Text style={styles.backCreditLine}>
+          Originated from a study on “{niche.topic}”
+        </Text>
+        {logo ? <Image src={logo} style={styles.backLogo} /> : null}
+        <Text style={styles.coverMeta}>fly-froth.com · info@fly-froth.com</Text>
+      </View>
+    </Page>
+  );
+}
+
+// ─── fallback content extractors ────────────────────────────────────────────
+
+function fallbackPrompts(niche: NicheCandidate): string[] {
+  return [
+    `What does ${niche.topic.toLowerCase()} look like in your life right now? Be specific.`,
+    `Which belief about ${niche.topic.toLowerCase()} did you inherit, and from whom?`,
+    `When was the last time this pattern showed up? Describe the situation in detail.`,
+    `What story do you tell yourself when this comes up? Whose voice is it really?`,
+    `If a close friend brought this to you, what would you tell them?`,
+    `What is one small experiment you could try this week?`,
+    `What support do you need — and from whom — to make a shift?`,
+    `Imagine 12 months from now: what has changed?`,
+  ];
+}
+
+function fallbackStickers(): string[] {
+  return ['one thing','soft start','enough','pause','this is fine','breathe','slow down','reset','still here'];
+}
+
+function fallbackPosterPhrase(niche: NicheCandidate): { phrase: string; subline: string } {
+  const word = niche.topic.split(/[\s,]+/)[0]?.toUpperCase().slice(0, 24) ?? 'FOCUS';
+  return { phrase: word, subline: niche.topic.slice(0, 60) };
+}
+
+function fallbackTemplateSections(
+  niche: NicheCandidate,
+  _content: ProductContent,
+): NonNullable<PdfBody['templateSections']> {
+  return [
+    { heading: "What's included", items: ['Structured layout you can adapt to your workflow','Section headings + suggested fields','Guidance on customisation'] },
+    { heading: 'Best for', items: [niche.gapAngle.slice(0, 160)] },
+    { heading: 'How to use', items: ['Recreate the structure in Notion, Google Docs, or your tool of choice','Adjust headings + items to your context'] },
+  ];
+}
+
+// ─── main document builder (V-4 hybrid) ─────────────────────────────────────
+
+import type { AiPageBuffers } from './pdf-ai-pages';
+
+function buildDocument(
+  niche: NicheCandidate,
+  content: ProductContent,
+  ai: AiPageBuffers,
+) {
+  const theme = pickTheme(niche.topic, niche.productHint);
+  const styles = buildStyles(theme);
+  const subtitle = niche.gapAngle.slice(0, 200);
+  const body = content.pdfBody ?? {};
+
+  // Choose AI cover if available, fall back to V-3 themed cover
+  const Cover = (pageCount: number) =>
+    ai.cover
+      ? <AiCoverPage buffer={ai.cover} />
+      : <CoverPage styles={styles} theme={theme} title={content.shopTitle} subtitle={subtitle} pageCount={pageCount} />;
+  const Divider = (eyebrow: string, title: string) =>
+    ai.divider
+      ? <AiDividerPage buffer={ai.divider} />
+      : <SectionDividerPage styles={styles} eyebrow={eyebrow} title={title} />;
+  const BackCover = () =>
+    ai.backCover
+      ? <AiBackCoverPage styles={styles} buffer={ai.backCover} niche={niche} />
+      : <SectionDividerPage styles={styles} eyebrow="Thank you" title="Fly & Froth · Karben, DE" />;
+
+  switch (niche.productHint) {
+    case 'planner': {
+      const prompts = body.prompts && body.prompts.length > 0 ? body.prompts : fallbackPrompts(niche);
+      const totalPages = 1 + 1 + prompts.length + 1 + 1;
+      return (
+        <Document title={content.shopTitle}>
+          {Cover(totalPages)}
+          {Divider('Part one', 'The prompts that surface the pattern.')}
+          {prompts.map((p, i) => (
+            <PromptPage key={i} styles={styles} number={i + 1} total={prompts.length} prompt={p} />
+          ))}
+          <HowToUsePage styles={styles} type="planner" />
+          {BackCover()}
+        </Document>
+      );
+    }
+    case 'poster': {
+      const { phrase, subline } = body.posterPhrase
+        ? { phrase: body.posterPhrase, subline: body.posterSubline ?? niche.topic }
+        : fallbackPosterPhrase(niche);
+      return (
+        <Document title={content.shopTitle}>
+          <PosterPage styles={styles} phrase={phrase} subline={subline} />
+          <HowToUsePage styles={styles} type="poster" />
+          {BackCover()}
+        </Document>
+      );
+    }
+    case 'sticker': {
+      const phrases = body.stickerTexts && body.stickerTexts.length > 0 ? body.stickerTexts : fallbackStickers();
+      return (
+        <Document title={content.shopTitle}>
+          {Cover(4)}
+          <StickerSheet styles={styles} phrases={phrases} />
+          <HowToUsePage styles={styles} type="sticker" />
+          {BackCover()}
+        </Document>
+      );
+    }
+    case 'template':
+    case 'social_template': {
+      const sections = body.templateSections && body.templateSections.length > 0
+        ? body.templateSections
+        : fallbackTemplateSections(niche, content);
+      const isSocial = niche.productHint === 'social_template';
+      return (
+        <Document title={content.shopTitle}>
+          {Cover(3)}
+          {Divider('Overview', "What's inside, and how to use it.")}
+          <TemplateSectionsPage
+            styles={styles}
+            sections={sections}
+            niche={niche}
+            content={content}
+            isSocial={isSocial}
+          />
+          {BackCover()}
+        </Document>
+      );
+    }
+  }
+}
+
+export interface PdfResult {
+  buffer: Buffer;
+  sizeBytes: number;
+}
+
+/**
+ * V-4: generates AI cover + divider + back cover in parallel, then builds
+ * the document with those buffers. If AI gen fails for a page, the V-3
+ * themed react-pdf version is used as fallback for that specific page.
+ */
+export async function generateProductPdf(
+  niche: NicheCandidate,
+  content: ProductContent,
+  _heroUrl?: string | null,
+): Promise<PdfResult> {
+  const theme = pickTheme(niche.topic, niche.productHint);
+
+  // Pick a divider title that fits the product type
+  const dividerCfg = niche.productHint === 'planner'
+    ? { eyebrow: 'Part one', title: 'The prompts that surface the pattern.' }
+    : { eyebrow: 'Overview', title: "What's inside, and how to use it." };
+
+  // V-4 AI pages — best-effort, falls back per-page
+  let ai: AiPageBuffers = { cover: null, divider: null, backCover: null };
+  try {
+    const { generateAiPages } = await import('./pdf-ai-pages');
+    ai = await generateAiPages({
+      niche,
+      content,
+      theme: themeKeyFromTheme(theme),
+      dividerEyebrow: dividerCfg.eyebrow,
+      dividerTitle: dividerCfg.title,
+    });
+  } catch (err) {
+    console.warn('[trend pdf] V-4 AI pages unavailable, V-3 fallback rendering', err);
+  }
+
+  const doc = buildDocument(niche, content, ai);
+  const blob = await pdf(doc).toBlob();
+  const arrayBuffer = await blob.arrayBuffer();
+  const buffer = Buffer.from(arrayBuffer);
+  return { buffer, sizeBytes: buffer.byteLength };
+}
+
+/** Reverse-lookup the theme key from a Theme object (uses background colour). */
+function themeKeyFromTheme(t: Theme): string {
+  for (const [k, v] of Object.entries(THEMES)) {
+    if (v === t) return k;
+  }
+  return 'cream';
+}
