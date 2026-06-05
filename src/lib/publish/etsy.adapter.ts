@@ -411,17 +411,49 @@ async function uploadListingImage(args: {
   );
 }
 
+/**
+ * Sanitize a filename so it passes Etsy's strict rule:
+ *   - 3-70 characters total (including extension)
+ *   - Only [a-zA-Z0-9._-]
+ *
+ * Strategy: extract extension, strip everything else from the stem to safe
+ * chars, truncate stem so stem+extension ≤ 70.
+ */
+function sanitizeEtsyFilename(input: string): string {
+  const safe = (input ?? 'product.pdf').trim();
+  // Split extension (last ".xxx" up to 5 chars)
+  const m = safe.match(/^(.*?)(\.[a-zA-Z0-9]{1,5})?$/);
+  let stem = m?.[1] ?? safe;
+  let ext = m?.[2] ?? '.pdf';
+  // Etsy allows only [a-zA-Z0-9._-] — replace everything else with "-"
+  stem = stem.replace(/[^a-zA-Z0-9_-]+/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '');
+  ext = ext.replace(/[^a-zA-Z0-9.]/g, '');
+  if (!ext.startsWith('.')) ext = '.' + ext;
+  if (ext.length > 6) ext = '.pdf';
+  // Truncate so stem + ext ≤ 70
+  const maxStem = 70 - ext.length;
+  if (stem.length > maxStem) stem = stem.slice(0, maxStem).replace(/-$/, '');
+  // Minimum 3 chars
+  if (stem.length < 2) stem = 'printable';
+  return stem + ext;
+}
+
 export async function uploadListingFile(args: {
   shopId: number;
   listingId: number;
   sourceUrl: string;
   filename: string;
 }): Promise<EtsyListingFileResponse> {
+  // Etsy rule: filename must be 3-70 chars, [a-zA-Z0-9._-] only.
+  // Our slugs can be up to 80 chars + ".pdf" = 85, plus sometimes Unicode
+  // or other punctuation crept in via shop_title. Normalize hard.
+  const sanitizedFilename = sanitizeEtsyFilename(args.filename);
+
   // Fetch the PDF from Vercel Blob → re-upload to Etsy as multipart binary.
   const { blob, contentType } = await fetchAsBlob(args.sourceUrl);
   const sizeBytes = blob.size;
   console.log(
-    `[etsy-file] PDF fetched from Blob: ${sizeBytes} bytes (${(sizeBytes / 1024).toFixed(0)}KB), content-type=${contentType}, filename=${args.filename}`,
+    `[etsy-file] PDF fetched from Blob: ${sizeBytes} bytes (${(sizeBytes / 1024).toFixed(0)}KB), content-type=${contentType}, filename=${sanitizedFilename}`,
   );
 
   // Etsy v3 listing files endpoint accepts multipart with field name "file".
@@ -429,8 +461,8 @@ export async function uploadListingFile(args: {
   // application/pdf explicitly. Build a fresh Blob with the right MIME.
   const pdfBlob = new Blob([await blob.arrayBuffer()], { type: 'application/pdf' });
   const fd = new FormData();
-  fd.append('file', pdfBlob, args.filename);
-  fd.append('name', args.filename);
+  fd.append('file', pdfBlob, sanitizedFilename);
+  fd.append('name', sanitizedFilename);
   fd.append('rank', '1');
 
   try {
