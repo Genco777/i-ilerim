@@ -365,6 +365,30 @@ export async function runDailyTrendPipeline(
             );
           }
 
+          // ── CRITICAL CHECKPOINT — partial DB save BEFORE long-running steps ──
+          //
+          // The mockup + video step can take 60-120s. If Vercel's 800s timeout
+          // fires there, the final DB.update at the end never runs and we lose
+          // cover URL + PDF URL even though both succeeded. Persist them NOW so
+          // a timeout still leaves a usable product (Etsy can publish with PDF +
+          // hero, just without mockups + video).
+          try {
+            await db
+              .update(products)
+              .set({
+                hero_image_url: coverUrl,
+                digital_file_url: pdfUrl,
+                digital_file_size_bytes: pdfSize,
+                updated_at: new Date(),
+              })
+              .where(eq(products.id, insertedProduct.id));
+            console.log(
+              `[trend-checkpoint] saved cover + PDF for ${insertedProduct.id} before mockup/video`,
+            );
+          } catch (saveErr) {
+            console.error('[trend-checkpoint] partial save failed (continuing)', saveErr);
+          }
+
           // Step 3 — V-5: cover IS the hero. Nano Banana mockup compositing
           // will place this exact illustrated cover into lifestyle scenes,
           // and Higgsfield video below will animate this exact cover —
