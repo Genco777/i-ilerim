@@ -171,15 +171,14 @@ export async function generateProductVideo(
   productId: string,
   heroUrl: string,
 ): Promise<ProductVideoResult> {
-  // Sprint Y — Cheap video provider (default 'cheap' = Pixverse v3.5 at
-  // ~$0.06/video instead of Higgsfield at $0.30, an 80% cost reduction
-  // with comparable image-to-video animation quality).
-  //
-  // Provider routing:
-  //   VIDEO_PROVIDER=cheap (default)  → Pixverse v3.5 via Replicate
-  //   VIDEO_PROVIDER=higgsfield       → legacy DoP (premium, used to be default)
-  //   VIDEO_PROVIDER=veo3             → Google Veo 3 Fast via Replicate
-  const provider = (process.env.VIDEO_PROVIDER ?? 'cheap').toLowerCase();
+  // Video provider routing:
+  //   VIDEO_PROVIDER=higgsfield (default) → DoP at ~$0.30/video, proven, default
+  //   VIDEO_PROVIDER=pixverse             → Pixverse v3.5 via Replicate (~$0.45/video)
+  //                                          NOTE: pixverse turned out MORE expensive
+  //                                          than higgsfield, not cheaper as initially
+  //                                          believed. Kept for future quality A/B.
+  //   VIDEO_PROVIDER=veo3                 → Google Veo 3 Fast (~$2/video, premium)
+  const provider = (process.env.VIDEO_PROVIDER ?? 'higgsfield').toLowerCase();
   if (provider === 'veo3') {
     return generateProductVideoVeo3(niche, content, productId, heroUrl);
   }
@@ -188,7 +187,7 @@ export async function generateProductVideo(
       return await generateProductVideoCheap(niche, content, productId, heroUrl);
     } catch (err) {
       console.warn(
-        '[video] cheap provider failed, falling back to Higgsfield',
+        '[video] pixverse provider failed, falling back to Higgsfield',
         err instanceof Error ? err.message : String(err),
       );
       // fall through to Higgsfield below
@@ -259,11 +258,18 @@ async function generateProductVideoCheap(
     `Topic: ${niche.topic}.`,
   ].join(' ');
 
+  // Pixverse v3.5 actual input schema (corrected from initial guess):
+  //   image_url (NOT 'image')
+  //   prompt
+  //   duration: 5 or 8
+  //   quality: '360p' | '540p' | '720p' | '1080p'   (NOT aspect_ratio)
+  //   motion_mode: 'normal' | 'fast'
+  //   seed
   const input = {
     prompt,
-    image: heroUrl,
-    aspect_ratio: '9:16',
+    image_url: heroUrl,
     duration: 5,
+    quality: '540p',
     motion_mode: 'normal',
     seed: Math.floor(Math.random() * 1_000_000),
   };
