@@ -179,10 +179,14 @@ export async function generateProductVideo(
   //                                          believed. Kept for future quality A/B.
   //   VIDEO_PROVIDER=veo3                 → Google Veo 3 Fast (~$2/video, premium)
   const provider = (process.env.VIDEO_PROVIDER ?? 'higgsfield').toLowerCase();
+  console.log(`[video] starting — provider=${provider}, productId=${productId}, heroUrl=${heroUrl.slice(0, 80)}`);
+
   if (provider === 'veo3') {
+    console.log('[video] routing → Veo 3 Fast');
     return generateProductVideoVeo3(niche, content, productId, heroUrl);
   }
   if (provider === 'cheap' || provider === 'pixverse') {
+    console.log('[video] routing → Pixverse v3.5');
     try {
       return await generateProductVideoCheap(niche, content, productId, heroUrl);
     } catch (err) {
@@ -195,7 +199,16 @@ export async function generateProductVideo(
   }
 
   // Legacy Higgsfield path (kept behind env flag for emergency fallback).
+  console.log('[video] routing → Higgsfield DoP (default)');
+  // Verify Higgsfield env vars before continuing
+  if (!process.env.HIGGSFIELD_API_KEY || !process.env.HIGGSFIELD_API_SECRET) {
+    throw new Error(
+      `[video] Higgsfield env vars missing. KEY set: ${!!process.env.HIGGSFIELD_API_KEY}, SECRET set: ${!!process.env.HIGGSFIELD_API_SECRET}`,
+    );
+  }
+
   const model = resolveModel();
+  console.log(`[video] Higgsfield model=${model}`);
   const prompt = buildVideoPrompt(niche, content);
   const created = await postCreate(model, {
     prompt,
