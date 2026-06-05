@@ -223,16 +223,29 @@ export async function composeMockupsForHero(
   }
 
   // V-7: Sharp procedural fallback removed. If Nano Banana failed entirely,
-  // surface the hero as both the only mockup AND the gallery so the Telegram
-  // photo card still has something. The old PSD-like procedural composite
-  // produced unrealistic mockups that hurt buyer trust more than they helped.
+  // we used to return the hero as the only mockup — BUT that caused Etsy to
+  // upload [hero, hero] as "2 identical images" because the Etsy adapter
+  // appends mockup_image_urls after hero_image_url. Worse, V-14 enhanced
+  // cover meant the same poster art got reuploaded under three different
+  // filenames pretending to be different images.
+  //
+  // Fix: return mockupUrls = [] (empty) when Banana failed. Etsy then gets
+  // ONLY the hero (1 image), which is honest and avoids the duplicate. The
+  // gallery still falls back to the hero so the Telegram approval card has
+  // a visual.
+  console.warn(
+    '[mockup-fallback] Banana returned <2 mockups — returning empty mockupUrls to avoid Etsy duplicate-image bug',
+  );
   const heroUpload = await uploadImage(
     heroBuffer,
     `trend/${productId}/hero-only-${ts}.jpg`,
     'image/jpeg',
   );
+  // Note: galleryUrl reuses the hero — Telegram card needs a photo, but
+  // it's a single source. Etsy reads mockup_image_urls only (now empty)
+  // so we won't send Etsy a duplicate.
   return {
-    mockupUrls: [heroUpload.url],
+    mockupUrls: [],
     galleryUrl: heroUpload.url,
   };
 }
@@ -330,10 +343,68 @@ export async function generatePosterArtHero(
     buffer = res.buffer;
   }
 
+  // Sharp auto-trim — Banana Pro often leaves a wide cream paper margin even
+  // with "edge-to-edge" in the prompt. We use Sharp.trim() with a threshold
+  // tuned for warm cream backgrounds. The trim() call detects uniform edges
+  // and crops them. If trim removes too aggressively (rare), we fall back
+  // to the original buffer.
+  const sharpMod = (await import('sharp')).default;
+  let trimmed: Buffer = buffer;
+  try {
+    const original = sharpMod(buffer);
+    const meta = await original.metadata();
+    const w0 = meta.width ?? 0;
+    const h0 = meta.height ?? 0;
+
+    // trim with threshold ~25 — catches near-white / cream backgrounds while
+    // leaving genuine art pixels intact. Background sampled from top-left corner.
+    const trimmedBuf = await sharpMod(buffer).trim({ threshold: 25 }).toBuffer();
+    const trimMeta = await sharpMod(trimmedBuf).metadata();
+    const w1 = trimMeta.width ?? 0;
+    const h1 = trimMeta.height ?? 0;
+
+    // Sanity check: trim shouldn't remove more than 40% of either dimension —
+    // that would mean we cropped art, not margin. Also, never accept a trim
+    // smaller than 200px (Banana sometimes returns tiny crops).
+    const widthDrop = (w0 - w1) / w0;
+    const heightDrop = (h0 - h1) / h0;
+    if (widthDrop > 0.4 || heightDrop > 0.4 || w1 < 800 || h1 < 1000) {
+      console.warn(
+        `[poster-trim] rejecting aggressive trim: ${w0}x${h0} -> ${w1}x${h1}, using original`,
+      );
+    } else if (widthDrop < 0.02 && heightDrop < 0.02) {
+      // No meaningful trim possible — original was already tight.
+      console.log(`[poster-trim] no trim needed (${w0}x${h0} stayed)`);
+    } else {
+      // After trimming, pad back to a clean 3:4 ratio so PDF/Etsy don't have
+      // weird aspects. Pad with a cream tone matched to the watercolor papers.
+      const targetW = w1;
+      const targetH = Math.round((targetW * 4) / 3);
+      const padTop = Math.max(0, Math.floor((targetH - h1) / 2));
+      const padBottom = Math.max(0, targetH - h1 - padTop);
+      const padded = await sharpMod(trimmedBuf)
+        .extend({
+          top: padTop,
+          bottom: padBottom,
+          left: 0,
+          right: 0,
+          background: { r: 244, g: 238, b: 224 }, // warm cream
+        })
+        .jpeg({ quality: 92 })
+        .toBuffer();
+      trimmed = padded;
+      console.log(
+        `[poster-trim] trimmed margins: ${w0}x${h0} -> ${w1}x${h1} -> padded to ${targetW}x${targetH}`,
+      );
+    }
+  } catch (err) {
+    console.warn('[poster-trim] sharp trim failed, using original buffer', err);
+  }
+
   const ts = Date.now();
   const filename = `trend/${productId}/poster-art-${ts}.jpg`;
-  const uploaded = await uploadImage(buffer, filename, 'image/jpeg');
-  return { buffer, url: uploaded.url, pathname: uploaded.pathname };
+  const uploaded = await uploadImage(trimmed, filename, 'image/jpeg');
+  return { buffer: trimmed, url: uploaded.url, pathname: uploaded.pathname };
 }
 
 /**
@@ -369,7 +440,7 @@ function buildPosterArtPrompt(niche: NicheCandidate, content: ProductContent): s
   } else if (/kids|nursery|baby|alphabet|animal/.test(topic)) {
     style = 'soft watercolour children\'s illustration in pastel palette, gentle round shapes, friendly characters or alphabet motifs on cream paper';
   } else if (/city map|city|map|travel/.test(topic)) {
-    style = 'minimalist single-line city map illustration, monochrome ink on cream, street grid abstracted into clean geometric lines';
+    style = 'minimalist single-line continuous skyline illustration of ONE single city only (pick the most iconic skyline that matches the niche topic), monochrome deep ink on cream paper, the city skyline fills the page horizontally edge-to-edge, no second city, no globe, no other compositions — just one city skyline + a small unobtrusive city name label and coordinate in elegant small typography at the bottom';
   } else if (/french|bistro|kitchen|food|culinary/.test(topic)) {
     style = 'vintage French bistro illustration in muted sepia and burgundy on cream, hand-drawn ink with subtle watercolour wash, evokes 1920s Parisian print';
   } else if (/dark academia|book|library|study/.test(topic)) {
@@ -378,12 +449,22 @@ function buildPosterArtPrompt(niche: NicheCandidate, content: ProductContent): s
     style = 'soft watercolour and ink illustration in a warm editorial palette on cream paper, hand-drawn organic composition';
   }
 
+  // City-map / typography niches NEED minimal text (city name, coordinate,
+  // quote). Other niches must be 100% text-free.
+  const allowsText = /city map|city|map|travel|affirmation|quote|typography|feminist/.test(topic);
+
   return [
     `Printable wall art poster. ${style}.`,
     `Subject: ${niche.topic}. Inspiration / mood: ${niche.gapAngle.slice(0, 160)}.`,
-    `Composition: vertical 3:4 portrait orientation, generous breathing room around the artwork (suitable for framing in a standard 18×24 / A2 frame), the main subject centered and confidently sized.`,
+    // EDGE-TO-EDGE composition — this is critical. Previous renders left a
+    // wide cream paper border so the artwork "floated" on the A4 PDF cover
+    // page. We now demand full-bleed: the artwork fills the entire 3:4
+    // canvas with no visible paper margin.
+    `Composition: vertical 3:4 portrait orientation. CRITICAL: the artwork fills the ENTIRE 3:4 canvas EDGE-TO-EDGE — no white paper border around the artwork, no cream paper margin, no decorative frame. The composition extends all the way to the four edges of the canvas. The subject is large, confidently sized, anchored to fill the canvas.`,
     `Style: print-ready, high resolution, gallery-quality artwork. Looks like something from a high-end Etsy print shop or Society6 bestseller.`,
-    `STRICT: NO text, NO captions, NO watermarks, NO logos, NO monograms, NO frames in the image, NO photographic 3D — purely illustrated 2D artwork edge-to-edge.`,
+    allowsText
+      ? `Minor text is acceptable ONLY where the style explicitly calls for it (city name + coordinate, or the quote itself). NO watermarks, NO logos, NO monograms.`
+      : `STRICT: absolutely NO text, NO captions, NO watermarks, NO logos, NO monograms, NO frames in the image, NO photographic 3D — purely illustrated 2D artwork.`,
     `The image IS the poster art — what you generate is exactly what gets framed on a wall.`,
   ].join(' ');
 }
