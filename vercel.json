@@ -40,11 +40,39 @@
     },
     {
       "path": "/api/cron/trend-discovery-poster?secret=080084ec9089202b8d409dc4e1c5672aea675a581133c994a63e86f6e31868a1",
-      "schedule": "0 8 * * *"
+      "schedule": "0 7 * * *"
+    },
+    {
+      "path": "/api/cron/trend-discovery?secret=080084ec9089202b8d409dc4e1c5672aea675a581133c994a63e86f6e31868a1",
+      "schedule": "0 9 * * *"
+    },
+    {
+      "path": "/api/cron/trend-discovery-poster?secret=080084ec9089202b8d409dc4e1c5672aea675a581133c994a63e86f6e31868a1",
+      "schedule": "0 11 * * *"
+    },
+    {
+      "path": "/api/cron/trend-discovery?secret=080084ec9089202b8d409dc4e1c5672aea675a581133c994a63e86f6e31868a1",
+      "schedule": "0 13 * * *"
+    },
+    {
+      "path": "/api/cron/trend-discovery-poster?secret=080084ec9089202b8d409dc4e1c5672aea675a581133c994a63e86f6e31868a1",
+      "schedule": "0 15 * * *"
+    },
+    {
+      "path": "/api/cron/trend-discovery?secret=080084ec9089202b8d409dc4e1c5672aea675a581133c994a63e86f6e31868a1",
+      "schedule": "0 17 * * *"
+    },
+    {
+      "path": "/api/cron/trend-discovery-poster?secret=080084ec9089202b8d409dc4e1c5672aea675a581133c994a63e86f6e31868a1",
+      "schedule": "0 19 * * *"
+    },
+    {
+      "path": "/api/cron/trend-discovery?secret=080084ec9089202b8d409dc4e1c5672aea675a581133c994a63e86f6e31868a1",
+      "schedule": "0 21 * * *"
     },
     {
       "path": "/api/cron/reviews-ask?secret=080084ec9089202b8d409dc4e1c5672aea675a581133c994a63e86f6e31868a1",
-      "schedule": "0 10 * * *"
+      "schedule": "30 22 * * *"
     }
   ]
 }

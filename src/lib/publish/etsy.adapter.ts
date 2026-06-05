@@ -218,18 +218,33 @@ export async function publishToEtsy(productRowId: string): Promise<PublishToEtsy
 
   // 5.b) Upload cinematic video (P0.1) — Etsy boosts listings with video by ~20%.
   let videoUploaded = false;
-  if (product.video_url) {
+  if (product.video_url && product.video_url.trim().length > 0) {
+    console.log(
+      `[etsy-video] attempting upload for listing ${listingId} from ${product.video_url}`,
+    );
     try {
-      await uploadListingVideo({
+      const r = await uploadListingVideo({
         shopId,
         listingId,
         sourceUrl: product.video_url,
         name: `${product.slug ?? 'product'}.mp4`,
       });
       videoUploaded = true;
+      console.log(
+        `[etsy-video] uploaded OK → listing_video_id=${JSON.stringify(r).slice(0, 200)}`,
+      );
     } catch (e) {
-      console.error('[etsy] listing video upload failed (non-fatal)', e);
+      const msg = e instanceof Error ? `${e.name}: ${e.message}` : String(e);
+      console.error(
+        `[etsy-video] UPLOAD FAILED for listing ${listingId} product ${productRowId}.\n` +
+          `  source_url: ${product.video_url}\n` +
+          `  full error: ${msg}`,
+      );
     }
+  } else {
+    console.warn(
+      `[etsy-video] product ${productRowId} has NO video_url (value=${JSON.stringify(product.video_url)}) — skipping video upload. Video gen likely failed during cron (Higgsfield timeout/quota).`,
+    );
   }
 
   // 6) Upload digital file (the PDF)
