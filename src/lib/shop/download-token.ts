@@ -63,6 +63,7 @@ export async function consumeToken(tokenStr: string): Promise<TokenValidationRes
     .select({
       id: downloadTokens.id,
       product_id: downloadTokens.product_id,
+      sale_id: downloadTokens.sale_id,
       expires_at: downloadTokens.expires_at,
       used_count: downloadTokens.used_count,
       max_uses: downloadTokens.max_uses,
