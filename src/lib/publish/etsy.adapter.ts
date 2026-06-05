@@ -405,7 +405,7 @@ async function uploadListingImage(args: {
   );
 }
 
-async function uploadListingFile(args: {
+export async function uploadListingFile(args: {
   shopId: number;
   listingId: number;
   sourceUrl: string;
