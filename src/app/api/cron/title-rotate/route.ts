@@ -97,10 +97,9 @@ async function updateEtsyListingTitle(
   const shopId = process.env.ETSY_SHOP_ID;
   if (!shopId) throw new Error('ETSY_SHOP_ID is not set');
 
-  const form = new URLSearchParams({ title: newTitle.slice(0, 140) });
   await etsyFetch(`/application/shops/${shopId}/listings/${listingId}`, {
     method: 'PUT',
-    form,
+    form: { title: newTitle.slice(0, 140) },
   });
 }
 
