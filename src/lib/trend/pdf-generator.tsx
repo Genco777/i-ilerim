@@ -953,10 +953,18 @@ function buildDocument(niche: NicheCandidate, content: ProductContent, ai: AiPag
       // Poster Sprint B — if we have a generated poster artwork (ai.cover),
       // embed it as the actual print-ready page (full-bleed). Otherwise fall
       // back to the V-3 typography poster (still readable, less premium).
+      //
+      // Sprint C — if ai.multiSizes exists, embed each size variant as a
+      // separate full-bleed page so the buyer gets 3 aspect ratios for
+      // standard print sizes (A-series / 8×10 / 11×14).
       if (ai.cover) {
+        const sizes = ai.multiSizes ?? [];
         return (
           <Document title={content.shopTitle}>
             <AiCoverPage buffer={ai.cover} />
+            {sizes.map((s, i) => (
+              <AiCoverPage key={`size-${i}`} buffer={s.buffer} />
+            ))}
             <HowToUsePage styles={styles} type="poster" />
             {BackCover()}
           </Document>

@@ -108,6 +108,8 @@ export interface AiPageBuffers {
   cover: Buffer | null;
   divider: Buffer | null;
   backCover: Buffer | null;
+  /** Sprint C — multi-size variants of the poster art (Plus/Pro tier). */
+  multiSizes?: Array<{ label: string; buffer: Buffer }>;
 }
 
 /**
@@ -205,9 +207,31 @@ export async function generateAiPages(args: {
   log('divider', dividerR);
   log('back-cover', backR);
 
+  const cover = coverR.status === 'fulfilled' ? coverR.value : null;
+
+  // Sprint C — Multi-size variants for posters (Plus/Pro tier value).
+  // Builds 3 aspect-ratio versions of the same art so a buyer can print at
+  // any of the standard sizes (A-series / 8×10 / 11×14). Skip for non-poster
+  // products and skip if cover failed.
+  let multiSizes: Array<{ label: string; buffer: Buffer }> | undefined;
+  if (cover && args.niche.productHint === 'poster') {
+    try {
+      const { buildPosterSizeVariants } = await import('./multi-size');
+      const variants = await buildPosterSizeVariants(cover);
+      multiSizes = variants.map((v) => ({
+        label: v.variant.label,
+        buffer: v.buffer,
+      }));
+      console.log(`[pdf-ai-pages] multi-size: built ${multiSizes.length} variants`);
+    } catch (err) {
+      console.warn('[pdf-ai-pages] multi-size build failed (skipping)', err);
+    }
+  }
+
   return {
-    cover: coverR.status === 'fulfilled' ? coverR.value : null,
+    cover,
     divider: dividerR.status === 'fulfilled' ? dividerR.value : null,
     backCover: backR.status === 'fulfilled' ? backR.value : null,
+    multiSizes,
   };
 }

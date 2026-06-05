@@ -79,6 +79,17 @@ export async function POST(req: Request) {
 }
 
 async function handleCheckoutCompleted(session: Stripe.Checkout.Session): Promise<void> {
+  // B2 — Bundle sale path: route to bundle delivery (multi-PDF email/zip).
+  // For now we just log; full bundle fulfilment is its own sprint (needs ZIP
+  // builder + per-product download links). Minimal: send buyer an email with
+  // links to each product's download page.
+  const bundleId = session.metadata?.bundle_id;
+  if (bundleId) {
+    console.log(`[stripe webhook] bundle sale for bundle ${bundleId}, session ${session.id}`);
+    // TODO Sprint: implement bundle fulfilment email with download links per product
+    return;
+  }
+
   const trendProductId = session.metadata?.trend_product_id;
   if (!trendProductId) {
     console.warn('[stripe webhook] checkout.session.completed has no trend_product_id metadata');

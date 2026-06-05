@@ -85,11 +85,24 @@ function buildUserPrompt(
     ? `\n\nAdditional market signals observed:\n${extraSignals.map((s) => `- ${s}`).join('\n')}`
     : '';
 
+  // Sprint E — Holiday calendar injection. Discovery now sees upcoming
+  // seasonal events so it can naturally prefer niches that tie into them.
+  let holidayBlock = '';
+  try {
+    // Lazy import to avoid top-level cycle.
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { buildHolidayPromptInjection } = require('./holiday-calendar') as typeof import('./holiday-calendar');
+    holidayBlock = '\n\n' + buildHolidayPromptInjection();
+  } catch {
+    /* ignore — holiday calendar is optional */
+  }
+
   return [
     `Seed area: ${seed.area}`,
     `Target audience: ${seed.audience}`,
     `Suggested product format: ${seed.productHint}`,
     signalsBlock,
+    holidayBlock,
     '',
     'Return 1-3 candidates as JSON. Each candidate must be a CONCRETE, SHIPPABLE product idea — not a category.',
   ].join('\n');
@@ -232,6 +245,22 @@ export async function discoverNiches(
   } catch (err) {
     // Non-fatal: scoring still works without the feedback signal.
     console.warn('[discovery] sales feedback unavailable, using raw scores', err);
+  }
+
+  // Sprint E — Holiday calendar boost. Niches that overlap an upcoming
+  // event's prep window get +0..30 points (closer events = bigger boost).
+  // Critical for 2027 Planner sezonu — Temmuz peak yaklaşıyor.
+  try {
+    const { scoreHolidayBoost } = await import('./holiday-calendar');
+    for (const niche of dedup.values()) {
+      const boost = scoreHolidayBoost(niche.topic, niche.productHint, date);
+      if (boost > 0) {
+        niche.score = Math.max(0, Math.min(100, niche.score + boost));
+        console.log(`[discovery-holiday] +${boost} for "${niche.topic}" (event match)`);
+      }
+    }
+  } catch (err) {
+    console.warn('[discovery-holiday] boost failed', err);
   }
 
   return Array.from(dedup.values())
