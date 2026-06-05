@@ -221,6 +221,7 @@ export async function optimizeKeywordsForExistingProduct(
     gapAngle: (n.gap_angle ?? '').slice(0, 400),
     score: n.score ?? 0,
     competition: (n.competition_level ?? 'medium') as 'low' | 'medium' | 'high',
+    sourceSignals: [],
     productHint: p.type as NicheCandidate['productHint'],
   };
 
