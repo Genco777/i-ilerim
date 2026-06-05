@@ -319,9 +319,12 @@ export async function generatePosterArtHero(
       err,
     );
     // Fallback: gpt-image-2 / flux via image-router so the pipeline survives.
+    // Router only accepts 1:1 / 9:16 / 16:9 / 4:5 — '4:5' is the closest
+    // vertical match to the 3:4 we requested from Banana Pro (acceptable
+    // crop loss on the long edge, posters get re-exported per size later).
     const route = routeImageTool('vitrine', niche.topic);
     const res = await generateWithRouter(prompt, route, {
-      aspectRatio: '3:4',
+      aspectRatio: '4:5',
       quality: 'high',
     });
     buffer = res.buffer;
