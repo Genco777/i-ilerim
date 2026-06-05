@@ -86,6 +86,9 @@ export async function GET(req: Request) {
     pdfRegenerated: boolean;
     etsyUrl?: string;
     etsyListingId?: number;
+    etsyFileCount?: number;
+    etsyImageCount?: number;
+    fileUploadError?: string;
     error?: string;
   }> = [];
 
@@ -166,7 +169,14 @@ export async function GET(req: Request) {
       const etsyResult = await publishToEtsy(product.id);
       result.etsyUrl = etsyResult.url ?? undefined;
       result.etsyListingId = etsyResult.listingId;
-      result.status = 'ok';
+      result.etsyFileCount = etsyResult.fileCount;
+      result.etsyImageCount = etsyResult.imageCount;
+      result.fileUploadError = etsyResult.fileUploadError;
+      // If PDF didn't get uploaded, treat as error (not "ok")
+      result.status = etsyResult.fileCount === 0 ? 'error' : 'ok';
+      if (etsyResult.fileCount === 0 && etsyResult.fileUploadError) {
+        result.error = etsyResult.fileUploadError;
+      }
     } catch (err) {
       result.status = 'error';
       result.error = err instanceof Error ? err.message.slice(0, 200) : String(err);

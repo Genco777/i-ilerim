@@ -102,6 +102,8 @@ export interface PublishToEtsyResult {
   imageCount: number;
   fileCount: number;
   alreadyExisted: boolean;
+  /** If PDF upload failed, exact error message (HTTP status + Etsy response body). */
+  fileUploadError?: string;
 }
 
 /**
@@ -249,7 +251,9 @@ export async function publishToEtsy(productRowId: string): Promise<PublishToEtsy
 
   // 6) Upload digital file (the PDF)
   let fileCount = 0;
+  let fileUploadError: string | undefined;
   if (!product.digital_file_url) {
+    fileUploadError = `product has NO digital_file_url in DB (PDF gen failed earlier)`;
     console.error(
       `[etsy] CRITICAL: product ${productRowId} has NO digital_file_url — PDF gen must have failed during cron. Etsy listing will have 0 files. URL: ${product.digital_file_url}`,
     );
@@ -267,6 +271,7 @@ export async function publishToEtsy(productRowId: string): Promise<PublishToEtsy
       );
     } catch (e) {
       const msg = e instanceof Error ? `${e.name}: ${e.message}` : String(e);
+      fileUploadError = msg.slice(0, 500);
       console.error(
         `[etsy] DIGITAL FILE UPLOAD FAILED for listing ${listingId} product ${productRowId}.\n` +
           `  source_url: ${product.digital_file_url}\n` +
@@ -347,6 +352,7 @@ export async function publishToEtsy(productRowId: string): Promise<PublishToEtsy
     imageCount,
     fileCount,
     alreadyExisted: false,
+    fileUploadError,
   };
 }
 
