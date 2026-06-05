@@ -337,49 +337,60 @@ export async function runDailyTrendPipeline(
           const realHeroUrl = coverUrl;
           const mockupHeroBuffer: Buffer = coverBuffer;
 
-          // Step 4 — mockups via Nano Banana Pro (V-2). The cover URL is the
-          // public Blob URL we just uploaded, passed as the reference image
-          // so the model can naturally place our actual product into scenes.
+          // Step 4 + Step 5 — PARALLEL: mockups (Banana Pro, ~15-40s) and
+          // video (Higgsfield, ~60-120s) are independent and can run at the
+          // same time. Sequential cost was 75-160s; parallel cost is
+          // max(mockup, video) ≈ 60-120s. This is the difference between
+          // hitting Vercel's 800s timeout (504) and finishing cleanly.
+          const enabledRaw = (process.env.ENABLE_AI_VIDEO ?? 'true').toLowerCase();
+          const videoEnabled = enabledRaw !== 'false' && enabledRaw !== '0';
+
+          const mockupPromise = composeMockupsForHero(
+            mockupHeroBuffer,
+            candidate.productHint,
+            insertedProduct.id,
+            realHeroUrl, // ← Nano Banana reference image (V-2)
+          );
+
+          const videoPromise: Promise<{ url: string } | null> = videoEnabled
+            ? generateProductVideo(candidate, content, insertedProduct.id, realHeroUrl).then(
+                (v) => ({ url: v.url }),
+              )
+            : Promise.resolve(null);
+
+          const [mockupResult, videoResult] = await Promise.allSettled([
+            mockupPromise,
+            videoPromise,
+          ]);
+
           let mockupUrls: string[] = [];
           let galleryUrl: string | null = null;
           let enhancedCoverUrl: string | null = null;
-          try {
-            const mockups = await composeMockupsForHero(
-              mockupHeroBuffer,
-              candidate.productHint,
-              insertedProduct.id,
-              realHeroUrl, // ← Nano Banana reference image (V-2)
-            );
-            mockupUrls = mockups.mockupUrls;
-            galleryUrl = mockups.galleryUrl;
-            enhancedCoverUrl = mockups.enhancedCoverUrl ?? null;
-          } catch (mockupErr) {
-            console.error('[trend] mockup composite failed', mockupErr);
+          if (mockupResult.status === 'fulfilled') {
+            mockupUrls = mockupResult.value.mockupUrls;
+            galleryUrl = mockupResult.value.galleryUrl;
+            enhancedCoverUrl = mockupResult.value.enhancedCoverUrl ?? null;
+          } else {
+            console.error('[trend] mockup composite failed', mockupResult.reason);
             summary.errors.push(
               `Mockup compose failed for "${candidate.topic}": ${
-                mockupErr instanceof Error ? mockupErr.message.slice(0, 200) : String(mockupErr)
+                mockupResult.reason instanceof Error
+                  ? mockupResult.reason.message.slice(0, 200)
+                  : String(mockupResult.reason)
               }`,
             );
           }
 
-          // ── Faz 2-D: generate cinematic video (best-effort) ──
           let videoUrl: string | null = null;
-          try {
-            const enabledRaw = (process.env.ENABLE_AI_VIDEO ?? 'true').toLowerCase();
-            if (enabledRaw !== 'false' && enabledRaw !== '0') {
-              const videoResult = await generateProductVideo(
-                candidate,
-                content,
-                insertedProduct.id,
-                realHeroUrl,
-              );
-              videoUrl = videoResult.url;
-            }
-          } catch (videoErr) {
-            console.error('[trend] video generation failed', videoErr);
+          if (videoResult.status === 'fulfilled') {
+            videoUrl = videoResult.value?.url ?? null;
+          } else {
+            console.error('[trend] video generation failed', videoResult.reason);
             summary.errors.push(
               `Video gen failed for "${candidate.topic}": ${
-                videoErr instanceof Error ? videoErr.message.slice(0, 200) : String(videoErr)
+                videoResult.reason instanceof Error
+                  ? videoResult.reason.message.slice(0, 200)
+                  : String(videoResult.reason)
               }`,
             );
           }
