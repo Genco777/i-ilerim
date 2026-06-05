@@ -879,9 +879,17 @@ export const products = pgTable(
     /** Type-specific PDF body content (prompts / stickers / sections) — Claude-generated */
     pdf_body: jsonb('pdf_body').default({}),
     price_cents: integer('price_cents').notNull(),
+    // B1 — tier variations (Plus/Pro) for AOV uplift. Basic = price_cents.
+    tier_b_price_cents: integer('tier_b_price_cents'),
+    tier_b_description: text('tier_b_description'),
+    tier_c_price_cents: integer('tier_c_price_cents'),
+    tier_c_description: text('tier_c_description'),
     // Stripe references (Faz 4)
     stripe_product_id: text('stripe_product_id'),
     stripe_price_id: text('stripe_price_id'),
+    // B1 — Stripe price refs for tier variants
+    stripe_price_b_id: text('stripe_price_b_id'),
+    stripe_price_c_id: text('stripe_price_c_id'),
     // Assets (Faz 2)
     hero_image_url: text('hero_image_url'),
     mockup_image_urls: text('mockup_image_urls').array().default([]),

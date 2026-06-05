@@ -61,21 +61,58 @@ export async function ensureStripeProduct(productRowId: string): Promise<StripeP
     shippable: false,
   });
 
-  // ── Create one-time Price in EUR ──
+  // ── Create one-time Price in EUR — Basic tier ──
   const stripePrice = await stripe.prices.create({
     product: stripeProduct.id,
     currency: 'eur',
     unit_amount: p.price_cents,
-    metadata: { trend_product_id: p.id },
+    metadata: { trend_product_id: p.id, tier: 'basic' },
     // Kleinunternehmer: we don't add VAT, so prices are gross (= net for §19)
     tax_behavior: 'inclusive',
+    nickname: 'Basic',
   });
+
+  // B1 — Plus + Pro tiers (best-effort; if either fails the Basic still works)
+  let stripePriceBId: string | null = null;
+  let stripePriceCId: string | null = null;
+  if (p.tier_b_price_cents) {
+    try {
+      const priceB = await stripe.prices.create({
+        product: stripeProduct.id,
+        currency: 'eur',
+        unit_amount: p.tier_b_price_cents,
+        metadata: { trend_product_id: p.id, tier: 'plus' },
+        tax_behavior: 'inclusive',
+        nickname: 'Plus',
+      });
+      stripePriceBId = priceB.id;
+    } catch (e) {
+      console.error('[stripe] tier B price create failed (continuing)', e);
+    }
+  }
+  if (p.tier_c_price_cents) {
+    try {
+      const priceC = await stripe.prices.create({
+        product: stripeProduct.id,
+        currency: 'eur',
+        unit_amount: p.tier_c_price_cents,
+        metadata: { trend_product_id: p.id, tier: 'pro' },
+        tax_behavior: 'inclusive',
+        nickname: 'Pro',
+      });
+      stripePriceCId = priceC.id;
+    } catch (e) {
+      console.error('[stripe] tier C price create failed (continuing)', e);
+    }
+  }
 
   await db
     .update(products)
     .set({
       stripe_product_id: stripeProduct.id,
       stripe_price_id: stripePrice.id,
+      stripe_price_b_id: stripePriceBId,
+      stripe_price_c_id: stripePriceCId,
       is_public_in_shop: 1,
       updated_at: new Date(),
     })

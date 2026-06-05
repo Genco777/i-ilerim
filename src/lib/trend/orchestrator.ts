@@ -218,6 +218,11 @@ export async function runDailyTrendPipeline(
           turkish_summary: content.turkishSummary,
           pdf_body: content.pdfBody,
           price_cents: content.priceCents,
+          // B1 — tier variants
+          tier_b_price_cents: content.tierBPriceCents ?? null,
+          tier_b_description: content.tierBDescription ?? null,
+          tier_c_price_cents: content.tierCPriceCents ?? null,
+          tier_c_description: content.tierCDescription ?? null,
         })
         .returning({ id: products.id });
 

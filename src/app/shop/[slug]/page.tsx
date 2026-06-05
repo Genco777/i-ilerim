@@ -110,15 +110,63 @@ export default async function ProductDetail(props: PageProps) {
             </div>
           ) : null}
 
-          <form action="/api/shop/checkout" method="post" className="mt-7">
-            <input type="hidden" name="slug" value={product.slug ?? ''} />
-            <button
-              type="submit"
-              className="w-full inline-flex items-center justify-center rounded-lg bg-primary text-primary-foreground px-8 py-4 text-base font-semibold tracking-tight hover:opacity-90 transition-opacity"
-            >
-              Buy now · €{priceEur}
-            </button>
-          </form>
+          {/* B1 — Tier selector: Basic / Plus / Pro */}
+          <div className="mt-8 space-y-3">
+            <form action="/api/shop/checkout" method="post">
+              <input type="hidden" name="slug" value={product.slug ?? ''} />
+              <input type="hidden" name="tier" value="basic" />
+              <button
+                type="submit"
+                className="w-full text-left rounded-lg border border-border bg-card hover:border-foreground/20 p-5 transition-colors"
+              >
+                <div className="flex items-baseline justify-between">
+                  <div>
+                    <p className="text-xs uppercase tracking-widest text-muted-foreground mb-1">Basic</p>
+                    <p className="text-base font-semibold text-foreground">Printable PDF · instant download</p>
+                  </div>
+                  <p className="text-2xl font-bold text-foreground">€{priceEur}</p>
+                </div>
+              </button>
+            </form>
+            {product.tier_b_price_cents && product.tier_b_description ? (
+              <form action="/api/shop/checkout" method="post">
+                <input type="hidden" name="slug" value={product.slug ?? ''} />
+                <input type="hidden" name="tier" value="plus" />
+                <button
+                  type="submit"
+                  className="w-full text-left rounded-lg border-2 border-primary/40 bg-primary/5 hover:border-primary/60 p-5 transition-colors"
+                >
+                  <div className="flex items-baseline justify-between mb-2">
+                    <div>
+                      <p className="text-xs uppercase tracking-widest text-primary mb-1">Plus · most popular</p>
+                      <p className="text-base font-semibold text-foreground">PDF + editable Canva + 3 bonus pages</p>
+                    </div>
+                    <p className="text-2xl font-bold text-foreground">€{(product.tier_b_price_cents / 100).toFixed(2)}</p>
+                  </div>
+                  <p className="text-xs text-muted-foreground leading-relaxed">{product.tier_b_description}</p>
+                </button>
+              </form>
+            ) : null}
+            {product.tier_c_price_cents && product.tier_c_description ? (
+              <form action="/api/shop/checkout" method="post">
+                <input type="hidden" name="slug" value={product.slug ?? ''} />
+                <input type="hidden" name="tier" value="pro" />
+                <button
+                  type="submit"
+                  className="w-full text-left rounded-lg border border-border bg-card hover:border-foreground/20 p-5 transition-colors"
+                >
+                  <div className="flex items-baseline justify-between mb-2">
+                    <div>
+                      <p className="text-xs uppercase tracking-widest text-muted-foreground mb-1">Pro</p>
+                      <p className="text-base font-semibold text-foreground">Everything + 30-day support + quarterly drops</p>
+                    </div>
+                    <p className="text-2xl font-bold text-foreground">€{(product.tier_c_price_cents / 100).toFixed(2)}</p>
+                  </div>
+                  <p className="text-xs text-muted-foreground leading-relaxed">{product.tier_c_description}</p>
+                </button>
+              </form>
+            ) : null}
+          </div>
 
           {/* Reassurance row */}
           <ul className="mt-5 grid grid-cols-2 gap-3 text-xs text-muted-foreground">

@@ -83,10 +83,12 @@ function buildVideoPrompt(
   };
   const cameraMove = cameraByType[niche.productHint] ?? cameraByType.planner;
   return [
-    `Editorial still-life product film: "${content.shopTitle}". Theme: ${niche.topic}.`,
-    `CAMERA MOVEMENT: ${cameraMove}.`,
-    'STYLE: high-end commercial advertisement film, restrained editorial colour palette, magazine-quality cinematography, gentle film grain, golden-hour soft lighting.',
-    'CRITICAL — ABSOLUTE STATIC SUBJECT REQUIREMENT: the product itself must remain 100% identical to the source image — no movement, no morphing, no rotation, no shifting, no text changing, no objects appearing or disappearing. The PRODUCT IS FROZEN IN PLACE. Only the camera moves through space. This is a still-life shot, not an animation.',
+    `Editorial slideshow-style product reveal: "${content.shopTitle}". Theme: ${niche.topic}.`,
+    // V-12.5: Ken-Burns slideshow feel — multiple smooth camera moves over 5s
+    // so a single shot feels like a 2-3 frame slideshow.
+    `CAMERA CHOREOGRAPHY: start with slow Ken-Burns zoom-in (0-2 s, focal point centred on the title), then smooth lateral pan to the right (2-3.5 s, revealing the lower botanical detail), then gentle pull-back to wide framing (3.5-5 s, full cover composition revealed). ${cameraMove}.`,
+    'STYLE: high-end Anthropologie / Magnolia commercial film, restrained editorial colour palette, magazine-quality cinematography, gentle film grain, golden-hour soft lighting, occasional dust particle drift through the light beam.',
+    'CRITICAL — ABSOLUTE STATIC SUBJECT REQUIREMENT: the product itself must remain 100% identical to the source image — no movement, no morphing, no rotation, no text changing, no objects appearing or disappearing. The PRODUCT IS FROZEN IN PLACE. Only the camera moves through space. This is a slideshow reveal, not a subject animation.',
     'AVOID: animated objects, rotating items, changing text, distortion, morphing, additional elements, AI artefacts, jittery motion, cartoon style.',
   ].join(' ');
 }

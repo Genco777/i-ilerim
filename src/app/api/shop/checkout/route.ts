@@ -19,31 +19,35 @@ import { ensureStripeProduct } from '@/lib/stripe/products';
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 
-async function extractSlug(req: Request): Promise<string | null> {
+async function extractInput(req: Request): Promise<{ slug: string | null; tier: 'basic' | 'plus' | 'pro' }> {
   const contentType = (req.headers.get('content-type') ?? '').toLowerCase();
+  let slug: string | null = null;
+  let tier: 'basic' | 'plus' | 'pro' = 'basic';
 
-  // JSON body
   if (contentType.includes('application/json')) {
     try {
-      const body = (await req.json()) as { slug?: unknown };
-      return typeof body.slug === 'string' && body.slug.length > 0 ? body.slug : null;
+      const body = (await req.json()) as { slug?: unknown; tier?: unknown };
+      if (typeof body.slug === 'string' && body.slug.length > 0) slug = body.slug;
+      if (body.tier === 'plus' || body.tier === 'pro') tier = body.tier;
+      return { slug, tier };
     } catch {
-      return null;
+      return { slug: null, tier };
     }
   }
-
-  // HTML form (default) — application/x-www-form-urlencoded or multipart/form-data
   try {
     const fd = await req.formData();
     const s = fd.get('slug');
-    return typeof s === 'string' && s.length > 0 ? s : null;
+    const t = fd.get('tier');
+    if (typeof s === 'string' && s.length > 0) slug = s;
+    if (t === 'plus' || t === 'pro') tier = t;
+    return { slug, tier };
   } catch {
-    return null;
+    return { slug: null, tier };
   }
 }
 
 export async function POST(req: Request) {
-  const slug = await extractSlug(req);
+  const { slug, tier } = await extractInput(req);
 
   if (!slug) {
     return NextResponse.json({ error: 'slug required' }, { status: 400 });
@@ -63,14 +67,23 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: 'Product not available' }, { status: 403 });
   }
 
-  // Make sure Stripe Product + Price exist (idempotent)
+  // Make sure Stripe Product + Prices exist (idempotent; creates Basic+Plus+Pro)
   const { priceId } = await ensureStripeProduct(product.id);
+
+  // Re-fetch product so we see the freshly-stored tier price IDs
+  const freshRows = await db.select().from(products).where(eq(products.id, product.id)).limit(1);
+  const fresh = freshRows[0]!;
+
+  // Pick the price for the requested tier (fallback to Basic if tier missing)
+  let selectedPrice = priceId;
+  if (tier === 'plus' && fresh.stripe_price_b_id) selectedPrice = fresh.stripe_price_b_id;
+  else if (tier === 'pro' && fresh.stripe_price_c_id) selectedPrice = fresh.stripe_price_c_id;
 
   const base = getShopBaseUrl().replace(/\/+$/, '');
   const stripe = getStripe();
   const session = await stripe.checkout.sessions.create({
     mode: 'payment',
-    line_items: [{ price: priceId, quantity: 1 }],
+    line_items: [{ price: selectedPrice, quantity: 1 }],
     success_url: `${base}/success?session_id={CHECKOUT_SESSION_ID}`,
     cancel_url: `${base}/${slug}?cancelled=1`,
     payment_method_types: ['card'],
@@ -80,6 +93,7 @@ export async function POST(req: Request) {
     metadata: {
       trend_product_id: product.id,
       product_slug: product.slug ?? '',
+      tier,
     },
     automatic_tax: { enabled: false },
   });

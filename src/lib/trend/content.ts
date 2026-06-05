@@ -41,7 +41,15 @@ export interface ProductContent {
   tags: string[]; // exactly 13, each ≤20 chars
   shopTitle: string;
   shopDescription: string;
-  priceCents: number; // suggested price
+  priceCents: number; // Basic tier price (suggested)
+  /** B1 — Plus tier (additional content/format): +66% over Basic. */
+  tierBPriceCents?: number;
+  /** Short paragraph describing what Plus adds vs Basic. */
+  tierBDescription?: string;
+  /** B1 — Pro tier (premium): +166% over Basic. */
+  tierCPriceCents?: number;
+  /** Short paragraph describing what Pro adds vs Plus. */
+  tierCDescription?: string;
   slug: string; // url-safe slug for /shop/[slug]
   /** Turkish — operator-facing only (Telegram digest + approval UI). */
   turkishGapAngle: string;
@@ -375,6 +383,19 @@ function validateAndNormalize(
       .filter((s) => s.items.length > 0);
   }
 
+  // B1 — Tier pricing variations (deterministic, no extra LLM call needed)
+  // Basic = base price. Plus +70% (extras). Pro +160% (premium support).
+  const tierBPriceCents = Math.round(priceCents * 1.7);
+  const tierCPriceCents = Math.round(priceCents * 2.6);
+  const tierBDescription =
+    'PLUS includes the printable PDF · plus an editable Canva template ' +
+    '(swap text, colours, and brand it your way) · plus 3 bonus pages we ' +
+    'don\'t include in Basic.';
+  const tierCDescription =
+    'PRO includes everything in PLUS · plus a 30-day direct-email support ' +
+    'window with the Karben studio (we answer within 12 hours, weekends too) ' +
+    '· plus quarterly content drops for the same niche (free updates for life).';
+
   return {
     etsyTitle,
     etsyDescription,
@@ -382,6 +403,10 @@ function validateAndNormalize(
     shopTitle,
     shopDescription,
     priceCents,
+    tierBPriceCents,
+    tierBDescription,
+    tierCPriceCents,
+    tierCDescription,
     slug: slugify(`${niche.topic}-${shopTitle}`).slice(0, 80),
     turkishGapAngle,
     turkishSummary,
