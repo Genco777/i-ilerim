@@ -19,35 +19,55 @@ import { ensureStripeProduct } from '@/lib/stripe/products';
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 
-async function extractInput(req: Request): Promise<{ slug: string | null; tier: 'basic' | 'plus' | 'pro' }> {
+interface CheckoutInput {
+  slug: string | null;
+  tier: 'basic' | 'plus' | 'pro';
+  customName: string | null;
+  customDate: string | null;
+}
+
+async function extractInput(req: Request): Promise<CheckoutInput> {
   const contentType = (req.headers.get('content-type') ?? '').toLowerCase();
   let slug: string | null = null;
   let tier: 'basic' | 'plus' | 'pro' = 'basic';
+  let customName: string | null = null;
+  let customDate: string | null = null;
 
   if (contentType.includes('application/json')) {
     try {
-      const body = (await req.json()) as { slug?: unknown; tier?: unknown };
+      const body = (await req.json()) as {
+        slug?: unknown;
+        tier?: unknown;
+        custom_name?: unknown;
+        custom_date?: unknown;
+      };
       if (typeof body.slug === 'string' && body.slug.length > 0) slug = body.slug;
       if (body.tier === 'plus' || body.tier === 'pro') tier = body.tier;
-      return { slug, tier };
+      if (typeof body.custom_name === 'string' && body.custom_name.trim()) customName = body.custom_name.trim().slice(0, 40);
+      if (typeof body.custom_date === 'string' && body.custom_date.trim()) customDate = body.custom_date.trim().slice(0, 30);
+      return { slug, tier, customName, customDate };
     } catch {
-      return { slug: null, tier };
+      return { slug, tier, customName, customDate };
     }
   }
   try {
     const fd = await req.formData();
     const s = fd.get('slug');
     const t = fd.get('tier');
+    const n = fd.get('custom_name');
+    const d = fd.get('custom_date');
     if (typeof s === 'string' && s.length > 0) slug = s;
     if (t === 'plus' || t === 'pro') tier = t;
-    return { slug, tier };
+    if (typeof n === 'string' && n.trim()) customName = n.trim().slice(0, 40);
+    if (typeof d === 'string' && d.trim()) customDate = d.trim().slice(0, 30);
+    return { slug, tier, customName, customDate };
   } catch {
-    return { slug: null, tier };
+    return { slug, tier, customName, customDate };
   }
 }
 
 export async function POST(req: Request) {
-  const { slug, tier } = await extractInput(req);
+  const { slug, tier, customName, customDate } = await extractInput(req);
 
   if (!slug) {
     return NextResponse.json({ error: 'slug required' }, { status: 400 });
@@ -99,6 +119,9 @@ export async function POST(req: Request) {
       trend_product_id: product.id,
       product_slug: product.slug ?? '',
       tier,
+      // Sprint G — Pro tier personalization data, picked up by webhook
+      ...(tier === 'pro' && customName ? { custom_name: customName } : {}),
+      ...(tier === 'pro' && customDate ? { custom_date: customDate } : {}),
     },
     automatic_tax: { enabled: false },
     expires_at: expiresAt, // C2 — short expiry so abandoned events fire promptly

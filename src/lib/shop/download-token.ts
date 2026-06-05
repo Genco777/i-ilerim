@@ -100,7 +100,19 @@ export async function consumeToken(tokenStr: string): Promise<TokenValidationRes
     return { valid: false, reason: 'used_up', productId: t.product_id };
   }
 
-  // 3) Look up the product's deliverable file URL
+  // 3) Look up the product's deliverable file URL.
+  // Sprint G — if the sale was personalized (Pro tier with custom_name),
+  // serve the regenerated personalized PDF instead of the standard one.
+  const { productSales } = await import('@/lib/db/schema');
+  const saleRows = t.sale_id
+    ? await db
+        .select({ personalized_file_url: productSales.personalized_file_url })
+        .from(productSales)
+        .where(eq(productSales.id, t.sale_id))
+        .limit(1)
+    : [];
+  const personalizedUrl = saleRows[0]?.personalized_file_url ?? null;
+
   const productRows = await db
     .select({ digital_file_url: products.digital_file_url })
     .from(products)
@@ -110,6 +122,6 @@ export async function consumeToken(tokenStr: string): Promise<TokenValidationRes
   return {
     valid: true,
     productId: t.product_id,
-    digitalFileUrl: productRows[0]?.digital_file_url ?? null,
+    digitalFileUrl: personalizedUrl ?? productRows[0]?.digital_file_url ?? null,
   };
 }

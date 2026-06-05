@@ -1055,6 +1055,12 @@ export const productSales = pgTable(
     raw_payload: jsonb('raw_payload'),
     // P1.6 — Reviews automation cron sets this 14 days after sold_at
     review_ask_sent_at: timestamp('review_ask_sent_at', { withTimezone: true }),
+    // Sprint G — Personalization Pro Tier
+    tier: text('tier').default('basic'), // 'basic' | 'plus' | 'pro'
+    custom_name: text('custom_name'),    // Pro tier: buyer-entered name
+    custom_date: text('custom_date'),    // Pro tier: buyer-entered date (YYYY-MM-DD)
+    personalized_file_url: text('personalized_file_url'), // regenerated PDF with overlay
+    personalized_at: timestamp('personalized_at', { withTimezone: true }),
   },
   (t) => ({
     productIdx: index('sales_product_idx').on(t.product_id),

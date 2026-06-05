@@ -122,6 +122,10 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session): Promis
         buyer_country: session.customer_details?.address?.country ?? null,
         sold_at: new Date((session.created ?? Math.floor(Date.now() / 1000)) * 1000),
         raw_payload: session as unknown as Record<string, unknown>,
+        // Sprint G — store tier + personalization fields if present
+        tier: (session.metadata?.tier as string) ?? 'basic',
+        custom_name: (session.metadata?.custom_name as string) ?? null,
+        custom_date: (session.metadata?.custom_date as string) ?? null,
       })
       .returning({ id: productSales.id });
     saleId = inserted[0]?.id ?? null;
@@ -132,6 +136,35 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session): Promis
   }
 
   if (!saleId) return;
+
+  // Sprint G — Pro tier personalization. If the buyer entered a custom name,
+  // regenerate the PDF with a Sharp overlay before issuing the download token.
+  // Best-effort: if personalization fails, the buyer gets the standard PDF.
+  const customName = session.metadata?.custom_name as string | undefined;
+  const customDate = session.metadata?.custom_date as string | undefined;
+  if (customName) {
+    try {
+      const { personalizeProductPdf } = await import('@/lib/trend/personalize');
+      const personalized = await personalizeProductPdf(
+        product.id,
+        saleId,
+        customName,
+        customDate ?? null,
+      );
+      if (personalized) {
+        await db
+          .update(productSales)
+          .set({
+            personalized_file_url: personalized.url,
+            personalized_at: new Date(),
+          })
+          .where(eq(productSales.id, saleId));
+        console.log(`[personalize] sale ${saleId} got personalized PDF: ${personalized.url}`);
+      }
+    } catch (err) {
+      console.warn('[personalize] failed (buyer will get standard PDF)', err);
+    }
+  }
 
   // ── 2) Issue download token ──
   const { url: downloadUrl, expiresAt } = await issueDownloadToken({

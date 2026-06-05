@@ -148,21 +148,57 @@ export default async function ProductDetail(props: PageProps) {
               </form>
             ) : null}
             {product.tier_c_price_cents && product.tier_c_description ? (
-              <form action="/api/shop/checkout" method="post">
+              <form action="/api/shop/checkout" method="post" className="rounded-lg border border-border bg-card p-5">
                 <input type="hidden" name="slug" value={product.slug ?? ''} />
                 <input type="hidden" name="tier" value="pro" />
+                <div className="flex items-baseline justify-between mb-2">
+                  <div>
+                    <p className="text-xs uppercase tracking-widest text-muted-foreground mb-1">Pro · personalized</p>
+                    <p className="text-base font-semibold text-foreground">Everything + personalized for you</p>
+                  </div>
+                  <p className="text-2xl font-bold text-foreground">€{(product.tier_c_price_cents / 100).toFixed(2)}</p>
+                </div>
+                <p className="text-xs text-muted-foreground leading-relaxed mb-4">{product.tier_c_description}</p>
+
+                {/* Sprint G — Personalization inputs (Pro only) */}
+                <div className="space-y-3 mt-4 mb-4 p-3 rounded bg-muted/40 border border-border/50">
+                  <p className="text-[11px] uppercase tracking-widest text-muted-foreground">
+                    Personalize this download
+                  </p>
+                  <div>
+                    <label htmlFor="custom_name" className="block text-xs text-foreground mb-1">
+                      Name to print on cover
+                    </label>
+                    <input
+                      id="custom_name"
+                      type="text"
+                      name="custom_name"
+                      maxLength={40}
+                      placeholder="e.g. Sarah"
+                      className="w-full px-3 py-2 text-sm rounded border border-border bg-background"
+                      required
+                    />
+                  </div>
+                  <div>
+                    <label htmlFor="custom_date" className="block text-xs text-foreground mb-1">
+                      Date (optional — e.g. wedding date, birthday)
+                    </label>
+                    <input
+                      id="custom_date"
+                      type="text"
+                      name="custom_date"
+                      maxLength={30}
+                      placeholder="e.g. June 2026"
+                      className="w-full px-3 py-2 text-sm rounded border border-border bg-background"
+                    />
+                  </div>
+                </div>
+
                 <button
                   type="submit"
-                  className="w-full text-left rounded-lg border border-border bg-card hover:border-foreground/20 p-5 transition-colors"
+                  className="w-full rounded-lg bg-foreground text-background hover:opacity-90 p-3 transition-opacity font-semibold text-sm"
                 >
-                  <div className="flex items-baseline justify-between mb-2">
-                    <div>
-                      <p className="text-xs uppercase tracking-widest text-muted-foreground mb-1">Pro</p>
-                      <p className="text-base font-semibold text-foreground">Everything + 30-day support + quarterly drops</p>
-                    </div>
-                    <p className="text-2xl font-bold text-foreground">€{(product.tier_c_price_cents / 100).toFixed(2)}</p>
-                  </div>
-                  <p className="text-xs text-muted-foreground leading-relaxed">{product.tier_c_description}</p>
+                  Order personalized — €{(product.tier_c_price_cents / 100).toFixed(2)}
                 </button>
               </form>
             ) : null}
