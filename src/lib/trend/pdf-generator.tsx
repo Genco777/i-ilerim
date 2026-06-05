@@ -950,6 +950,18 @@ function buildDocument(niche: NicheCandidate, content: ProductContent, ai: AiPag
     }
 
     case 'poster': {
+      // Poster Sprint B — if we have a generated poster artwork (ai.cover),
+      // embed it as the actual print-ready page (full-bleed). Otherwise fall
+      // back to the V-3 typography poster (still readable, less premium).
+      if (ai.cover) {
+        return (
+          <Document title={content.shopTitle}>
+            <AiCoverPage buffer={ai.cover} />
+            <HowToUsePage styles={styles} type="poster" />
+            {BackCover()}
+          </Document>
+        );
+      }
       const { phrase, subline } =
         body.posterPhrase
           ? { phrase: body.posterPhrase, subline: body.posterSubline ?? niche.topic }

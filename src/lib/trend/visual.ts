@@ -185,11 +185,18 @@ export async function composeMockupsForHero(
         // trust bar. This is what gets uploaded to Etsy/shop as the marketing
         // hero, showing the actual product in lifestyle scenes (magazine-style).
         // The PLAIN cover (heroBuffer) still gets embedded in the PDF.
+        //
+        // Poster Sprint B: SKIP enhanced cover for posters. The poster art IS
+        // the marketing hero — slapping a "WHAT'S INSIDE · TRUST BAR" magazine
+        // chrome over a wall-art piece destroys what makes it sellable. The
+        // mockup gallery handles the lifestyle proof job for posters.
         let enhancedCoverBuf: Buffer | null = null;
-        try {
-          enhancedCoverBuf = await composeEnhancedCover(heroBuffer, banana.slice(0, 4));
-        } catch (err) {
-          console.warn('[visual] enhanced cover composite failed (using plain cover)', err);
+        if (productHint !== 'poster') {
+          try {
+            enhancedCoverBuf = await composeEnhancedCover(heroBuffer, banana.slice(0, 4));
+          } catch (err) {
+            console.warn('[visual] enhanced cover composite failed (using plain cover)', err);
+          }
         }
 
         const uploads = await Promise.all([
@@ -273,4 +280,107 @@ export async function generateCoverHeroImage(
   const filename = `trend/${productId}/cover-hero-${ts}.jpg`;
   const uploaded = await uploadImage(buffer, filename, 'image/jpeg');
   return { buffer, url: uploaded.url, pathname: uploaded.pathname };
+}
+
+/**
+ * Poster Sprint B — Wall-art hero generator.
+ *
+ * Posters live and die by the art itself. For planner / template / sticker the
+ * "cover" is editorial typography on a watercolour ground. For posters the
+ * cover IS the artwork — no typography overlay, no monogram, just a beautiful
+ * print-ready illustration that buyers can imagine framed above their sofa.
+ *
+ * This bypasses the next/og cover renderer entirely and asks Nano Banana Pro
+ * to produce the artwork directly at 2K resolution, vertical 3:4 (matches
+ * standard A3/A2 print ratio).
+ *
+ * Theme + niche + art-style cues flow through `buildPosterArtPrompt` below
+ * so the visual stays on-niche (boho vs. mid-century vs. botanical etc.).
+ */
+export async function generatePosterArtHero(
+  niche: NicheCandidate,
+  content: ProductContent,
+  productId: string,
+): Promise<{ buffer: Buffer; url: string; pathname: string }> {
+  const { nanoBananaGenerate } = await import('@/lib/publish/nano-banana');
+  const prompt = buildPosterArtPrompt(niche, content);
+
+  let buffer: Buffer;
+  try {
+    buffer = await nanoBananaGenerate({
+      prompt,
+      aspectRatio: '3:4',
+      resolution: '2K',
+      // No reference image — we want freshly-composed wall art.
+    });
+  } catch (err) {
+    console.warn(
+      '[poster-hero] Nano Banana Pro failed, falling back to router (gpt-image-2/flux)',
+      err,
+    );
+    // Fallback: gpt-image-2 / flux via image-router so the pipeline survives.
+    const route = routeImageTool('vitrine', niche.topic);
+    const res = await generateWithRouter(prompt, route, {
+      aspectRatio: '3:4',
+      quality: 'high',
+    });
+    buffer = res.buffer;
+  }
+
+  const ts = Date.now();
+  const filename = `trend/${productId}/poster-art-${ts}.jpg`;
+  const uploaded = await uploadImage(buffer, filename, 'image/jpeg');
+  return { buffer, url: uploaded.url, pathname: uploaded.pathname };
+}
+
+/**
+ * Build a poster-specific art prompt. Hits four key elements every line:
+ *  1. Art style cue — boho watercolour / mid-century geometric / botanical line / etc.
+ *  2. Subject matter — derived from niche topic
+ *  3. Color palette — derived from theme (cream / forest / rose / noir / slate)
+ *  4. Print-ready quality — vertical, generous margin, no text, suitable for framing
+ *
+ * Why no title text? Because:
+ *  - Buyers want art they can frame, not a "cover" that says the niche name on it
+ *  - Quote / typography posters can be a separate seed niche later (we'll detect
+ *    those by topic keyword and switch the prompt accordingly)
+ */
+function buildPosterArtPrompt(niche: NicheCandidate, content: ProductContent): string {
+  const topic = (niche.topic ?? '').toLowerCase();
+
+  // Style inference from niche topic (cheap heuristic; later we'll get this
+  // from Claude as a structured field in ProductContent).
+  let style: string;
+  if (/boho|watercolor|cottagecore|botan|nursery|floral|garden|mushroom/.test(topic)) {
+    style = 'hand-painted watercolour with soft botanical illustration and warm cream paper texture';
+  } else if (/mid-century|geometric|abstract|bauhaus|modern/.test(topic)) {
+    style = 'mid-century modern flat illustration with bold geometric shapes, limited 3-color palette, and crisp vector edges';
+  } else if (/line art|line-art|minimalist|line drawing|continuous line/.test(topic)) {
+    style = 'minimalist single-line continuous drawing in deep ink on cream, generous whitespace';
+  } else if (/mountain|landscape|forest|nature|cabin|wabi/.test(topic)) {
+    style = 'serene minimalist landscape illustration in a muted earth-tone palette, soft watercolour washes and faint ink contours';
+  } else if (/celestial|moon|cosmic|astro|witch|tarot|spiritual/.test(topic)) {
+    style = 'celestial line illustration in deep navy and warm gold, moon phases or constellation motifs on a dusky paper ground';
+  } else if (/affirmation|quote|typography|feminist|empowerment/.test(topic)) {
+    style = 'editorial typographic poster: short uplifting quote rendered in elegant serif typography centered on a warm cream ground, no decorative imagery beyond two minimal botanical sprigs at top and bottom';
+  } else if (/kids|nursery|baby|alphabet|animal/.test(topic)) {
+    style = 'soft watercolour children\'s illustration in pastel palette, gentle round shapes, friendly characters or alphabet motifs on cream paper';
+  } else if (/city map|city|map|travel/.test(topic)) {
+    style = 'minimalist single-line city map illustration, monochrome ink on cream, street grid abstracted into clean geometric lines';
+  } else if (/french|bistro|kitchen|food|culinary/.test(topic)) {
+    style = 'vintage French bistro illustration in muted sepia and burgundy on cream, hand-drawn ink with subtle watercolour wash, evokes 1920s Parisian print';
+  } else if (/dark academia|book|library|study/.test(topic)) {
+    style = 'dark academia illustration in deep forest green and warm parchment, vintage book / quill / candle motifs, ink etching style';
+  } else {
+    style = 'soft watercolour and ink illustration in a warm editorial palette on cream paper, hand-drawn organic composition';
+  }
+
+  return [
+    `Printable wall art poster. ${style}.`,
+    `Subject: ${niche.topic}. Inspiration / mood: ${niche.gapAngle.slice(0, 160)}.`,
+    `Composition: vertical 3:4 portrait orientation, generous breathing room around the artwork (suitable for framing in a standard 18×24 / A2 frame), the main subject centered and confidently sized.`,
+    `Style: print-ready, high resolution, gallery-quality artwork. Looks like something from a high-end Etsy print shop or Society6 bestseller.`,
+    `STRICT: NO text, NO captions, NO watermarks, NO logos, NO monograms, NO frames in the image, NO photographic 3D — purely illustrated 2D artwork edge-to-edge.`,
+    `The image IS the poster art — what you generate is exactly what gets framed on a wall.`,
+  ].join(' ');
 }

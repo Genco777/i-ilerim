@@ -22,6 +22,7 @@ import {
   generateAiHeroForPdfCover,
   composeMockupsForHero,
   generateCoverHeroImage,
+  generatePosterArtHero,
 } from './visual';
 import { generateProductPdf } from './pdf-generator';
 import { generateProductVideo } from './video';
@@ -68,6 +69,11 @@ export interface OrchestratorOptions {
    * ALLOWED_TELEGRAM_USER_IDS env (same as notifyAdmins).
    */
   approvalChatIds?: number[];
+  /**
+   * Restrict discovery seed pool to a single product type. Used by the
+   * dedicated poster cron so it doesn't generate planners (and vice versa).
+   */
+  productHintFilter?: 'planner' | 'poster' | 'sticker' | 'template' | 'social_template';
 }
 
 /**
@@ -128,6 +134,7 @@ export async function runDailyTrendPipeline(
       date,
       seedCount: 6,
       maxNiches: cap + 1,
+      productHintFilter: opts.productHintFilter,
     });
   } catch (err) {
     summary.errors.push(
@@ -260,18 +267,35 @@ export async function runDailyTrendPipeline(
           // V-5 — generate the ONE cover image first. This single image becomes
           // the marketing hero, the Nano Banana mockup reference, the Higgsfield
           // video input, and the embedded PDF cover. Single source of truth.
+          //
+          // Poster Sprint B: posters get a DIFFERENT hero generator. The cover
+          // renderer (next/og typography + watercolour BG) is fine for planners
+          // but wrong for wall-art — buyers want art they can frame, not a
+          // "cover page" with a title overlay. For productHint='poster' we
+          // route through generatePosterArtHero which produces the actual
+          // print-ready artwork via Banana Pro (no text, no monogram).
           let coverBuffer: Buffer;
           let coverUrl: string;
           try {
-            const themeKey = pickPdfThemeKey(candidate.topic, candidate.productHint);
-            const cover = await generateCoverHeroImage(
-              candidate,
-              content,
-              themeKey,
-              insertedProduct.id,
-            );
-            coverBuffer = cover.buffer;
-            coverUrl = cover.url;
+            if (candidate.productHint === 'poster') {
+              const art = await generatePosterArtHero(
+                candidate,
+                content,
+                insertedProduct.id,
+              );
+              coverBuffer = art.buffer;
+              coverUrl = art.url;
+            } else {
+              const themeKey = pickPdfThemeKey(candidate.topic, candidate.productHint);
+              const cover = await generateCoverHeroImage(
+                candidate,
+                content,
+                themeKey,
+                insertedProduct.id,
+              );
+              coverBuffer = cover.buffer;
+              coverUrl = cover.url;
+            }
           } catch (coverErr) {
             // Fallback: gpt-image-2 hero so the pipeline can still produce
             // *something* if Nano Banana Pro is down or quota-exhausted.

@@ -114,11 +114,21 @@ export async function sendVideo(
 export async function editMessageReplyMarkup(
   opts: EditMarkupOptions,
 ): Promise<void> {
-  await call('editMessageReplyMarkup', {
-    chat_id: opts.chatId,
-    message_id: opts.messageId,
-    reply_markup: opts.replyMarkup,
-  });
+  try {
+    await call('editMessageReplyMarkup', {
+      chat_id: opts.chatId,
+      message_id: opts.messageId,
+      reply_markup: opts.replyMarkup,
+    });
+  } catch (err) {
+    // Telegram throws "message is not modified" when the new keyboard is
+    // identical to the current one — happens on double-tapped callbacks
+    // and on idempotent re-edits. Benign: swallow silently. Anything else
+    // still propagates.
+    const msg = err instanceof Error ? err.message : String(err);
+    if (msg.includes('message is not modified')) return;
+    throw err;
+  }
 }
 
 interface EditMessageTextOptions {
@@ -132,13 +142,20 @@ interface EditMessageTextOptions {
 export async function editMessageText(
   opts: EditMessageTextOptions,
 ): Promise<void> {
-  await call('editMessageText', {
-    chat_id: opts.chatId,
-    message_id: opts.messageId,
-    text: opts.text,
-    parse_mode: opts.parseMode,
-    reply_markup: opts.replyMarkup,
-  });
+  try {
+    await call('editMessageText', {
+      chat_id: opts.chatId,
+      message_id: opts.messageId,
+      text: opts.text,
+      parse_mode: opts.parseMode,
+      reply_markup: opts.replyMarkup,
+    });
+  } catch (err) {
+    // Same as editMessageReplyMarkup — swallow benign no-op edits.
+    const msg = err instanceof Error ? err.message : String(err);
+    if (msg.includes('message is not modified')) return;
+    throw err;
+  }
 }
 
 export async function answerCallbackQuery(

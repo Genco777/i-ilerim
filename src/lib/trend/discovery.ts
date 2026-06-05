@@ -29,6 +29,8 @@ export interface DiscoveryOptions {
   date?: Date;
   seedCount?: number; // how many seeds to evaluate (default 6)
   maxNiches?: number; // how many top candidates to return (default 3)
+  /** Restrict seed pool to one product type (e.g. 'poster' for the poster cron). */
+  productHintFilter?: 'planner' | 'poster' | 'sticker' | 'template' | 'social_template';
   /**
    * Optional async fn that returns extra evidence per seed.
    * Reserved for Faz 2+ when we wire Google Trends / Etsy scrape.
@@ -183,7 +185,13 @@ export async function discoverNiches(
   const seedCount = opts.seedCount ?? 6;
   const maxNiches = opts.maxNiches ?? 3;
 
-  const seeds = pickSeedsForDate(date, seedCount);
+  const seeds = pickSeedsForDate(date, seedCount, opts.productHintFilter);
+  if (seeds.length === 0) {
+    throw new Error(
+      `[discovery] no seed topics matched productHintFilter="${opts.productHintFilter}". ` +
+        `Check seed-topics.ts pool.`,
+    );
+  }
 
   // Analyse seeds in small batches (Anthropic concurrency-friendly).
   const allCandidates: NicheCandidate[] = [];

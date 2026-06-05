@@ -49,9 +49,23 @@ export const SEED_TOPICS: SeedTopic[] = [
   { area: 'plant care journal', audience: 'urban plant parents', productHint: 'planner' },
   { area: 'sourdough baking log', audience: 'home bakers', productHint: 'planner' },
 
-  // ── Wall art / posters ──
+  // ── Wall art / posters (expanded — full poster pipeline) ──
   { area: 'affirmation poster minimalist', audience: 'WFH home office', productHint: 'poster' },
   { area: 'apartment-friendly art', audience: 'renters, dorms', productHint: 'poster' },
+  { area: 'boho watercolor nursery decor', audience: 'expecting parents, nursery designers', productHint: 'poster' },
+  { area: 'mid-century geometric prints', audience: 'modern home decorators', productHint: 'poster' },
+  { area: 'botanical line art set', audience: 'minimalist home decor lovers', productHint: 'poster' },
+  { area: 'mountain landscape minimalist', audience: 'cabin / wabi-sabi aesthetic', productHint: 'poster' },
+  { area: 'abstract shapes for office', audience: 'WFH creatives, freelancers', productHint: 'poster' },
+  { area: 'kids alphabet animals', audience: 'parents of toddlers 2-6', productHint: 'poster' },
+  { area: 'french bistro kitchen prints', audience: 'foodies, cottage-core kitchen', productHint: 'poster' },
+  { area: 'city map minimalist line art', audience: 'travelers, expats, gifts', productHint: 'poster' },
+  { area: 'cottagecore botanical garden', audience: 'cottagecore aesthetic, vintage decor', productHint: 'poster' },
+  { area: 'dark academia book prints', audience: 'bookish readers, study aesthetic', productHint: 'poster' },
+  { area: 'mushroom forest illustrations', audience: 'forest-core, dark cottagecore', productHint: 'poster' },
+  { area: 'celestial moon phases', audience: 'witchy aesthetic, spiritual', productHint: 'poster' },
+  { area: 'feminist quote typography', audience: 'progressive women, gift-givers', productHint: 'poster' },
+  { area: 'birth month flower prints', audience: 'gift buyers, mothers day', productHint: 'poster' },
 
   // ── Business / freelance ──
   { area: 'freelancer client onboarding', audience: 'designer/copywriter freelancers', productHint: 'template' },
@@ -66,15 +80,29 @@ export const SEED_TOPICS: SeedTopic[] = [
 /**
  * Picks a date-rotated subset of seeds so each daily run sees
  * different topics but the rotation is deterministic per day.
+ *
+ * If `productHintFilter` is provided, only seeds matching that hint are
+ * considered. Used by the dedicated poster cron to limit discovery to
+ * wall-art niches without bleeding planner/template results into it.
  */
-export function pickSeedsForDate(date: Date, count: number): SeedTopic[] {
+export function pickSeedsForDate(
+  date: Date,
+  count: number,
+  productHintFilter?: string,
+): SeedTopic[] {
+  const pool = productHintFilter
+    ? SEED_TOPICS.filter((s) => s.productHint === productHintFilter)
+    : SEED_TOPICS;
+
+  if (pool.length === 0) return [];
+
   const dayOfYear = Math.floor(
     (date.getTime() - new Date(date.getFullYear(), 0, 0).getTime()) / 86400000,
   );
-  const start = (dayOfYear * 3) % SEED_TOPICS.length;
+  const start = (dayOfYear * 3) % pool.length;
   const out: SeedTopic[] = [];
   for (let i = 0; i < count; i++) {
-    out.push(SEED_TOPICS[(start + i) % SEED_TOPICS.length]!);
+    out.push(pool[(start + i) % pool.length]!);
   }
   return out;
 }
