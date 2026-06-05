@@ -119,3 +119,120 @@ export async function publishToIGStory(
 
   return { id: published.id };
 }
+
+// ─────────────────────────────────────────────────────────────
+// Sprint X.2 — Carousel + video extensions
+//
+// Strategy: rather than spamming the IG feed with N separate posts (which
+// the algorithm flags as low-quality bulk content), we package the day's
+// products into 1-2 carousel posts. Each carousel can hold up to 10 items.
+// ─────────────────────────────────────────────────────────────
+
+/**
+ * Publish an Instagram CAROUSEL post (multi-image feed post).
+ *
+ * Meta Graph API flow:
+ *   1. Create N child containers, each with is_carousel_item=true.
+ *   2. Create parent container with media_type=CAROUSEL + children=<comma-list>.
+ *   3. Wait for FINISHED (parent only — children are checked implicitly).
+ *   4. Publish via media_publish.
+ *
+ * IG limit: 2-10 items per carousel. We slice down silently.
+ * Aspect: 1:1 best (matches our 2K Banana Pro mockups).
+ */
+export async function publishCarouselToIG(
+  imageUrls: string[],
+  caption: string,
+): Promise<IGPublishResult> {
+  const urls = imageUrls.slice(0, 10);
+  if (urls.length < 2) {
+    throw new Error(
+      `publishCarouselToIG needs >=2 images, got ${urls.length}`,
+    );
+  }
+
+  // Step 1 — create child containers (sequential to keep IG processing happy).
+  const childIds: string[] = [];
+  for (const u of urls) {
+    const child = await call<{ id: string }>(`${igAccountId()}/media`, {
+      image_url: u,
+      is_carousel_item: 'true',
+    });
+    childIds.push(child.id);
+  }
+
+  // Step 2 — create parent carousel container.
+  const parent = await call<{ id: string }>(`${igAccountId()}/media`, {
+    media_type: 'CAROUSEL',
+    children: childIds.join(','),
+    caption,
+  });
+
+  await waitForContainer(parent.id, 60000); // carousels take longer
+
+  // Step 3 — publish.
+  const published = await call<{ id: string }>(
+    `${igAccountId()}/media_publish`,
+    { creation_id: parent.id },
+  );
+
+  const shortcode = await fetchShortcode(published.id);
+  return { id: published.id, shortcode };
+}
+
+/**
+ * Publish a video feed post (REELS — modern Meta API requires REELS for
+ * videos posted to the feed, not VIDEO).
+ *
+ * Video must be:
+ *  - hosted on a publicly accessible URL (no auth)
+ *  - mp4 / mov, max 90 seconds for REELS
+ *  - aspect ratio 9:16 (vertical) recommended
+ *
+ * Higgsfield videos are 5-sec mp4 at varying aspects — IG accepts square.
+ */
+export async function publishVideoToIG(
+  videoUrl: string,
+  caption: string,
+): Promise<IGPublishResult> {
+  const container = await call<{ id: string }>(`${igAccountId()}/media`, {
+    media_type: 'REELS',
+    video_url: videoUrl,
+    caption,
+    share_to_feed: 'true', // also appears in main grid, not just Reels tab
+  });
+
+  await waitForContainer(container.id, 90000); // videos take ~30-60s
+
+  const published = await call<{ id: string }>(
+    `${igAccountId()}/media_publish`,
+    { creation_id: container.id },
+  );
+
+  const shortcode = await fetchShortcode(published.id);
+  return { id: published.id, shortcode };
+}
+
+/**
+ * Publish an Instagram Story with a VIDEO (15s short clip).
+ *
+ * Stories disappear after 24h so algorithm cost is near-zero — this is the
+ * highest-volume-friendly channel. Use it for every product.
+ */
+export async function publishVideoStoryToIG(
+  videoUrl: string,
+): Promise<IGPublishResult> {
+  const container = await call<{ id: string }>(`${igAccountId()}/media`, {
+    media_type: 'STORIES',
+    video_url: videoUrl,
+  });
+
+  await waitForContainer(container.id, 60000);
+
+  const published = await call<{ id: string }>(
+    `${igAccountId()}/media_publish`,
+    { creation_id: container.id },
+  );
+
+  return { id: published.id };
+}

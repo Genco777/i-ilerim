@@ -71,6 +71,10 @@
       "schedule": "0 21 * * *"
     },
     {
+      "path": "/api/cron/social-daily-digest?secret=080084ec9089202b8d409dc4e1c5672aea675a581133c994a63e86f6e31868a1",
+      "schedule": "0 22 * * *"
+    },
+    {
       "path": "/api/cron/reviews-ask?secret=080084ec9089202b8d409dc4e1c5672aea675a581133c994a63e86f6e31868a1",
       "schedule": "30 22 * * *"
     }

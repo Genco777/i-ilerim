@@ -165,6 +165,38 @@ export async function runDailyTrendPipeline(
       continue;
     }
 
+    // C1 — Keyword Optimizer pass (best-effort): refine etsyTitle + tags for
+    // discoverability. Fails silent — original content stays if optimizer
+    // errors. Runs on EVERY new product automatically (Mehmet requirement).
+    try {
+      const { optimizeKeywords } = await import('./keyword-optimizer');
+      const opt = await optimizeKeywords(candidate, content);
+      content.etsyTitle = opt.etsyTitle;
+      content.tags = opt.tags;
+      console.log(
+        `[c1-keyword] optimized "${candidate.topic}" → ${opt.reasoning.slice(0, 100)}`,
+      );
+    } catch (err) {
+      console.warn('[c1-keyword] optimizer failed (using original content)', err);
+    }
+
+    // C3 — A/B Title Variants (best-effort): Claude produces 2 alternative
+    // titles (variant B + C) for weekly rotation on Etsy. Variants persisted
+    // on insert; rotation handled by /api/cron/title-rotate cron.
+    let titleVariantB: string | null = null;
+    let titleVariantC: string | null = null;
+    try {
+      const { generateTitleVariants } = await import('./title-ab-test');
+      const variants = await generateTitleVariants(candidate, content);
+      titleVariantB = variants.b !== content.etsyTitle ? variants.b : null;
+      titleVariantC = variants.c !== content.etsyTitle ? variants.c : null;
+      console.log(
+        `[c3-ab-title] generated variants for "${candidate.topic}"`,
+      );
+    } catch (err) {
+      console.warn('[c3-ab-title] variant generation failed', err);
+    }
+
     if (dryRun) {
       summary.productsCreated++;
       summary.results.push({
@@ -230,6 +262,10 @@ export async function runDailyTrendPipeline(
           tier_b_description: content.tierBDescription ?? null,
           tier_c_price_cents: content.tierCPriceCents ?? null,
           tier_c_description: content.tierCDescription ?? null,
+          // C3 — A/B title variants (alternative title rotations for weekly cron)
+          title_variant_b: titleVariantB,
+          title_variant_c: titleVariantC,
+          title_active_variant: 'a',
         })
         .returning({ id: products.id });
 

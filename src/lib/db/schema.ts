@@ -904,6 +904,21 @@ export const products = pgTable(
     rejected_reason: text('rejected_reason'),
     // Shop visibility (Faz 4)
     is_public_in_shop: integer('is_public_in_shop').default(0),
+    // Sprint X.3 — Social media publishing references (carousel / story / pin)
+    ig_post_id: text('ig_post_id'),           // IG carousel feed post ID (if included)
+    ig_story_post_id: text('ig_story_post_id'), // IG video story ID (per-product)
+    fb_post_id: text('fb_post_id'),           // FB carousel feed post ID
+    pinterest_pin_id: text('pinterest_pin_id'), // Pinterest pin ID
+    social_published_at: timestamp('social_published_at', { withTimezone: true }),
+    // C3 — A/B Title Test: store 2 alternative titles at creation, rotate
+    // them weekly via cron, track which variant got the most clicks.
+    title_variant_b: text('title_variant_b'),
+    title_variant_c: text('title_variant_c'),
+    title_active_variant: text('title_active_variant').default('a'), // 'a' | 'b' | 'c'
+    title_last_rotated_at: timestamp('title_last_rotated_at', { withTimezone: true }),
+    title_variant_a_views: integer('title_variant_a_views').default(0),
+    title_variant_b_views: integer('title_variant_b_views').default(0),
+    title_variant_c_views: integer('title_variant_c_views').default(0),
     created_at: timestamp('created_at', { withTimezone: true })
       .notNull()
       .defaultNow(),

@@ -171,14 +171,28 @@ export async function generateProductVideo(
   productId: string,
   heroUrl: string,
 ): Promise<ProductVideoResult> {
-  // V-12 PIVOT: User wants slideshow-style from generated images, not
-  // hyperrealistic single-shot. Veo 3 Fast was also fail-prone ("Prediction
-  // failed: null"). Switching default back to Higgsfield DoP (proven, slow
-  // camera motion on the cover image — closest thing to "slideshow feel"
-  // without FFmpeg infrastructure). V-13 will introduce real FFmpeg slideshow
-  // stitching cover + 5 mockups together with crossfades.
-  if (process.env.VIDEO_PROVIDER === 'veo3') {
+  // Sprint Y — Cheap video provider (default 'cheap' = Pixverse v3.5 at
+  // ~$0.06/video instead of Higgsfield at $0.30, an 80% cost reduction
+  // with comparable image-to-video animation quality).
+  //
+  // Provider routing:
+  //   VIDEO_PROVIDER=cheap (default)  → Pixverse v3.5 via Replicate
+  //   VIDEO_PROVIDER=higgsfield       → legacy DoP (premium, used to be default)
+  //   VIDEO_PROVIDER=veo3             → Google Veo 3 Fast via Replicate
+  const provider = (process.env.VIDEO_PROVIDER ?? 'cheap').toLowerCase();
+  if (provider === 'veo3') {
     return generateProductVideoVeo3(niche, content, productId, heroUrl);
+  }
+  if (provider === 'cheap' || provider === 'pixverse') {
+    try {
+      return await generateProductVideoCheap(niche, content, productId, heroUrl);
+    } catch (err) {
+      console.warn(
+        '[video] cheap provider failed, falling back to Higgsfield',
+        err instanceof Error ? err.message : String(err),
+      );
+      // fall through to Higgsfield below
+    }
   }
 
   // Legacy Higgsfield path (kept behind env flag for emergency fallback).
@@ -209,6 +223,107 @@ export async function generateProductVideo(
     modelUsed: model,
     promptUsed: prompt,
     requestId: created.request_id,
+  };
+}
+
+/**
+ * Sprint Y — Cheap video provider via Pixverse v3.5 (Replicate).
+ *
+ * Cost: ~$0.06/video × 15/gün = $0.90/gün = $27/ay
+ * (vs Higgsfield ~$0.30/video × 15 = $4.50/gün = $135/ay → ~80% saving)
+ *
+ * Quality: image-to-video with realistic motion. Slightly less cinematic
+ * than Higgsfield DoP but more than adequate for Etsy product listing video
+ * + IG story background. Pixverse v3.5 is image-to-video, 5-second output.
+ *
+ * Output: 9:16 vertical mp4, ready for Etsy listing + IG story upload.
+ */
+async function generateProductVideoCheap(
+  niche: NicheCandidate,
+  content: ProductContent,
+  productId: string,
+  heroUrl: string,
+): Promise<ProductVideoResult> {
+  const Replicate = (await import('replicate')).default;
+  const token = process.env.REPLICATE_API_TOKEN;
+  if (!token) throw new Error('REPLICATE_API_TOKEN is not set');
+  const replicate = new Replicate({ auth: token });
+
+  // Pixverse v3.5 prompt — short, motion-focused. The model is image-to-video
+  // so the prompt describes MOTION, not subject (subject comes from the image).
+  const prompt = [
+    `Slow gentle camera push-in on the printed product on the desk,`,
+    `soft natural morning light, dust particles floating in the beam,`,
+    `cinematic shallow depth of field, peaceful editorial atmosphere.`,
+    `Subtle motion only — no rotation, no morphing, no text changes.`,
+    `Topic: ${niche.topic}.`,
+  ].join(' ');
+
+  const input = {
+    prompt,
+    image: heroUrl,
+    aspect_ratio: '9:16',
+    duration: 5,
+    motion_mode: 'normal',
+    seed: Math.floor(Math.random() * 1_000_000),
+  };
+
+  // Pixverse model slugs — Replicate sometimes versions these. Try the
+  // latest, fall back to fixed versions.
+  const candidates: `${string}/${string}`[] = [
+    'pixverse/pixverse-v3.5',
+    'pixverse/pixverse-v3.5:latest' as `${string}/${string}`,
+    'pixverse/pixverse-v3' as `${string}/${string}`,
+  ];
+
+  let output: unknown;
+  let usedSlug = '';
+  let lastErr: Error | undefined;
+  for (const slug of candidates) {
+    try {
+      console.log('[video-cheap] trying slug', slug);
+      output = await replicate.run(slug, { input });
+      usedSlug = slug;
+      break;
+    } catch (e) {
+      lastErr = e instanceof Error ? e : new Error(String(e));
+      console.warn(`[video-cheap] slug ${slug} failed: ${lastErr.message.slice(0, 200)}`);
+    }
+  }
+  if (!output || !usedSlug) {
+    throw lastErr ?? new Error('All Pixverse slugs failed');
+  }
+
+  // Output shape: string URL, array, or FileOutput.
+  let url: string | undefined;
+  if (typeof output === 'string') {
+    url = output;
+  } else if (Array.isArray(output) && typeof output[0] === 'string') {
+    url = output[0];
+  } else if (
+    output &&
+    typeof output === 'object' &&
+    'url' in output &&
+    typeof (output as { url: unknown }).url === 'function'
+  ) {
+    url = (output as { url: () => string }).url();
+  }
+  if (!url) throw new Error('Pixverse returned unexpected output shape');
+
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`Pixverse video fetch failed: ${res.status}`);
+  const buffer = Buffer.from(await res.arrayBuffer());
+  const filename = `trend/${productId}/video-${Date.now()}.mp4`;
+  const uploaded = await uploadImage(buffer, filename, 'video/mp4');
+
+  void content;
+  return {
+    url: uploaded.url,
+    pathname: uploaded.pathname,
+    durationSec: 5,
+    modelUsed: usedSlug,
+    promptUsed: prompt,
+    requestId: 'pixverse-' + Date.now(),
   };
 }
 
