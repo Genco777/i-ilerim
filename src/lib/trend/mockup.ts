@@ -295,3 +295,109 @@ export async function composeGallery(
     .jpeg({ quality: 86 })
     .toBuffer();
 }
+
+// ─── V-14 Enhanced Cover — Magazine-style listing hero ──────────────────────
+//
+// Why this exists:
+//  - The plain typography cover (next/og output) is correct but visually thin
+//    — it has no product imagery, no proof, no lifestyle context. Top Etsy
+//    bestsellers don't sell "a cover", they sell "a SCENE showing the cover".
+//  - This composite stacks the typography cover on top + 4 Banana Pro
+//    lifestyle mockups in a strip below + a trust bar at the very bottom.
+//  - Result: a vertical 4:5 magazine-style hero that shows BOTH the design
+//    and the product-in-use in a single uploadable image.
+//
+// Output: 1600 × 2000 JPEG, ~300-400KB. Used as `hero_image_url` on the
+// products row (replacing the plain cover). The plain cover still gets
+// embedded inside the PDF — so buyers download a clean printable, but
+// shoppers see a rich marketing hero.
+export async function composeEnhancedCover(
+  typographyCover: Buffer,
+  mockups: Buffer[],
+): Promise<Buffer> {
+  const W = 1600;
+  const H = 2000;
+  const TYPO_H = 1200; // top 60% — typography cover
+  const STRIP_H = 660; // middle 33% — 4 mockup strip
+  const TRUST_H = H - TYPO_H - STRIP_H; // bottom 7% — trust bar
+
+  // Resize typography cover to fill top zone (it's square so crop will trim sides)
+  const typoResized = await sharp(typographyCover)
+    .resize(W, TYPO_H, { fit: 'cover', position: 'centre' })
+    .jpeg({ quality: 92 })
+    .toBuffer();
+
+  // Take up to 4 mockups, fall back to repeating last one
+  const pad = 24; // gap between mockup tiles
+  const tileW = Math.floor((W - pad * 5) / 4);
+  const tileH = STRIP_H - pad * 2;
+
+  const picks: Buffer[] = [
+    mockups[0]!,
+    mockups[1] ?? mockups[0]!,
+    mockups[2] ?? mockups[1] ?? mockups[0]!,
+    mockups[3] ?? mockups[2] ?? mockups[1] ?? mockups[0]!,
+  ];
+
+  const tiles = await Promise.all(
+    picks.map((buf) =>
+      sharp(buf)
+        .resize(tileW, tileH, { fit: 'cover', position: 'centre' })
+        .jpeg({ quality: 88 })
+        .toBuffer(),
+    ),
+  );
+
+  // Trust bar as SVG (rendered text via Sharp's built-in librsvg with
+  // generic sans — small uppercase tracking, no font dependency).
+  const trustSvg = Buffer.from(`
+    <svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${TRUST_H}">
+      <rect x="0" y="0" width="${W}" height="${TRUST_H}" fill="#1a1a1a"/>
+      <text x="${W / 2}" y="${TRUST_H / 2 + 8}" text-anchor="middle"
+            font-family="Helvetica, Arial, sans-serif" font-size="22"
+            letter-spacing="6" fill="#f5f0e6" font-weight="600">
+        INSTANT DOWNLOAD  ·  PRINTABLE PDF  ·  FLY &amp; FROTH STUDIO
+      </text>
+    </svg>
+  `);
+
+  // Strip background (warm cream that matches our cover palette)
+  const stripBg = await sharp({
+    create: { width: W, height: STRIP_H, channels: 3, background: { r: 245, g: 240, b: 230 } },
+  })
+    .jpeg({ quality: 90 })
+    .toBuffer();
+
+  // "WHAT'S INSIDE" label above the strip
+  const labelSvg = Buffer.from(`
+    <svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="48">
+      <text x="${W / 2}" y="32" text-anchor="middle"
+            font-family="Helvetica, Arial, sans-serif" font-size="18"
+            letter-spacing="8" fill="#6b5e4a" font-weight="600">
+        WHAT'S INSIDE  ·  REAL PRODUCT PREVIEWS
+      </text>
+    </svg>
+  `);
+
+  // Composite everything
+  return sharp({
+    create: { width: W, height: H, channels: 3, background: { r: 245, g: 240, b: 230 } },
+  })
+    .composite([
+      // Top — typography cover
+      { input: typoResized, top: 0, left: 0 },
+      // Middle — strip background
+      { input: stripBg, top: TYPO_H, left: 0 },
+      // "What's inside" label
+      { input: labelSvg, top: TYPO_H + 10, left: 0 },
+      // 4 mockup tiles
+      { input: tiles[0]!, top: TYPO_H + pad + 60, left: pad },
+      { input: tiles[1]!, top: TYPO_H + pad + 60, left: pad * 2 + tileW },
+      { input: tiles[2]!, top: TYPO_H + pad + 60, left: pad * 3 + tileW * 2 },
+      { input: tiles[3]!, top: TYPO_H + pad + 60, left: pad * 4 + tileW * 3 },
+      // Bottom — trust bar
+      { input: trustSvg, top: TYPO_H + STRIP_H, left: 0 },
+    ])
+    .jpeg({ quality: 88 })
+    .toBuffer();
+}

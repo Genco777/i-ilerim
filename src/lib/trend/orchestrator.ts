@@ -318,6 +318,7 @@ export async function runDailyTrendPipeline(
           // so the model can naturally place our actual product into scenes.
           let mockupUrls: string[] = [];
           let galleryUrl: string | null = null;
+          let enhancedCoverUrl: string | null = null;
           try {
             const mockups = await composeMockupsForHero(
               mockupHeroBuffer,
@@ -327,6 +328,7 @@ export async function runDailyTrendPipeline(
             );
             mockupUrls = mockups.mockupUrls;
             galleryUrl = mockups.galleryUrl;
+            enhancedCoverUrl = mockups.enhancedCoverUrl ?? null;
           } catch (mockupErr) {
             console.error('[trend] mockup composite failed', mockupErr);
             summary.errors.push(
@@ -358,8 +360,13 @@ export async function runDailyTrendPipeline(
             );
           }
 
+          // V-14: enhanced cover (typography + 4-mockup strip + trust bar) is
+          // the marketing hero. Falls back to the plain cover if enhancement
+          // didn't run (e.g. Banana Pro failed and we never got mockups).
+          const marketingHeroUrl = enhancedCoverUrl ?? realHeroUrl;
+
           // Shape used by the caption formatter + DB / Telegram payload
-          const hero = { url: realHeroUrl, mockupUrls, galleryUrl };
+          const hero = { url: marketingHeroUrl, mockupUrls, galleryUrl };
 
           await db
             .update(products)

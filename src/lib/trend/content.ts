@@ -383,10 +383,14 @@ function validateAndNormalize(
       .filter((s) => s.items.length > 0);
   }
 
-  // B1 — Tier pricing variations (deterministic, no extra LLM call needed)
-  // Basic = base price. Plus +70% (extras). Pro +160% (premium support).
-  const tierBPriceCents = Math.round(priceCents * 1.7);
-  const tierCPriceCents = Math.round(priceCents * 2.6);
+  // B1 — Tier pricing variations (FIXED prices, decided by operator).
+  // Mehmet'in kararı: tüm ürünler için sabit ladder — Basic €2.99 / Plus €4.99
+  // / Pro €6.99. Claude'un önerdiği price_cents yok sayılır.
+  const FIXED_BASIC_CENTS = 299;
+  const FIXED_PLUS_CENTS = 499;
+  const FIXED_PRO_CENTS = 699;
+  const tierBPriceCents = FIXED_PLUS_CENTS;
+  const tierCPriceCents = FIXED_PRO_CENTS;
   const tierBDescription =
     'PLUS includes the printable PDF · plus an editable Canva template ' +
     '(swap text, colours, and brand it your way) · plus 3 bonus pages we ' +
@@ -402,7 +406,7 @@ function validateAndNormalize(
     tags,
     shopTitle,
     shopDescription,
-    priceCents,
+    priceCents: FIXED_BASIC_CENTS,
     tierBPriceCents,
     tierBDescription,
     tierCPriceCents,

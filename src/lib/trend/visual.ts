@@ -11,7 +11,7 @@
 
 import { generateWithRouter, routeImageTool } from '@/lib/ai/image-router';
 import { uploadImage } from '@/lib/blob';
-import { composeProductMockups, composeGallery } from './mockup';
+import { composeProductMockups, composeGallery, composeEnhancedCover } from './mockup';
 import { renderPdfCoverToPng } from './pdf-render';
 import type { NicheCandidate } from './discovery';
 import type { ProductContent } from './content';
@@ -156,7 +156,7 @@ export async function composeMockupsForHero(
   productId: string,
   /** V-1 PDF cover URL (public Blob URL — required for Nano Banana 2). */
   coverUrl?: string,
-): Promise<{ mockupUrls: string[]; galleryUrl: string }> {
+): Promise<{ mockupUrls: string[]; galleryUrl: string; enhancedCoverUrl?: string }> {
   const ts = Date.now();
 
   // Path A — Nano Banana 2 (V-2 default, when we have a public cover URL).
@@ -173,8 +173,7 @@ export async function composeMockupsForHero(
       });
 
       if (banana.length >= 2) {
-        // Compose 2×2 gallery: cover + top 3 lifestyle mockups (we now have
-        // up to 5 — extras are uploaded individually but not in gallery).
+        // Compose 2×2 gallery: cover + top 3 lifestyle mockups
         const galleryMockups: [Buffer, Buffer, Buffer] = [
           banana[0]!,
           banana[1] ?? banana[0]!,
@@ -182,16 +181,31 @@ export async function composeMockupsForHero(
         ];
         const galleryBuf = await composeGallery(heroBuffer, galleryMockups);
 
+        // V-14: Composite ENHANCED cover — typography hero + 4-mockup strip +
+        // trust bar. This is what gets uploaded to Etsy/shop as the marketing
+        // hero, showing the actual product in lifestyle scenes (magazine-style).
+        // The PLAIN cover (heroBuffer) still gets embedded in the PDF.
+        let enhancedCoverBuf: Buffer | null = null;
+        try {
+          enhancedCoverBuf = await composeEnhancedCover(heroBuffer, banana.slice(0, 4));
+        } catch (err) {
+          console.warn('[visual] enhanced cover composite failed (using plain cover)', err);
+        }
+
         const uploads = await Promise.all([
           ...banana.map((buf, i) =>
             uploadImage(buf, `trend/${productId}/mockup-${i + 1}-${ts}.jpg`, 'image/jpeg'),
           ),
           uploadImage(galleryBuf, `trend/${productId}/gallery-${ts}.jpg`, 'image/jpeg'),
+          ...(enhancedCoverBuf
+            ? [uploadImage(enhancedCoverBuf, `trend/${productId}/enhanced-cover-${ts}.jpg`, 'image/jpeg')]
+            : []),
         ]);
 
         const mockupUrls = uploads.slice(0, banana.length).map((u) => u.url);
-        const galleryUrl = uploads[uploads.length - 1]!.url;
-        return { mockupUrls, galleryUrl };
+        const galleryUrl = uploads[banana.length]!.url;
+        const enhancedCoverUrl = enhancedCoverBuf ? uploads[uploads.length - 1]!.url : undefined;
+        return { mockupUrls, galleryUrl, enhancedCoverUrl };
       }
       console.warn(
         `[mockup] Nano Banana returned only ${banana.length}/4 mockups — no Sharp fallback (V-7 design)`,
