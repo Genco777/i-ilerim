@@ -47,6 +47,21 @@ export async function POST(req: Request) {
   try {
     if (event.type === 'checkout.session.completed') {
       await handleCheckoutCompleted(event.data.object as Stripe.Checkout.Session);
+      // C2 — Mark cart abandon as recovered if this session is the recovery
+      try {
+        const { markCartAbandonRecovered } = await import('@/lib/marketing/cart-abandon');
+        await markCartAbandonRecovered(event.data.object as Stripe.Checkout.Session);
+      } catch (err) {
+        console.warn('[c2-cart-abandon] mark recovered failed', err);
+      }
+    } else if (event.type === 'checkout.session.expired') {
+      // C2 — Enroll buyer in 3-email cart abandon sequence
+      try {
+        const { enrollCartAbandon } = await import('@/lib/marketing/cart-abandon');
+        await enrollCartAbandon(event.data.object as Stripe.Checkout.Session);
+      } catch (err) {
+        console.warn('[c2-cart-abandon] enroll failed', err);
+      }
     } else if (event.type === 'charge.refunded') {
       await handleRefund(event.data.object as Stripe.Charge);
     } else {

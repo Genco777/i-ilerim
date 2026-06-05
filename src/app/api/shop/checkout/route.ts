@@ -81,6 +81,11 @@ export async function POST(req: Request) {
 
   const base = getShopBaseUrl().replace(/\/+$/, '');
   const stripe = getStripe();
+  // C2 — Set session expiration to 30 min so abandoned sessions emit the
+  // checkout.session.expired webhook (otherwise default is 24h and we lose
+  // the recovery window). 30 min minimum per Stripe.
+  const expiresAt = Math.floor(Date.now() / 1000) + 30 * 60;
+
   const session = await stripe.checkout.sessions.create({
     mode: 'payment',
     line_items: [{ price: selectedPrice, quantity: 1 }],
@@ -96,6 +101,7 @@ export async function POST(req: Request) {
       tier,
     },
     automatic_tax: { enabled: false },
+    expires_at: expiresAt, // C2 — short expiry so abandoned events fire promptly
   });
 
   if (!session.url) {

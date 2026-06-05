@@ -91,6 +91,23 @@ export async function handleTrendApprove(
     syncToPinterest(productId),
   ]);
 
+  // 2b) B2 — Bundle Engine: refresh / create a bundle for this product's niche.
+  // Fires AFTER stripe sync so the new product's price is already in Stripe.
+  // Best-effort: if bundle creation fails, the approval still succeeds.
+  if (product.niche_id) {
+    try {
+      const { refreshBundleForNiche } = await import('./bundle-engine');
+      const bundleId = await refreshBundleForNiche(product.niche_id);
+      if (bundleId) {
+        console.log(
+          `[b2-bundle] refreshed bundle ${bundleId} for niche ${product.niche_id}`,
+        );
+      }
+    } catch (err) {
+      console.warn('[b2-bundle] refresh failed (non-fatal)', err);
+    }
+  }
+
   // 3) Confirm in Telegram with channels' status
   await editMessageReplyMarkup({ chatId, messageId, replyMarkup: clearedKeyboard() });
   const lines = [

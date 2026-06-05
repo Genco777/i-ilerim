@@ -967,6 +967,79 @@ export const channelKind = pgEnum('channel_kind', [
  * Every successful purchase creates one row. Source-of-truth for revenue,
  * Kleinunternehmer §19 yearly cap tracking, and OSS (B2C EU) thresholds.
  */
+// ── B2 — Bundle Engine: auto-bundles 2-3 related products with discount ──
+//
+// Created automatically when a new product gets approved and there are
+// already ≥1 other approved products in the same niche. Bundle pricing:
+// 30% off the sum of individual prices, rounded to nearest €0.50.
+export const productBundles = pgTable(
+  'product_bundles',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    slug: text('slug').notNull().unique(),
+    name: text('name').notNull(),
+    description: text('description').notNull(),
+    // Source niche (for organisation + cross-sell logic)
+    niche_id: uuid('niche_id').references(() => niches.id),
+    // Array of product UUIDs included in the bundle (2-5 items)
+    product_ids: text('product_ids').array().notNull().default([]),
+    sum_price_cents: integer('sum_price_cents').notNull(), // sum of individual prices
+    bundle_price_cents: integer('bundle_price_cents').notNull(), // discounted total
+    discount_percent: integer('discount_percent').notNull().default(30),
+    // Stripe references
+    stripe_product_id: text('stripe_product_id'),
+    stripe_price_id: text('stripe_price_id'),
+    is_active: integer('is_active').default(1).notNull(),
+    is_public_in_shop: integer('is_public_in_shop').default(1).notNull(),
+    hero_image_url: text('hero_image_url'),
+    created_at: timestamp('created_at', { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updated_at: timestamp('updated_at', { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => ({
+    nicheIdx: index('bundles_niche_idx').on(t.niche_id),
+    slugIdx: index('bundles_slug_idx').on(t.slug),
+  }),
+);
+
+// ── C2 — Cart Abandon: enroll buyer in 3-email drip on Stripe expired session ──
+//
+// When a Checkout session expires without payment, we enroll the buyer's
+// email in a 3-stage email sequence: 1h "Did something go wrong?",
+// 24h "15% off coupon", 72h "Last call".
+export const cartAbandons = pgTable(
+  'cart_abandons',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    customer_email: text('customer_email').notNull(),
+    product_id: uuid('product_id').references(() => products.id),
+    product_slug: text('product_slug'),
+    bundle_id: uuid('bundle_id').references(() => productBundles.id),
+    stripe_session_id: text('stripe_session_id').notNull().unique(),
+    abandoned_at: timestamp('abandoned_at', { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    // Stage timestamps — null until that stage's email is sent
+    email_1_sent_at: timestamp('email_1_sent_at', { withTimezone: true }),
+    email_2_sent_at: timestamp('email_2_sent_at', { withTimezone: true }),
+    email_3_sent_at: timestamp('email_3_sent_at', { withTimezone: true }),
+    // Set if buyer comes back and completes a purchase before sequence ends
+    recovered_at: timestamp('recovered_at', { withTimezone: true }),
+    recovered_session_id: text('recovered_session_id'),
+    created_at: timestamp('created_at', { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => ({
+    emailIdx: index('cart_abandon_email_idx').on(t.customer_email),
+    sessionIdx: index('cart_abandon_session_idx').on(t.stripe_session_id),
+    pendingIdx: index('cart_abandon_pending_idx').on(t.abandoned_at),
+  }),
+);
+
 export const productSales = pgTable(
   'product_sales',
   {
