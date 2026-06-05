@@ -169,11 +169,13 @@ export async function generateProductVideo(
   productId: string,
   heroUrl: string,
 ): Promise<ProductVideoResult> {
-  // TANRILAR V-10: switch from Higgsfield DoP (cinematic but abstract) to
-  // Google Veo 3 Fast (hyperrealistic editorial). User explicitly requested
-  // "%100 gerçek hissi" / no budget constraint. Veo 3 Fast on Replicate is
-  // image-to-video with shockingly real human hands + lighting + motion.
-  if (process.env.VIDEO_PROVIDER !== 'higgsfield') {
+  // V-12 PIVOT: User wants slideshow-style from generated images, not
+  // hyperrealistic single-shot. Veo 3 Fast was also fail-prone ("Prediction
+  // failed: null"). Switching default back to Higgsfield DoP (proven, slow
+  // camera motion on the cover image — closest thing to "slideshow feel"
+  // without FFmpeg infrastructure). V-13 will introduce real FFmpeg slideshow
+  // stitching cover + 5 mockups together with crossfades.
+  if (process.env.VIDEO_PROVIDER === 'veo3') {
     return generateProductVideoVeo3(niche, content, productId, heroUrl);
   }
 
