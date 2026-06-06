@@ -228,27 +228,53 @@ export async function generateMockupsForProduct(
   // Banana Pro 2K each ≈ 15-25 s, parallel → wall time ~25-30 s.
   const prompts = (MOCKUP_PROMPTS[productHint] ?? MOCKUP_PROMPTS.planner).slice(0, 5);
 
-  // Parallel: 3 × ~10s ≈ 10-15s wall time (Replicate may queue when busy).
-  const results = await Promise.allSettled(
-    prompts.map((prompt) =>
-      nanoBananaGenerate({
-        prompt,
-        imageInput: [coverImageUrl],
-        aspectRatio: opts?.aspectRatio ?? '1:1',
-        resolution: opts?.resolution ?? '1K',
-        outputFormat: 'jpg',
-        model: opts?.model ?? 'nano-banana-2',
-      }),
-    ),
-  );
+  // Parallel pass 1: all 5 prompts at once. Replicate may queue/throttle
+  // when busy → some fail with timeouts.
+  const callOne = (prompt: string) =>
+    nanoBananaGenerate({
+      prompt,
+      imageInput: [coverImageUrl],
+      aspectRatio: opts?.aspectRatio ?? '1:1',
+      resolution: opts?.resolution ?? '1K',
+      outputFormat: 'jpg',
+      model: opts?.model ?? 'nano-banana-2',
+    });
+
+  const pass1 = await Promise.allSettled(prompts.map((p) => callOne(p)));
 
   const buffers: Buffer[] = [];
-  for (const [i, r] of results.entries()) {
+  const failedPrompts: { idx: number; prompt: string }[] = [];
+  for (const [i, r] of pass1.entries()) {
     if (r.status === 'fulfilled') {
       buffers.push(r.value);
     } else {
-      console.error(`[nano-banana] mockup ${i + 1} for ${productHint} failed:`, r.reason);
+      console.warn(`[nano-banana] pass-1 mockup ${i + 1} for ${productHint} failed:`, r.reason);
+      failedPrompts.push({ idx: i + 1, prompt: prompts[i]! });
     }
   }
+
+  // Pass 2: sequential retry for the ones that failed. Reduces Replicate
+  // burst pressure and gives more recovery time after a partial outage.
+  if (failedPrompts.length > 0 && buffers.length < 5) {
+    console.log(
+      `[nano-banana] pass-2 retry: ${failedPrompts.length} sequential retries for ${productHint}`,
+    );
+    for (const { idx, prompt } of failedPrompts) {
+      try {
+        const buf = await callOne(prompt);
+        buffers.push(buf);
+        console.log(`[nano-banana] pass-2 mockup ${idx} recovered for ${productHint}`);
+      } catch (err) {
+        console.warn(
+          `[nano-banana] pass-2 mockup ${idx} STILL failed for ${productHint}:`,
+          err instanceof Error ? err.message.slice(0, 160) : String(err),
+        );
+      }
+    }
+  }
+
+  console.log(
+    `[nano-banana] generated ${buffers.length}/${prompts.length} mockups for ${productHint}`,
+  );
   return buffers;
 }

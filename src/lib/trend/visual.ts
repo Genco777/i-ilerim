@@ -172,7 +172,7 @@ export async function composeMockupsForHero(
         resolution: '2K',
       });
 
-      if (banana.length >= 2) {
+      if (banana.length >= 1) {
         // Compose 2×2 gallery: cover + top 3 lifestyle mockups
         const galleryMockups: [Buffer, Buffer, Buffer] = [
           banana[0]!,
