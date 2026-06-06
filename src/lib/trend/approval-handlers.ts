@@ -84,6 +84,45 @@ export async function handleTrendApprove(
     .set({ status: 'approved', approved_at: new Date(), updated_at: new Date() })
     .where(eq(products.id, productId));
 
+  // 1b) Approval-time mockup backfill. If the cron-time mockup gen failed
+  // (Banana Pro outage, timeout, etc.), this is our last-chance recovery
+  // BEFORE Etsy push. Skips if the product already has 3+ mockups.
+  const existingMockups = (product.mockup_image_urls as string[] | null) ?? [];
+  if (existingMockups.length < 3 && product.hero_image_url) {
+    try {
+      console.log(
+        `[approval] product ${productId} has only ${existingMockups.length} mockups — regenerating before Etsy push`,
+      );
+      const { composeMockupsForHero } = await import('./visual');
+      const heroRes = await fetch(product.hero_image_url);
+      if (heroRes.ok) {
+        const heroBuf = Buffer.from(await heroRes.arrayBuffer());
+        const mockResult = await composeMockupsForHero(
+          heroBuf,
+          product.type as 'planner' | 'poster' | 'sticker' | 'template' | 'social_template',
+          productId,
+          product.hero_image_url,
+        );
+        if (mockResult.mockupUrls.length > existingMockups.length) {
+          await db
+            .update(products)
+            .set({
+              mockup_image_urls: mockResult.mockupUrls,
+              updated_at: new Date(),
+            })
+            .where(eq(products.id, productId));
+          // Refresh local product reference so syncToEtsy sees the new URLs
+          product.mockup_image_urls = mockResult.mockupUrls;
+          console.log(
+            `[approval] mockup backfill ok — ${mockResult.mockupUrls.length} mockups for ${productId}`,
+          );
+        }
+      }
+    } catch (err) {
+      console.warn('[approval] mockup backfill failed (continuing with what we have)', err);
+    }
+  }
+
   // 2) Sync to Stripe + Etsy + Pinterest in parallel — all idempotent so retry is safe.
   const [stripeOutcome, etsyOutcome, pinterestOutcome] = await Promise.all([
     syncToStripe(productId, product.slug ?? null),
