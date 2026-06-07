@@ -754,10 +754,11 @@ async function handlePostCommand(
         telegramChatId: String(chatId),
         telegramMessageId: String(messageId),
         channel,
-        // Canva Enterprise-only → bıraktık. Nano Banana Pro ile premium brand görsel.
+        // Fikri Fabrik-style typography post: procedural @vercel/og + premium-vizyon
+        // brand (indigo accent + bold Inter font + editorial layout). Canva Enterprise-only
+        // olduğu için bıraktık. AI image yerine yerel typography render.
         useCanva: false,
-        // pillar='vitrine' → image-router üzerinden Nano Banana Pro çağrılır
-        pillar: 'vitrine',
+        useProcedural: true,
       });
 
       const caption = [

@@ -51,6 +51,8 @@ export interface GeneratePostOpts {
   scheduledAt?: Date;
   /** true → AI görseli yerine Canva brand template kullan */
   useCanva?: boolean;
+  /** true → procedural @vercel/og premium-vizyon typography post (Canva/AI atla) */
+  useProcedural?: boolean;
 }
 
 function getCalendarWeek(date: Date): number {
@@ -113,11 +115,10 @@ export async function generatePost(opts: GeneratePostOpts): Promise<Post> {
   // için default yine procedural'a düşer.
   const designMode = getDesignMode();
   const wantsCanva = opts.useCanva === true || designMode === 'canva';
-  // Sprint I-fix: 'auto' mode (default) → Canva configured ise Canva, yoksa
-  // gpt-image-1 (procedural değil — procedural Vercel'de font sorunlu çıktı veriyordu).
-  // Procedural sadece explicit POST_DESIGN_MODE=procedural ile devreye girer.
-  const wantsAi    = designMode === 'ai' || (designMode === 'auto' && !isCanvaConfigured());
-  const wantsProcedural = designMode === 'procedural';
+  // useProcedural opt explicit set'liyse her zaman procedural çalışır (Fikri Fabrik tarzı
+  // typography post için /post komutunda kullanılıyor).
+  const wantsProcedural = opts.useProcedural === true || designMode === 'procedural';
+  const wantsAi    = !wantsProcedural && (designMode === 'ai' || (designMode === 'auto' && !isCanvaConfigured()));
 
   // Canva yolu — env varsa dene, fail edilirse procedural'a fallback yap
   if (wantsCanva && isCanvaConfigured()) {
