@@ -108,6 +108,7 @@ export async function buildInstructionsPdf(
     previewBuffer,
     copy,
   });
+  // @ts-expect-error react-pdf generic ReactElement <→ ReactElement<DocumentProps> uyumsuzluğu (runtime OK)
   const blob = await pdf(doc).toBlob();
   const arrayBuffer = await blob.arrayBuffer();
   const buffer = Buffer.from(arrayBuffer);
