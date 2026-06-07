@@ -84,6 +84,14 @@ function stripHashtags(s: string): string {
 
 // ── Public API ─────────────────────────────────────────────────────────────────
 
+/** Relative URL'i absolute'a çevir (@vercel/og absolute URL zorunlu). */
+function toAbsoluteUrl(url: string | undefined): string | undefined {
+  if (!url) return undefined;
+  if (url.startsWith('http://') || url.startsWith('https://') || url.startsWith('data:')) return url;
+  const base = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://shop.fly-froth.com';
+  return base.replace(/\/+$/, '') + (url.startsWith('/') ? url : '/' + url);
+}
+
 export async function generateProceduralPost(
   opts: ProceduralPostOpts,
 ): Promise<ProceduralPostResult> {
@@ -94,6 +102,7 @@ export async function generateProceduralPost(
       : palette.primary;
   const { w, h } = buildAspect(opts.aspect);
   const isStory = h >= 1900;
+  const logoUrlAbs = toAbsoluteUrl(opts.logoUrl);
 
   const eyebrow = (opts.topic ?? 'Fly & Froth').slice(0, 42).toUpperCase();
   const rawTitle = (opts.title ?? '').trim() || stripHashtags(opts.bodyText ?? '').split(/[.!?\n]/)[0] || opts.topic;
@@ -296,11 +305,11 @@ export async function generateProceduralPost(
               ),
             ],
           ),
-          // Sağ: logo overlay (varsa)
-          opts.logoUrl
+          // Sağ: logo overlay (varsa, absolute URL'e dönüştürüldü)
+          logoUrlAbs
             ? React.createElement('img', {
                 key: 'logo',
-                src: opts.logoUrl,
+                src: logoUrlAbs,
                 style: {
                   width: isStory ? 88 : 76,
                   height: isStory ? 88 : 76,
