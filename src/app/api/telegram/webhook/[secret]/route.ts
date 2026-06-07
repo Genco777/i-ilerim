@@ -754,8 +754,10 @@ async function handlePostCommand(
         telegramChatId: String(chatId),
         telegramMessageId: String(messageId),
         channel,
-        // Canva brand template aktif (EAHL7A0rnNI) — autofill ile gerçek görsel.
-        useCanva: true,
+        // Canva Enterprise-only → bıraktık. Nano Banana Pro ile premium brand görsel.
+        useCanva: false,
+        // pillar='vitrine' → image-router üzerinden Nano Banana Pro çağrılır
+        pillar: 'vitrine',
       });
 
       const caption = [
