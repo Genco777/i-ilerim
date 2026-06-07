@@ -90,20 +90,25 @@ async function autofillTemplate(
   bodyText: string,
   assetId?: string,
 ): Promise<string> {
-  const data_fields: Record<string, unknown>[] = [
-    { name: 'title', type: 'text', text: { text: title } },
-    { name: 'body', type: 'text', text: { text: bodyText } },
-  ];
-
+  // Canva Connect API v2 — yeni endpoint: POST /autofills (template ID body'de)
+  // Eski endpoint /brand-templates/{id}/autofills 404 dönüyor (deprecated Eylül 2025).
+  // data = key→value map: { fieldName: { type, text/asset_id } }
+  const data: Record<string, unknown> = {
+    title: { type: 'text', text: title },
+    body: { type: 'text', text: bodyText },
+  };
   if (assetId) {
-    data_fields.push({ name: 'hero_image', type: 'image', asset: { asset_id: assetId } });
+    data.hero_image = { type: 'image', asset_id: assetId };
   }
 
   const res = await canvaJson<AutofillResponse>(
-    `/brand-templates/${templateId}/autofills`,
+    `/autofills`,
     {
       method: 'POST',
-      body: JSON.stringify({ data: { data_fields } }),
+      body: JSON.stringify({
+        brand_template_id: templateId,
+        data,
+      }),
     },
   );
 
@@ -111,7 +116,7 @@ async function autofillTemplate(
 
   for (let i = 0; i < 30; i++) {
     await new Promise((r) => setTimeout(r, 2000));
-    const job = await canvaJson<AutofillJob>(`/brand-templates/${templateId}/autofills/${jobId}`);
+    const job = await canvaJson<AutofillJob>(`/autofills/${jobId}`);
     if (job.job.status === 'success' && job.job.result?.design.id) {
       return job.job.result.design.id;
     }
