@@ -22,6 +22,8 @@ export interface ProceduralPostOpts {
   pillar?: ContentPillar;
   aspect?: 'feed' | 'story' | 'square';
   dark?: boolean;
+  /** Brand logo URL — alt-sağda overlay olarak gösterilir. Yoksa text-only brand mark. */
+  logoUrl?: string;
 }
 
 export interface ProceduralPostResult {
@@ -103,13 +105,16 @@ export async function generateProceduralPost(
   }
   const body = bodyRaw.slice(0, 400);
 
-  const titleFs = isStory ? 92 : 84;
-  const bodyFs  = isStory ? 38 : 36;
-  const eyebrowFs = isStory ? 28 : 26;
-  const brandFs = isStory ? 26 : 24;
-  const pad = 80;
+  // Elegant scaling — daha rafine, daha az "loud", daha çok premium-magazine feel
+  const titleFs = isStory ? 78 : 72;     // ↓ küçüldü, daha narin
+  const bodyFs  = isStory ? 32 : 28;     // ↓ ince
+  const eyebrowFs = isStory ? 22 : 20;   // ↓ ince eyebrow
+  const brandFs = isStory ? 22 : 20;
+  const pad = 96;                        // ↑ daha geniş margin (elegant whitespace)
 
-  // ── JSX tree via React.createElement (file stays .ts, no .tsx switch needed) ──
+  // ── Elegant JSX tree ──
+  // Layout: ince accent hairline (sol), eyebrow (üst), title (orta), body (alt orta),
+  // alt-sağda logo overlay + sol-alt'ta minimal brand text. Magazine editorial feel.
 
   const element = React.createElement(
     'div',
@@ -119,7 +124,7 @@ export async function generateProceduralPost(
         flexDirection: 'column',
         width: '100%',
         height: '100%',
-        background: `linear-gradient(180deg, ${palette.background} 0%, ${palette.backgroundMuted} 100%)`,
+        background: palette.background, // solid, gradient yerine — daha clean
         padding: `${pad}px`,
         fontFamily: 'Inter',
         position: 'relative',
@@ -127,22 +132,21 @@ export async function generateProceduralPost(
       },
     },
     [
-      // Accent glow circle (top-right)
+      // Sol kenarda ince dikey accent stripe (magazine editorial vurgu)
       React.createElement('div', {
-        key: 'glow',
+        key: 'side-stripe',
         style: {
           position: 'absolute',
-          top: -180,
-          right: -140,
-          width: 560,
-          height: 560,
-          borderRadius: 280,
+          top: pad,
+          left: pad / 2,
+          width: 2,
+          height: h - pad * 2,
           background: accent,
-          opacity: 0.06,
+          opacity: 0.6,
         },
       }),
 
-      // Eyebrow
+      // Eyebrow — ince, accent dot ufak
       React.createElement(
         'div',
         {
@@ -150,14 +154,14 @@ export async function generateProceduralPost(
           style: {
             display: 'flex',
             alignItems: 'center',
-            gap: 14,
-            marginTop: 40,
+            gap: 12,
+            marginTop: 8,
           },
         },
         [
           React.createElement('div', {
             key: 'dot',
-            style: { width: 10, height: 10, borderRadius: 5, background: accent },
+            style: { width: 6, height: 6, borderRadius: 3, background: accent },
           }),
           React.createElement(
             'span',
@@ -166,7 +170,7 @@ export async function generateProceduralPost(
               style: {
                 fontSize: eyebrowFs,
                 fontWeight: 700,
-                letterSpacing: 4.5,
+                letterSpacing: 5,
                 color: palette.mutedForeground,
               },
             },
@@ -175,24 +179,39 @@ export async function generateProceduralPost(
         ],
       ),
 
-      // Title
+      // Title — ince ama bold, daha narin tracking
       React.createElement(
         'div',
         {
           key: 'title',
           style: {
             fontSize: titleFs,
-            fontWeight: 800,
-            letterSpacing: -1.6,
-            lineHeight: 1.05,
+            fontWeight: 700, // 800 → 700 (daha rafine)
+            letterSpacing: -1.4,
+            lineHeight: 1.08,
             color: palette.foreground,
-            marginTop: 32,
+            marginTop: 48,
             display: 'flex',
             textWrap: 'balance',
+            maxWidth: '85%',
           },
         },
         title,
       ),
+
+      // Title-body arası ince hairline rule (editorial element)
+      body
+        ? React.createElement('div', {
+            key: 'rule',
+            style: {
+              width: 48,
+              height: 1,
+              background: palette.foreground,
+              opacity: 0.25,
+              marginTop: 48,
+            },
+          })
+        : null,
 
       // Body
       body
@@ -204,61 +223,92 @@ export async function generateProceduralPost(
                 fontSize: bodyFs,
                 fontWeight: 400,
                 color: palette.foreground,
-                opacity: 0.78,
-                lineHeight: 1.4,
-                marginTop: 40,
+                opacity: 0.72,
+                lineHeight: 1.5,
+                marginTop: 28,
                 display: 'flex',
+                maxWidth: '78%',
               },
             },
             body,
           )
         : null,
 
-      // Spacer pushes brand to bottom
+      // Spacer
       React.createElement('div', { key: 'spacer', style: { flex: 1 } }),
 
-      // Bottom: accent bar + brand mark
+      // Bottom row: SOL brand text + SAĞ logo
       React.createElement(
         'div',
         {
-          key: 'brand',
+          key: 'bottom',
           style: {
             display: 'flex',
-            flexDirection: 'column',
-            gap: 6,
+            flexDirection: 'row',
+            alignItems: 'flex-end',
+            justifyContent: 'space-between',
+            width: '100%',
           },
         },
         [
-          React.createElement('div', {
-            key: 'bar',
-            style: { width: 88, height: 4, background: accent, marginBottom: 14 },
-          }),
+          // Sol: brand text (ince, minimal)
           React.createElement(
-            'span',
+            'div',
             {
-              key: 'name',
+              key: 'brand-text',
               style: {
-                fontSize: brandFs + 4,
-                fontWeight: 700,
-                letterSpacing: -0.4,
-                color: palette.foreground,
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 4,
               },
             },
-            BRAND_MARK.name,
+            [
+              React.createElement('div', {
+                key: 'bar',
+                style: { width: 32, height: 1, background: accent, marginBottom: 12 },
+              }),
+              React.createElement(
+                'span',
+                {
+                  key: 'name',
+                  style: {
+                    fontSize: brandFs + 2,
+                    fontWeight: 600,
+                    letterSpacing: -0.3,
+                    color: palette.foreground,
+                  },
+                },
+                BRAND_MARK.name,
+              ),
+              React.createElement(
+                'span',
+                {
+                  key: 'tag',
+                  style: {
+                    fontSize: brandFs - 6,
+                    fontWeight: 500,
+                    letterSpacing: 2.5,
+                    color: palette.mutedForeground,
+                    marginTop: 2,
+                  },
+                },
+                BRAND_MARK.tagline.toUpperCase(),
+              ),
+            ],
           ),
-          React.createElement(
-            'span',
-            {
-              key: 'tag',
-              style: {
-                fontSize: brandFs - 6,
-                fontWeight: 500,
-                letterSpacing: 2.2,
-                color: palette.mutedForeground,
-              },
-            },
-            BRAND_MARK.tagline.toUpperCase(),
-          ),
+          // Sağ: logo overlay (varsa)
+          opts.logoUrl
+            ? React.createElement('img', {
+                key: 'logo',
+                src: opts.logoUrl,
+                style: {
+                  width: isStory ? 88 : 76,
+                  height: isStory ? 88 : 76,
+                  objectFit: 'contain',
+                  display: 'flex',
+                },
+              })
+            : null,
         ],
       ),
     ],

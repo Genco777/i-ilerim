@@ -88,5 +88,5 @@ export const LAYOUT = {
 /** Brand markası (alt köşede görünecek imza metni) */
 export const BRAND_MARK = {
   name:    'Fly & Froth',
-  tagline: 'Design Studio · Karben',
+  tagline: 'Grafik- & Webdesign · Karben',
 };

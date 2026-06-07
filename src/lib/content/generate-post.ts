@@ -161,12 +161,14 @@ export async function generatePost(opts: GeneratePostOpts): Promise<Post> {
     }
   }
 
-  // Procedural yolu — premium-vizyon brand'lı Sharp+SVG (default, sıfır maliyet)
+  // Procedural yolu — premium-vizyon brand'lı @vercel/og (default, sıfır maliyet)
   if (wantsProcedural || wantsCanva /* canva fail+fallback */) {
     const proc = await generateProceduralPost({
       topic:    opts.topic,
-      title:    opts.topic,       // başlık = topic; gerekirse cron Claude'dan title üretip geçirebilir
+      title:    opts.topic,
       bodyText: textOut.text,
+      // Brand kit'inden logo overlay (alt-sağ köşede)
+      logoUrl:  brandKit.logo_url ?? undefined,
       pillar:   opts.pillar,
       aspect:   isStory ? 'story' : 'feed',
     });
