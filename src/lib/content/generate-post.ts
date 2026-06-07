@@ -113,8 +113,11 @@ export async function generatePost(opts: GeneratePostOpts): Promise<Post> {
   // için default yine procedural'a düşer.
   const designMode = getDesignMode();
   const wantsCanva = opts.useCanva === true || designMode === 'canva';
-  const wantsAi    = designMode === 'ai';
-  const wantsProcedural = designMode === 'procedural' || (designMode === 'auto' && !isCanvaConfigured());
+  // Sprint I-fix: 'auto' mode (default) → Canva configured ise Canva, yoksa
+  // gpt-image-1 (procedural değil — procedural Vercel'de font sorunlu çıktı veriyordu).
+  // Procedural sadece explicit POST_DESIGN_MODE=procedural ile devreye girer.
+  const wantsAi    = designMode === 'ai' || (designMode === 'auto' && !isCanvaConfigured());
+  const wantsProcedural = designMode === 'procedural';
 
   // Canva yolu — env varsa dene, fail edilirse procedural'a fallback yap
   if (wantsCanva && isCanvaConfigured()) {
@@ -146,7 +149,13 @@ export async function generatePost(opts: GeneratePostOpts): Promise<Post> {
         scheduled_at:        opts.scheduledAt ?? null,
       });
     } catch (err) {
-      console.warn('[generate-post] Canva fail, procedural fallback:', err instanceof Error ? err.message : err);
+      const msg = err instanceof Error ? err.message : String(err);
+      console.warn('[generate-post] Canva fail, procedural fallback:', msg);
+      // Telegram admin'e tam hata mesajını yolla — Vercel log kısaltıyor.
+      try {
+        const { notifyAdmins } = await import('@/lib/agent/notifications');
+        await notifyAdmins(`⚠️ Canva autofill FAIL (procedural fallback'a düşüyor):\n\n${msg.slice(0, 1500)}`).catch(() => {});
+      } catch { /* ignore */ }
       // ⤵ procedural'a düş
     }
   }
