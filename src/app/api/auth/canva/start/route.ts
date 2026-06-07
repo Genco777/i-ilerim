@@ -16,10 +16,13 @@ const CANVA_AUTHORIZE_URL = 'https://www.canva.com/api/oauth/authorize';
 // Canva Connect API — trial/non-reviewed app'ler için izin verilen scope'lar.
 // brandtemplate:* scope'ları review gerektirir → çıkarıldı.
 // Autofill için design:content:write zaten yeterli (brand template ID'sini bilirsen).
+// Sadece app'inde aktif scope'lar:
+// - design:content:read/write ✅ ("tasarım:içerik" read+write)
+// - asset:read/write ✅ ("varlık" read+write)
+// design:meta:read app'te kapalı ("tasarım:meta" boş) → çıkarıldı.
 const SCOPES = [
   'design:content:read',
   'design:content:write',
-  'design:meta:read',
   'asset:read',
   'asset:write',
 ].join(' ');
