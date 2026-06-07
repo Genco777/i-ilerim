@@ -13,18 +13,16 @@ export const runtime = 'nodejs';
 
 const CANVA_AUTHORIZE_URL = 'https://www.canva.com/api/oauth/authorize';
 
-// Canva Connect API — trial/non-reviewed app'ler için izin verilen scope'lar.
-// brandtemplate:* scope'ları review gerektirir → çıkarıldı.
-// Autofill için design:content:write zaten yeterli (brand template ID'sini bilirsen).
-// Sadece app'inde aktif scope'lar:
-// - design:content:read/write ✅ ("tasarım:içerik" read+write)
-// - asset:read/write ✅ ("varlık" read+write)
-// design:meta:read app'te kapalı ("tasarım:meta" boş) → çıkarıldı.
+// Canva Connect API scope'ları — Mehmet'in app'inde aktif olanlar (screenshot).
+// brandtemplate:* APP'TE AKTİF (önceden yanlışlıkla çıkardım, autofill 403'ün sebebi).
+// design:meta:read app'te kapalı → çıkarıldı.
 const SCOPES = [
   'design:content:read',
   'design:content:write',
   'asset:read',
   'asset:write',
+  'brandtemplate:meta:read',
+  'brandtemplate:content:read',
 ].join(' ');
 
 function getRedirectUri(req: Request): string {
