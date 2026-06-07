@@ -754,7 +754,7 @@ async function handlePostCommand(
         telegramChatId: String(chatId),
         telegramMessageId: String(messageId),
         channel,
-        // useCanva:true → Canva env varsa Canva, yoksa procedural premium-vizyon
+        // Canva brand template aktif (EAHL7A0rnNI) — autofill ile gerçek görsel.
         useCanva: true,
       });
 
