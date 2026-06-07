@@ -37,8 +37,27 @@ export async function GET(req: Request) {
   const state = url.searchParams.get('state');
   const error = url.searchParams.get('error');
 
-  if (error) return html(`<h1>Reddedildi</h1><p>${error}</p>`, 400);
-  if (!code) return html('<h1>Eksik authorization code</h1>', 400);
+  // Verbose log — Canva tüm query param'larını göster (debugging)
+  const allParams: Record<string, string> = {};
+  url.searchParams.forEach((v, k) => { allParams[k] = v; });
+  const paramsDebug = Object.entries(allParams).map(([k, v]) => `<li><code>${k}</code> = <code>${v.slice(0, 200)}</code></li>`).join('') || '<li><em>(URL boş)</em></li>';
+
+  if (error) {
+    const errDesc = url.searchParams.get('error_description') ?? '(açıklama yok)';
+    return html(`<h1>Canva reddetti</h1><p><strong>Error:</strong> ${error}</p><p><strong>Description:</strong> ${errDesc}</p><h3>Tüm query params:</h3><ul>${paramsDebug}</ul>`, 400);
+  }
+  if (!code) {
+    return html(`<h1>Eksik authorization code</h1>
+<p>Canva callback'e geldi ama <code>code</code> parametresi yok. Olası sebepler:</p>
+<ul>
+  <li>Canva izin sayfasında <strong>"Allow"</strong> yerine "Cancel/Reddet" tıkladın</li>
+  <li>Canva App'inde scope'lar etkinleştirilmemiş (Developer Portal → Configuration → Scopes)</li>
+  <li>Cookie expiry (10 dk geçti, /start ile baştan başla)</li>
+</ul>
+<h3>Gelen tüm query params:</h3>
+<ul>${paramsDebug}</ul>
+<p style="margin-top:24px"><a href="/api/auth/canva/start?secret=${process.env.CRON_SECRET}">Baştan başla</a></p>`, 400);
+  }
 
   // CSRF check
   const cookieState = parseCookie(req.headers.get('cookie') ?? '', 'canva_oauth_state');
