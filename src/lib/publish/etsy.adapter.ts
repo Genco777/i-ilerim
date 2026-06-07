@@ -300,7 +300,6 @@ export async function publishToEtsy(productRowId: string): Promise<PublishToEtsy
     }
     try {
       const extraResult = await uploadAdditionalListingFiles({
-        shopId,
         listingId,
         files: extras,
       });
