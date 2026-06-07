@@ -13,14 +13,15 @@ export const runtime = 'nodejs';
 
 const CANVA_AUTHORIZE_URL = 'https://www.canva.com/api/oauth/authorize';
 
+// Canva Connect API — trial/non-reviewed app'ler için izin verilen scope'lar.
+// brandtemplate:* scope'ları review gerektirir → çıkarıldı.
+// Autofill için design:content:write zaten yeterli (brand template ID'sini bilirsen).
 const SCOPES = [
   'design:content:read',
   'design:content:write',
   'design:meta:read',
   'asset:read',
   'asset:write',
-  'brandtemplate:content:read',
-  'brandtemplate:meta:read',
 ].join(' ');
 
 function getRedirectUri(req: Request): string {
