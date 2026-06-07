@@ -217,7 +217,29 @@ import { notifyKleinanzeigenReply, notifyPostPublished } from '@/lib/agent/notif
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
-export const maxDuration = 60;
+// 300s — long-running commands (/post AI gen). Lambda kalır arka planda;
+// webhook 200 hemen döner (fire-and-forget pattern aşağıda).
+export const maxDuration = 300;
+
+// ─────────────────────────────────────────────────────────────
+// Idempotency — Telegram aynı update_id'yi retry sırasında defalarca
+// gönderir (webhook 500/504 ya da timeout durumunda). In-memory dedup
+// lambda warm-window içinde sorunu çözer.
+// ─────────────────────────────────────────────────────────────
+const SEEN_UPDATE_IDS = new Map<number, number>();
+const SEEN_TTL_MS = 10 * 60 * 1000;
+
+function isDuplicateUpdate(updateId: number): boolean {
+  const now = Date.now();
+  if (SEEN_UPDATE_IDS.size > 500) {
+    for (const [id, ts] of SEEN_UPDATE_IDS) {
+      if (now - ts > SEEN_TTL_MS) SEEN_UPDATE_IDS.delete(id);
+    }
+  }
+  if (SEEN_UPDATE_IDS.has(updateId)) return true;
+  SEEN_UPDATE_IDS.set(updateId, now);
+  return false;
+}
 
 // In-memory session for manual text editing (post caption)
 const textEditSessions = new Map<number, string>(); // chatId -> postId
@@ -711,6 +733,10 @@ async function handlePostCommand(
   channel: 'post' | 'ig_story' = 'post',
 ): Promise<void> {
   const isStory = channel === 'ig_story';
+
+  // BUG FIX — Webhook'u bloketmeden hemen "Üretiliyor" yanıtı yolla, AI gen
+  // arka planda. Vercel 60s timeout'a takılıp Telegram'a 502 dönmüyor →
+  // Telegram retry yapmıyor → "Üretiliyor" mesajı tek sefer geliyor.
   await sendMessage({
     chatId,
     text: isStory
@@ -718,31 +744,37 @@ async function handlePostCommand(
       : `🎨 Üretiliyor: "${topic}"\n(15-30 saniye sürer, biraz bekle…)`,
   });
 
-  try {
-    const post = await generatePost({
-      topic,
-      telegramChatId: String(chatId),
-      telegramMessageId: String(messageId),
-      channel,
-    });
+  // Fire-and-forget — lambda maxDuration=300s bu arka planı kalıcı tutar.
+  void (async () => {
+    try {
+      const post = await generatePost({
+        topic,
+        telegramChatId: String(chatId),
+        telegramMessageId: String(messageId),
+        channel,
+        // BUG FIX — useCanva:true → Canva env varsa Canva, yoksa procedural
+        // premium-vizyon brand'lı görsel (eski gpt-image-1 fallback değil).
+        useCanva: true,
+      });
 
-    const caption = [
-      post.text_de,
-      '',
-      (post.hashtags ?? [])
-        .map((h) => `#${h.replace(/^#/, '')}`)
-        .join(' '),
-    ].join('\n');
+      const caption = [
+        post.text_de,
+        '',
+        (post.hashtags ?? [])
+          .map((h) => `#${h.replace(/^#/, '')}`)
+          .join(' '),
+      ].join('\n');
 
-    await sendPhoto({
-      chatId,
-      photo: post.final_image_url,
-      caption: caption.slice(0, 1024),
-      replyMarkup: previewKeyboard(post.id, isStory ? 'story' : 'post'),
-    });
-  } catch (err) {
-    await notifyError(chatId, err);
-  }
+      await sendPhoto({
+        chatId,
+        photo: post.final_image_url,
+        caption: caption.slice(0, 1024),
+        replyMarkup: previewKeyboard(post.id, isStory ? 'story' : 'post'),
+      });
+    } catch (err) {
+      await notifyError(chatId, err).catch(() => {});
+    }
+  })();
 }
 
 async function handleGenerateCommand(
@@ -5202,6 +5234,13 @@ export async function POST(
   }
 
   const update = (await req.json()) as TelegramUpdate;
+
+  // BUG FIX — Telegram retry guard (/post duplicate trigger fix)
+  if (typeof update.update_id === 'number' && isDuplicateUpdate(update.update_id)) {
+    console.log(`[webhook] duplicate update_id=${update.update_id}, skipping`);
+    return NextResponse.json({ ok: true, deduped: true });
+  }
+
   const userId =
     update.message?.from?.id ?? update.callback_query?.from.id ?? 0;
   const chatId =

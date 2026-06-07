@@ -19,17 +19,41 @@ import { ensureStripeProduct } from '@/lib/stripe/products';
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 
+/**
+ * Sprint I — Tier naming refactor.
+ *
+ * DB slot mapping (kolon adları değişmedi, sadece logical isim güncellendi):
+ *   - price_cents          / stripe_price_id    → 'basic'    (€2.99 PDF)
+ *   - tier_b_price_cents   / stripe_price_b_id  → 'pro'      (Sprint G personalized, eski adı: 'plus')
+ *   - tier_c_price_cents   / stripe_price_c_id  → 'editable' (Sprint I Canva editable, eski adı: 'pro')
+ *
+ * Back-compat alias'lar — eski client'lar (önbellek/eski mobil deeplink) bir
+ * süre daha çalışsın:
+ *   - 'plus' (eski)  → 'pro' (yeni)
+ *   - 'pro'  (eski Sprint G dönemi) ↔ ambiguous (eski 'pro' = personalized,
+ *      yeni 'pro' = aynı şey aslında! Sadece 'editable' yeni). Yani 'pro'
+ *      değişmeden gider.
+ */
+type TierKey = 'basic' | 'pro' | 'editable';
+
 interface CheckoutInput {
   slug: string | null;
-  tier: 'basic' | 'plus' | 'pro';
+  tier: TierKey;
   customName: string | null;
   customDate: string | null;
+}
+
+function normalizeTier(raw: unknown): TierKey {
+  if (raw === 'editable') return 'editable';
+  if (raw === 'pro') return 'pro';
+  if (raw === 'plus') return 'pro'; // back-compat alias
+  return 'basic';
 }
 
 async function extractInput(req: Request): Promise<CheckoutInput> {
   const contentType = (req.headers.get('content-type') ?? '').toLowerCase();
   let slug: string | null = null;
-  let tier: 'basic' | 'plus' | 'pro' = 'basic';
+  let tier: TierKey = 'basic';
   let customName: string | null = null;
   let customDate: string | null = null;
 
@@ -42,7 +66,7 @@ async function extractInput(req: Request): Promise<CheckoutInput> {
         custom_date?: unknown;
       };
       if (typeof body.slug === 'string' && body.slug.length > 0) slug = body.slug;
-      if (body.tier === 'plus' || body.tier === 'pro') tier = body.tier;
+      tier = normalizeTier(body.tier);
       if (typeof body.custom_name === 'string' && body.custom_name.trim()) customName = body.custom_name.trim().slice(0, 40);
       if (typeof body.custom_date === 'string' && body.custom_date.trim()) customDate = body.custom_date.trim().slice(0, 30);
       return { slug, tier, customName, customDate };
@@ -53,11 +77,10 @@ async function extractInput(req: Request): Promise<CheckoutInput> {
   try {
     const fd = await req.formData();
     const s = fd.get('slug');
-    const t = fd.get('tier');
     const n = fd.get('custom_name');
     const d = fd.get('custom_date');
     if (typeof s === 'string' && s.length > 0) slug = s;
-    if (t === 'plus' || t === 'pro') tier = t;
+    tier = normalizeTier(fd.get('tier'));
     if (typeof n === 'string' && n.trim()) customName = n.trim().slice(0, 40);
     if (typeof d === 'string' && d.trim()) customDate = d.trim().slice(0, 30);
     return { slug, tier, customName, customDate };
@@ -95,9 +118,18 @@ export async function POST(req: Request) {
   const fresh = freshRows[0]!;
 
   // Pick the price for the requested tier (fallback to Basic if tier missing)
+  // Sprint I — 'pro' → tier_b slot (personalized), 'editable' → tier_c slot (Canva).
   let selectedPrice = priceId;
-  if (tier === 'plus' && fresh.stripe_price_b_id) selectedPrice = fresh.stripe_price_b_id;
-  else if (tier === 'pro' && fresh.stripe_price_c_id) selectedPrice = fresh.stripe_price_c_id;
+  if (tier === 'pro' && fresh.stripe_price_b_id) selectedPrice = fresh.stripe_price_b_id;
+  else if (tier === 'editable' && fresh.stripe_price_c_id) selectedPrice = fresh.stripe_price_c_id;
+
+  // Editable tier guard: master Canva design olmadan editable satış engellenir
+  // (alıcı tıklayınca boş link açılır — kötü deneyim). Bunun yerine Basic'e düş.
+  if (tier === 'editable' && !fresh.editable_canva_share_url) {
+    console.warn(`[checkout] editable tier requested but no canva share URL for ${product.id} — falling back to basic`);
+    tier = 'basic';
+    selectedPrice = priceId;
+  }
 
   const base = getShopBaseUrl().replace(/\/+$/, '');
   const stripe = getStripe();
@@ -122,9 +154,16 @@ export async function POST(req: Request) {
       // Sprint G — Pro tier personalization data, picked up by webhook
       ...(tier === 'pro' && customName ? { custom_name: customName } : {}),
       ...(tier === 'pro' && customDate ? { custom_date: customDate } : {}),
+      // Sprint I — Editable tier metadata
+      ...(tier === 'editable' && fresh.editable_canva_share_url
+        ? { editable_canva_share_url: fresh.editable_canva_share_url.slice(0, 500) }
+        : {}),
+      ...(tier === 'editable' && fresh.editable_instructions_pdf_url
+        ? { editable_instructions_pdf_url: fresh.editable_instructions_pdf_url.slice(0, 500) }
+        : {}),
     },
     automatic_tax: { enabled: false },
-    expires_at: expiresAt, // C2 — short expiry so abandoned events fire promptly
+    expires_at: expiresAt,
   });
 
   if (!session.url) {

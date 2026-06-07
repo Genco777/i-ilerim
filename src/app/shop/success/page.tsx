@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { getStripe } from '@/lib/stripe/client';
 import { ShopHeader } from '@/components/shop/ShopHeader';
 import { StatementFooter } from '@/components/shop/StatementFooter';
+import { PurchaseTracker } from '@/components/shop/PurchaseTracker';
 
 export const dynamic = 'force-dynamic';
 
@@ -14,8 +15,11 @@ interface PageProps {
 
 export default async function SuccessPage(props: PageProps) {
   const { session_id } = await props.searchParams;
-  let buyerEmail: string | null = null;
-  let productName: string | null = null;
+  let buyerEmail:       string | null = null;
+  let productName:      string | null = null;
+  let purchaseValue:    number       = 0;
+  let purchaseCurrency: string       = 'EUR';
+  let productId:        string | null = null;
 
   if (session_id) {
     try {
@@ -23,8 +27,11 @@ export default async function SuccessPage(props: PageProps) {
       const session = await stripe.checkout.sessions.retrieve(session_id, {
         expand: ['line_items'],
       });
-      buyerEmail = session.customer_details?.email ?? null;
-      productName = session.line_items?.data[0]?.description ?? null;
+      buyerEmail       = session.customer_details?.email ?? null;
+      productName      = session.line_items?.data[0]?.description ?? null;
+      purchaseValue    = (session.amount_total ?? 0) / 100;
+      purchaseCurrency = (session.currency ?? 'eur').toUpperCase();
+      productId        = (session.metadata?.trend_product_id as string) ?? null;
     } catch {
       /* silent */
     }
@@ -32,6 +39,16 @@ export default async function SuccessPage(props: PageProps) {
 
   return (
     <main className="min-h-screen bg-background">
+      {/* Analytics: Purchase event (client-side, deduped w/ server-side via session_id) */}
+      {session_id && purchaseValue > 0 ? (
+        <PurchaseTracker
+          sessionId={session_id}
+          value={purchaseValue}
+          currency={purchaseCurrency}
+          productId={productId ?? undefined}
+          productName={productName ?? undefined}
+        />
+      ) : null}
       <ShopHeader />
 
       <section className="max-w-2xl mx-auto px-4 sm:px-6 py-20 sm:py-28 text-center">

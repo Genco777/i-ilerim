@@ -418,9 +418,22 @@ export async function runDailyTrendPipeline(
               )
             : Promise.resolve(null);
 
-          const [mockupResult, videoResult] = await Promise.allSettled([
+          // Sprint I — Editable Canva master design. Best-effort, paralel.
+          // Mockup (15-40s) + Video (60-120s) + Master editable (30-60s).
+          // Master fail edilirse ürün yine Basic + Pro tier'da çıkar, sadece
+          // Editable tier o ürün için available=false olur (UI'da gri görünür).
+          // Env toggle: ENABLE_EDITABLE_TIER=false → tamamen kapat.
+          const editableEnabled = (process.env.ENABLE_EDITABLE_TIER ?? 'true').toLowerCase() !== 'false';
+          const masterEditablePromise: Promise<{ ok: boolean; designId?: string; error?: string }> = editableEnabled
+            ? import('@/lib/canva/master-editable').then((m) =>
+                m.createMasterEditableForProduct(insertedProduct.id),
+              )
+            : Promise.resolve({ ok: false, error: 'disabled' });
+
+          const [mockupResult, videoResult, editableResult] = await Promise.allSettled([
             mockupPromise,
             videoPromise,
+            masterEditablePromise,
           ]);
 
           let mockupUrls: string[] = [];
@@ -451,6 +464,33 @@ export async function runDailyTrendPipeline(
                 videoResult.reason instanceof Error
                   ? videoResult.reason.message.slice(0, 200)
                   : String(videoResult.reason)
+              }`,
+            );
+          }
+
+          // Sprint I — Editable Canva master result (best-effort, DB zaten
+          // createMasterEditableForProduct içinde yazıldı). Burada sadece log
+          // + summary'ye not. Telegram caption'ı tier badge ile zenginleşir.
+          if (editableResult.status === 'fulfilled') {
+            if (editableResult.value.ok) {
+              console.log(
+                `[trend-editable] master design created for ${insertedProduct.id} → ${editableResult.value.designId}`,
+              );
+            } else {
+              console.warn(
+                `[trend-editable] master gen returned not-ok for ${insertedProduct.id}: ${editableResult.value.error}`,
+              );
+              summary.errors.push(
+                `Editable tier unavailable for "${candidate.topic}": ${editableResult.value.error}`,
+              );
+            }
+          } else {
+            console.error('[trend-editable] master gen rejected', editableResult.reason);
+            summary.errors.push(
+              `Editable tier gen failed for "${candidate.topic}": ${
+                editableResult.reason instanceof Error
+                  ? editableResult.reason.message.slice(0, 200)
+                  : String(editableResult.reason)
               }`,
             );
           }
@@ -562,62 +602,10 @@ export async function runDailyTrendPipeline(
       if (cause?.code) reason = `${reason} | code: ${cause.code}`;
 
       summary.errors.push(
-        `DB insert failed for "${candidate.topic}": ${reason.slice(0, 400)}`,
+        `DB insert failed for "${candidate.topic}": ${reason.slice(0, 300)}`,
       );
     }
   }
 
   return summary;
-}
-
-/**
- * Formats a Telegram-ready digest message for the daily run.
- * Telegram message length cap is 4096 chars — this stays well under
- * by capping tags + truncating long fields.
- */
-export function formatDigestMessage(summary: DailyRunSummary): string {
-  const lines: string[] = [];
-  lines.push('🎯 Trend Engine — günlük rapor');
-  lines.push(`📅 ${summary.runAt.slice(0, 10)}`);
-  lines.push('');
-
-  if (summary.productsCreated === 0) {
-    lines.push('⚠️ Bu çalıştırmada ürün üretilemedi.');
-    if (summary.errors.length) {
-      lines.push('');
-      lines.push('Hata özetleri:');
-      summary.errors.slice(0, 3).forEach((e) => lines.push(`• ${e.slice(0, 600)}`));
-    }
-    return lines.join('\n');
-  }
-
-  lines.push(
-    `🆕 ${summary.productsCreated} ürün önerisi (${summary.nichesConsidered} niş analiz edildi)`,
-  );
-  lines.push('');
-
-  summary.results.forEach((r, i) => {
-    const eur = (r.priceCents / 100).toFixed(2);
-    const compIcon = r.competition === 'low' ? '🟢' : r.competition === 'medium' ? '🟡' : '🔴';
-    lines.push(`━━━ #${i + 1} ━━━`);
-    lines.push(`📌 ${r.topic}`);
-    lines.push(`📊 Skor: ${r.score}/100  ${compIcon} rekabet: ${r.competition}`);
-    lines.push(`🇹🇷 ${r.turkishSummary}`);
-    lines.push(`🎯 Boşluk (TR): ${r.turkishGapAngle}`);
-    lines.push(`🛍️ Tip: ${r.productType} • €${eur}`);
-    lines.push(`📝 Etsy başlık: ${r.etsyTitle.slice(0, 120)}${r.etsyTitle.length > 120 ? '…' : ''}`);
-    lines.push(`🏪 Shop başlık: ${r.shopTitle.slice(0, 80)}${r.shopTitle.length > 80 ? '…' : ''}`);
-    lines.push(`🏷️ Tags: ${r.tags.slice(0, 6).join(', ')}…`);
-    lines.push('');
-  });
-
-  if (summary.errors.length > 0) {
-    lines.push(`⚠️ ${summary.errors.length} hata oluştu:`);
-    summary.errors.slice(0, 3).forEach((e) => lines.push(`• ${e.slice(0, 350)}`));
-  }
-
-  lines.push('');
-  lines.push('💡 Faz 2-A: yukarıdaki foto kartlarından ✅/❌/🔄/✏️ ile onayla. Faz 3 Etsy + kendi shop yayını için bekliyor.');
-
-  return lines.join('\n');
 }

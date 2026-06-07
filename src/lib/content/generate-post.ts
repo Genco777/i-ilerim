@@ -3,10 +3,36 @@ import { generateImage, generateImageRouted, buildImagePrompt } from '@/lib/ai/i
 import { composeLogo, applyGoldTint, cropToStoryAspect, cropToSquare } from '@/lib/image/compose-logo';
 import { composeInfoCard, infoCardAspectRatio, type InfoCardOptions } from '@/lib/image/compose-info-card';
 import { generateCanvaPost } from '@/lib/canva/generate';
+import { generateProceduralPost } from '@/lib/canva/procedural-fallback';
 import { uploadImage } from '@/lib/blob';
 import { getBrandKit } from '@/lib/db/queries/brand-kit';
 import { createPost, getPost, updatePost } from '@/lib/db/queries/posts';
 import type { Post, ImageProvider, ContentPillar, BrandKit } from '@/types';
+
+/**
+ * POST_DESIGN_MODE — design pipeline seçimi:
+ *   'canva'      → Canva brand template autofill (CANVA_TEMPLATE_ID_DEFAULT gerekir)
+ *   'procedural' → Sharp+SVG premium-vizyon brand'lı yerel görsel (default, sıfır maliyet)
+ *   'ai'         → Eski gpt-image-1 + gold tint + logo overlay flow
+ *   'auto'       → Canva env varsa Canva, yoksa procedural (önerilen)
+ *
+ * Env tanımlı değilse 'auto' davranır.
+ */
+type PostDesignMode = 'canva' | 'procedural' | 'ai' | 'auto';
+
+function getDesignMode(): PostDesignMode {
+  const raw = (process.env.POST_DESIGN_MODE ?? 'auto').toLowerCase().trim();
+  if (raw === 'canva' || raw === 'procedural' || raw === 'ai' || raw === 'auto') return raw;
+  return 'auto';
+}
+
+function isCanvaConfigured(): boolean {
+  return Boolean(
+    process.env.CANVA_CLIENT_ID &&
+    process.env.CANVA_CLIENT_SECRET &&
+    process.env.CANVA_TEMPLATE_ID_DEFAULT,
+  );
+}
 
 export type ContentChannel = 'post' | 'ig_story' | 'info_card' | 'info_card_phone' | 'info_card_split';
 
@@ -74,15 +100,68 @@ export async function generatePost(opts: GeneratePostOpts): Promise<Post> {
       : undefined,
   });
 
-  // ── CANVA flow — brand template autofill + export ─────────────────────────
-  if (opts.useCanva && !isStory) {
-    const canvaResult = await generateCanvaPost({
-      title:   opts.topic,
+  // ── DESIGN PIPELINE ROUTING ───────────────────────────────────────────────
+  //
+  // Yeni hiyerarşi:
+  //   1. explicit useCanva=true  → Canva (eğer env varsa, yoksa hata yerine procedural'a düş)
+  //   2. POST_DESIGN_MODE=canva  → aynı (env yoksa procedural)
+  //   3. POST_DESIGN_MODE=procedural → procedural premium-vizyon stili
+  //   4. POST_DESIGN_MODE=auto (default) → Canva varsa Canva, yoksa procedural
+  //   5. POST_DESIGN_MODE=ai     → eski gpt-image-1 flow
+  //
+  // Story (9:16) için: procedural support var, Canva'da template gerekli olduğu
+  // için default yine procedural'a düşer.
+  const designMode = getDesignMode();
+  const wantsCanva = opts.useCanva === true || designMode === 'canva';
+  const wantsAi    = designMode === 'ai';
+  const wantsProcedural = designMode === 'procedural' || (designMode === 'auto' && !isCanvaConfigured());
+
+  // Canva yolu — env varsa dene, fail edilirse procedural'a fallback yap
+  if (wantsCanva && isCanvaConfigured()) {
+    try {
+      const canvaResult = await generateCanvaPost({
+        title:   opts.topic,
+        bodyText: textOut.text,
+        pillar:  opts.pillar,
+      });
+
+      const blob = await uploadImage(canvaResult.buffer, `canva-${Date.now()}.png`);
+
+      return createPost({
+        status:              'draft',
+        topic:               opts.topic,
+        text_de:             textOut.text,
+        hashtags:            textOut.hashtags,
+        image_source:        'ai_generated',
+        raw_image_url:       blob.url,
+        final_image_url:     blob.url,
+        image_prompt:        null,
+        image_provider:      'canva',
+        created_via:         'telegram',
+        telegram_chat_id:    opts.telegramChatId ?? null,
+        telegram_message_id: opts.telegramMessageId ?? null,
+        content_pillar:      opts.pillar ?? null,
+        calendar_week:       opts.scheduledAt ? getCalendarWeek(opts.scheduledAt) : null,
+        channel:             'feed',
+        scheduled_at:        opts.scheduledAt ?? null,
+      });
+    } catch (err) {
+      console.warn('[generate-post] Canva fail, procedural fallback:', err instanceof Error ? err.message : err);
+      // ⤵ procedural'a düş
+    }
+  }
+
+  // Procedural yolu — premium-vizyon brand'lı Sharp+SVG (default, sıfır maliyet)
+  if (wantsProcedural || wantsCanva /* canva fail+fallback */) {
+    const proc = await generateProceduralPost({
+      topic:    opts.topic,
+      title:    opts.topic,       // başlık = topic; gerekirse cron Claude'dan title üretip geçirebilir
       bodyText: textOut.text,
-      pillar:  opts.pillar,
+      pillar:   opts.pillar,
+      aspect:   isStory ? 'story' : 'feed',
     });
 
-    const blob = await uploadImage(canvaResult.buffer, `canva-${Date.now()}.png`);
+    const blob = await uploadImage(proc.buffer, `procedural-${Date.now()}.png`);
 
     return createPost({
       status:              'draft',
@@ -93,16 +172,19 @@ export async function generatePost(opts: GeneratePostOpts): Promise<Post> {
       raw_image_url:       blob.url,
       final_image_url:     blob.url,
       image_prompt:        null,
-      image_provider:      'canva',
+      image_provider:      'procedural',
       created_via:         'telegram',
       telegram_chat_id:    opts.telegramChatId ?? null,
       telegram_message_id: opts.telegramMessageId ?? null,
       content_pillar:      opts.pillar ?? null,
       calendar_week:       opts.scheduledAt ? getCalendarWeek(opts.scheduledAt) : null,
-      channel:             'feed',
+      channel:             isStory ? 'story' : 'feed',
       scheduled_at:        opts.scheduledAt ?? null,
     });
   }
+
+  // Aksi halde wantsAi (legacy) → aşağıdaki gpt-image flow akışına devam ediyor
+  void wantsAi;
 
   // 2. Image
   let rawBuffer!: Buffer;

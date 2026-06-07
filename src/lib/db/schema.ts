@@ -890,6 +890,12 @@ export const products = pgTable(
     // B1 — Stripe price refs for tier variants
     stripe_price_b_id: text('stripe_price_b_id'),
     stripe_price_c_id: text('stripe_price_c_id'),
+    // Sprint I — Editable Canva tier (tier_c slot). Canva-spesifik asset'ler.
+    // tier_c_price_cents default: 999 (€9.99). Editable = customizable in Canva.
+    editable_canva_design_id: text('editable_canva_design_id'),       // Canva design ID
+    editable_canva_share_url: text('editable_canva_share_url'),       // public "use as template" URL
+    editable_instructions_pdf_url: text('editable_instructions_pdf_url'), // QR + step-by-step PDF
+    editable_preview_image_url: text('editable_preview_image_url'),   // Canva design PNG export
     // Assets (Faz 2)
     hero_image_url: text('hero_image_url'),
     mockup_image_urls: text('mockup_image_urls').array().default([]),

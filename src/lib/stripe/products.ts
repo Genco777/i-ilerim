@@ -75,15 +75,18 @@ export async function ensureStripeProduct(productRowId: string): Promise<StripeP
   // B1 — Plus + Pro tiers (best-effort; if either fails the Basic still works)
   let stripePriceBId: string | null = null;
   let stripePriceCId: string | null = null;
+  // Sprint I rename: tier_b slot = 'pro' (personalized), tier_c slot = 'editable' (Canva)
+  // Mevcut Stripe Price'lar nickname 'Plus' / 'Pro' ile yaratılmış olabilir —
+  // yeni create'ler doğru naming alır; eski Price ID'ler çalışmaya devam eder.
   if (p.tier_b_price_cents) {
     try {
       const priceB = await stripe.prices.create({
         product: stripeProduct.id,
         currency: 'eur',
         unit_amount: p.tier_b_price_cents,
-        metadata: { trend_product_id: p.id, tier: 'plus' },
+        metadata: { trend_product_id: p.id, tier: 'pro' },
         tax_behavior: 'inclusive',
-        nickname: 'Plus',
+        nickname: 'Pro (Personalized)',
       });
       stripePriceBId = priceB.id;
     } catch (e) {
@@ -96,9 +99,9 @@ export async function ensureStripeProduct(productRowId: string): Promise<StripeP
         product: stripeProduct.id,
         currency: 'eur',
         unit_amount: p.tier_c_price_cents,
-        metadata: { trend_product_id: p.id, tier: 'pro' },
+        metadata: { trend_product_id: p.id, tier: 'editable' },
         tax_behavior: 'inclusive',
-        nickname: 'Pro',
+        nickname: 'Editable Canva',
       });
       stripePriceCId = priceC.id;
     } catch (e) {
@@ -123,12 +126,12 @@ export async function ensureStripeProduct(productRowId: string): Promise<StripeP
 
 /**
  * Removes a product from the public shop listing without deleting Stripe
- * resources (so historical payments still resolve). Used when a product is
- * archived or rejected post-approval.
+ * resources (so historical payments still work). Sets is_public_in_shop=0
+ * — the public shop ISR query filters on it.
  */
-export async function unlistFromShop(productRowId: string): Promise<void> {
+export async function unpublishProductFromShop(productId: string): Promise<void> {
   await db
     .update(products)
     .set({ is_public_in_shop: 0, updated_at: new Date() })
-    .where(eq(products.id, productRowId));
+    .where(eq(products.id, productId));
 }

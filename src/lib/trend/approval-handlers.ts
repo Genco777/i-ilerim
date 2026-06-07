@@ -217,11 +217,39 @@ async function syncToPinterest(productId: string): Promise<{ pinCount: number; e
       (product.etsy_description ?? product.shop_description ?? niche.gap_angle).slice(0, 480) +
       '\n\nFly & Froth · printable PDF · instant download.';
 
+    // Sprint H — Pinterest brand'lı pin görselleri (1000×1500 vertical, 3 angle).
+    // Hero ham görsel yerine premium-vizyon brand'lı pin tasarımı kullan.
+    // 3 angle (hero / text / benefit) → her board için döngüsel sıralama,
+    // hepsi fail ederse fallback olarak ham hero kullan.
+    let pinImageUrls: string[] = [];
+    try {
+      const { generatePinBatch } = await import('@/lib/pinterest/generate-pin');
+      const { uploadImage } = await import('@/lib/blob');
+      const pins = await generatePinBatch({
+        title: title,
+        productType: product.type,
+        heroImageUrl: product.hero_image_url,
+        priceLabel: product.price_cents ? `€${(product.price_cents / 100).toFixed(2)}` : undefined,
+        pillar: undefined,
+      });
+      const uploads = await Promise.allSettled(
+        pins.map((p, i) => uploadImage(p.buffer, `pin-${productId}-${p.angle}-${i}-${Date.now()}.png`)),
+      );
+      pinImageUrls = uploads
+        .filter((r): r is PromiseFulfilledResult<{ url: string }> => r.status === 'fulfilled')
+        .map((r) => r.value.url);
+    } catch (err) {
+      console.warn('[trend] Pinterest brand pin gen failed, falling back to hero image', err);
+    }
+    if (pinImageUrls.length === 0) {
+      pinImageUrls = [product.hero_image_url];
+    }
+
     const results = await Promise.allSettled(
-      target.map((board) =>
+      target.map((board, i) =>
         createPin({
           boardId: board.id,
-          imageUrl: product.hero_image_url!,
+          imageUrl: pinImageUrls[i % pinImageUrls.length]!, // rotate angles across boards
           title,
           description,
           link,
@@ -556,6 +584,16 @@ export function formatProductCaption(
   }
   if (product.shop_title) {
     lines.push(`🏪 Shop: ${product.shop_title.slice(0, 80)}${product.shop_title.length > 80 ? '…' : ''}`);
+  }
+
+  // Sprint I — Editable Canva tier badge + share link preview (admin için)
+  if (product.editable_canva_share_url) {
+    const proEur = product.tier_b_price_cents ? (product.tier_b_price_cents / 100).toFixed(2) : '4.99';
+    const editEur = product.tier_c_price_cents ? (product.tier_c_price_cents / 100).toFixed(2) : '9.99';
+    lines.push(`💎 3-tier ready: Basic €${eur} · Pro €${proEur} · Editable €${editEur}`);
+    lines.push(`📐 Canva preview: ${product.editable_canva_share_url.slice(0, 100)}`);
+  } else {
+    lines.push(`⚠️ Editable tier yok — sadece Basic + Pro satılır`);
   }
 
   return lines.join('\n').slice(0, 1020);

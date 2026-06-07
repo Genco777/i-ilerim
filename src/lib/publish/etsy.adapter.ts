@@ -280,6 +280,45 @@ export async function publishToEtsy(productRowId: string): Promise<PublishToEtsy
       // No throw — Mehmet can re-upload manually before activating.
     }
   }
+
+  // Sprint I — Editable Canva tier ek dosyaları (instructions PDF + preview PNG)
+  // Best-effort: bu dosyalar Etsy listing'inin Editable Canva değer önerisini
+  // göstermek için. Yoksa atlanır (basic PDF yine var).
+  if (product.editable_instructions_pdf_url || product.editable_preview_image_url) {
+    const extras: Array<{ url: string; name?: string }> = [];
+    if (product.editable_instructions_pdf_url) {
+      extras.push({
+        url: product.editable_instructions_pdf_url,
+        name: `${product.slug ?? 'product'}-canva-instructions.pdf`,
+      });
+    }
+    if (product.editable_preview_image_url) {
+      extras.push({
+        url: product.editable_preview_image_url,
+        name: `${product.slug ?? 'product'}-preview.png`,
+      });
+    }
+    try {
+      const extraResult = await uploadAdditionalListingFiles({
+        shopId,
+        listingId,
+        files: extras,
+      });
+      fileCount += extraResult.uploaded.length;
+      console.log(
+        `[etsy] Editable tier extras: ${extraResult.uploaded.length}/${extras.length} uploaded, ${extraResult.errors.length} errors`,
+      );
+      if (extraResult.errors.length > 0) {
+        console.warn(
+          `[etsy] Editable extras errors: ${extraResult.errors.map((e) => `${e.url.slice(-40)}: ${e.error}`).join(' | ')}`,
+        );
+      }
+    } catch (err) {
+      console.warn(
+        `[etsy] Editable extras upload skipped — ${err instanceof Error ? err.message.slice(0, 200) : String(err)}`,
+      );
+    }
+  }
   // TANRILAR Module 4: GET-after-POST verification. The "listing created"
   // confirmation has been misleading — fetch the listing back and confirm it
   // actually exists with the files/images we expect.
@@ -595,4 +634,215 @@ function sectionTitleForType(productType: string): string {
     social_template: 'Social Media Templates',
   };
   return map[productType] ?? 'Printables';
+}
+
+// ─────────────────────────────────────────────────────────────
+// Sprint I — Additional digital files (multi-file listings)
+// ─────────────────────────────────────────────────────────────
+//
+// Etsy lets a single listing carry up to 5 digital files (each ≤ 20 MB),
+// types: PDF, ZIP, JPG, PNG, MP3, MP4, MOBI, etc. Sprint I uses this so a
+// listing can ship the main PDF + a Canva-instructions PDF + an editable-
+// preview PNG, all as separate downloads the buyer sees in their order.
+//
+// This module ONLY adds files to an existing listing. It does NOT modify
+// `publishToEtsy()` — Mehmet wires it in via the orchestrator after the
+// main publish call succeeds. Best-effort by design: one bad URL never
+// blocks the others (errors collected per-file).
+
+/** Etsy hard limit per listing — see https://developer.etsy.com docs. */
+const ETSY_MAX_FILES_PER_LISTING = 5;
+/** Etsy hard limit per file (20 MB). */
+const ETSY_MAX_FILE_BYTES = 20 * 1024 * 1024;
+/** Source-URL fetch timeout — Blob storage can be slow for ~15 MB PDFs. */
+const ADDITIONAL_FILE_FETCH_TIMEOUT_MS = 30_000;
+
+export interface UploadAdditionalFilesArgs {
+  listingId: number;
+  files: Array<{
+    /** Source URL the file will be fetched from (e.g. blob.vercel-storage.com). */
+    url: string;
+    /** Etsy listing display order, 1–5. If omitted, auto-assigned after existing files. */
+    rank?: number;
+    /** Override filename — otherwise derived from the URL's pathname. */
+    name?: string;
+  }>;
+}
+
+export interface UploadAdditionalFilesResult {
+  uploaded: Array<{
+    url: string;
+    listing_file_id: number;
+    size_bytes: number;
+    rank: number;
+  }>;
+  errors: Array<{ url: string; error: string }>;
+  /** How many files were already on the listing before this call. */
+  existingFileCount: number;
+  /** How many slots Etsy refused (over the 5-file cap) — surfaced for logging. */
+  skippedDueToQuota: number;
+}
+
+/**
+ * Upload additional digital files to an existing Etsy listing.
+ *
+ * Sequence (intentionally serial — Etsy public-app rate limit is 10 rps and
+ * 10 000/day per shop, and multipart uploads are I/O heavy — parallelism
+ * gains nothing and risks 429s):
+ *
+ *   1. GET /listings/{listingId}/files  → discover current file count
+ *   2. Respect ETSY_MAX_FILES_PER_LISTING (5) — extra inputs go to `errors`
+ *      with a 'quota' reason so the caller can tell the operator
+ *   3. For each remaining input, in order:
+ *        a. Fetch source URL with 30 s timeout
+ *        b. Reject if > 20 MB (Etsy would 400 anyway, but our error is clearer)
+ *        c. Sanitize filename via existing sanitizeEtsyFilename helper
+ *        d. POST as multipart 'file' with correct Content-Type
+ *        e. Push success/failure into result arrays, continue regardless
+ *
+ * Never throws on a per-file failure. Only throws if the initial
+ * GET /files call fails (i.e. the listing itself is gone / token revoked).
+ */
+export async function uploadAdditionalListingFiles(
+  args: UploadAdditionalFilesArgs,
+): Promise<UploadAdditionalFilesResult> {
+  const shopId = getEtsyShopId();
+  const { listingId } = args;
+
+  const result: UploadAdditionalFilesResult = {
+    uploaded: [],
+    errors: [],
+    existingFileCount: 0,
+    skippedDueToQuota: 0,
+  };
+
+  // 1) Probe current file count so we know how many slots remain.
+  let existingFiles: EtsyListingFileResponse[] = [];
+  try {
+    const list = await etsyFetch<{ count: number; results: EtsyListingFileResponse[] }>(
+      `/application/shops/${shopId}/listings/${listingId}/files`,
+    );
+    existingFiles = list.results ?? [];
+    result.existingFileCount = existingFiles.length;
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    throw new Error(
+      `[etsy-extra] could not list existing files for listing ${listingId}: ${msg.slice(0, 400)}`,
+    );
+  }
+
+  const availableSlots = Math.max(
+    0,
+    ETSY_MAX_FILES_PER_LISTING - existingFiles.length,
+  );
+
+  if (availableSlots === 0) {
+    result.skippedDueToQuota = args.files.length;
+    for (const f of args.files) {
+      result.errors.push({
+        url: f.url,
+        error: `Etsy quota: listing ${listingId} already has ${existingFiles.length}/${ETSY_MAX_FILES_PER_LISTING} files — no slot available`,
+      });
+    }
+    console.warn(
+      `[etsy-extra] listing ${listingId} is FULL (${existingFiles.length} files) — skipped ${args.files.length} uploads`,
+    );
+    return result;
+  }
+
+  // 2) Limit input to remaining slots (FIFO priority)
+  const toUpload = args.files.slice(0, availableSlots);
+  const overflow = args.files.slice(availableSlots);
+  result.skippedDueToQuota = overflow.length;
+  for (const f of overflow) {
+    result.errors.push({
+      url: f.url,
+      error: `Etsy quota: only ${availableSlots} slot(s) available, you submitted ${args.files.length}`,
+    });
+  }
+
+  // 3) Sequential upload (Etsy 10 req/sec rate limit — don't parallelise)
+  for (let i = 0; i < toUpload.length; i++) {
+    const file = toUpload[i]!;
+    const rank = file.rank ?? existingFiles.length + i + 1;
+    try {
+      const { blob, contentType } = await fetchAsBlob(file.url);
+      const sizeBytes = blob.size;
+      if (sizeBytes === 0) {
+        throw new Error(`source returned 0 bytes (blob signed URL may have expired): ${redactQuery(file.url)}`);
+      }
+      if (sizeBytes > ETSY_MAX_FILE_BYTES) {
+        throw new Error(`file too large: ${(sizeBytes / 1024 / 1024).toFixed(1)}MB > 20MB Etsy cap`);
+      }
+
+      const filename = sanitizeEtsyFilename(file.name ?? filenameFromUrl(file.url));
+      const mime = pickMimeForEtsy(filename, contentType);
+      const typedBlob = new Blob([await blob.arrayBuffer()], { type: mime });
+      const fd = new FormData();
+      fd.append('file', typedBlob, filename);
+      fd.append('name', filename);
+      fd.append('rank', String(rank));
+
+      const uploadRes = await etsyFetch<EtsyListingFileResponse>(
+        `/application/shops/${shopId}/listings/${listingId}/files`,
+        { method: 'POST', rawBody: fd },
+      );
+
+      console.log(
+        `[etsy-extra] uploaded rank=${rank} ${filename} → listing_file_id=${uploadRes.listing_file_id} (${sizeBytes}b, ${mime})`,
+      );
+      result.uploaded.push({
+        url: file.url,
+        listing_file_id: uploadRes.listing_file_id,
+        size_bytes: uploadRes.size_bytes ?? sizeBytes,
+        rank,
+      });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message.slice(0, 500) : String(err);
+      console.warn(`[etsy-extra] upload failed for ${redactQuery(file.url)}: ${msg}`);
+      result.errors.push({ url: file.url, error: msg });
+    }
+  }
+
+  return result;
+}
+
+function filenameFromUrl(url: string): string {
+  try {
+    const pathname = new URL(url).pathname;
+    const last = pathname.split('/').pop() ?? '';
+    return last || 'file.pdf';
+  } catch {
+    return 'file.pdf';
+  }
+}
+
+function pickMimeForEtsy(filename: string, headerContentType: string): string {
+  const ext = (filename.match(/\.([a-z0-9]+)$/i)?.[1] ?? '').toLowerCase();
+  const extMap: Record<string, string> = {
+    pdf: 'application/pdf',
+    zip: 'application/zip',
+    png: 'image/png',
+    jpg: 'image/jpeg',
+    jpeg: 'image/jpeg',
+    gif: 'image/gif',
+    svg: 'image/svg+xml',
+    mp3: 'audio/mpeg',
+    mp4: 'video/mp4',
+    txt: 'text/plain',
+  };
+  if (extMap[ext]) return extMap[ext]!;
+  if (headerContentType && !headerContentType.startsWith('application/octet-stream')) {
+    return headerContentType;
+  }
+  return 'application/pdf';
+}
+
+function redactQuery(url: string): string {
+  try {
+    const u = new URL(url);
+    return u.origin + u.pathname + (u.search ? '?<redacted>' : '');
+  } catch {
+    return url.slice(0, 80);
+  }
 }

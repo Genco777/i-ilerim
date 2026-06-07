@@ -10,8 +10,27 @@ import { products } from '@/lib/db/schema';
 import { and, eq, or } from 'drizzle-orm';
 import { ShopHeader } from '@/components/shop/ShopHeader';
 import { StatementFooter } from '@/components/shop/StatementFooter';
+import { TierSelector, type TierDef } from '@/components/shop/TierSelector';
+import type { Product } from '@/types';
 
 export const dynamic = 'force-dynamic';
+
+/**
+ * Sprint I — Resolve the 3-tier list for this product via the tier-pricing
+ * module. Dynamic import so a runtime error (e.g. Stripe key misconfig at
+ * import-time) never breaks the product page — we fall back to the legacy
+ * single-button tier blocks below.
+ */
+async function resolveTiers(product: Product): Promise<TierDef[] | null> {
+  try {
+    const mod = await import('@/lib/shop/tier-pricing');
+    if (typeof mod.computeTiersForProduct !== 'function') return null;
+    const tiers = mod.computeTiersForProduct(product);
+    return Array.isArray(tiers) && tiers.length > 0 ? (tiers as TierDef[]) : null;
+  } catch {
+    return null;
+  }
+}
 
 interface PageProps {
   params: Promise<{ slug: string }>;
@@ -42,6 +61,7 @@ export default async function ProductDetail(props: PageProps) {
   ].filter((u): u is string => !!u);
 
   const priceEur = (product.price_cents / 100).toFixed(2);
+  const tiers = await resolveTiers(product);
 
   return (
     <main className="min-h-screen bg-background">
@@ -110,99 +130,110 @@ export default async function ProductDetail(props: PageProps) {
             </div>
           ) : null}
 
-          {/* B1 — Tier selector: Basic / Plus / Pro */}
-          <div className="mt-8 space-y-3">
-            <form action="/api/shop/checkout" method="post">
-              <input type="hidden" name="slug" value={product.slug ?? ''} />
-              <input type="hidden" name="tier" value="basic" />
-              <button
-                type="submit"
-                className="w-full text-left rounded-lg border border-border bg-card hover:border-foreground/20 p-5 transition-colors"
-              >
-                <div className="flex items-baseline justify-between">
-                  <div>
-                    <p className="text-xs uppercase tracking-widest text-muted-foreground mb-1">Basic</p>
-                    <p className="text-base font-semibold text-foreground">Printable PDF · instant download</p>
-                  </div>
-                  <p className="text-2xl font-bold text-foreground">€{priceEur}</p>
-                </div>
-              </button>
-            </form>
-            {product.tier_b_price_cents && product.tier_b_description ? (
+          {/* Sprint I — 3-tier selector (Basic / Pro / Editable). Falls back
+              to the legacy B1 multi-form block if tier-pricing module is
+              unavailable at build time. */}
+          {tiers ? (
+            <TierSelector
+              productId={product.id}
+              productSlug={product.slug ?? ''}
+              productTitle={product.shop_title ?? 'Printable'}
+              tiers={tiers}
+            />
+          ) : (
+            <div className="mt-8 space-y-3">
               <form action="/api/shop/checkout" method="post">
                 <input type="hidden" name="slug" value={product.slug ?? ''} />
-                <input type="hidden" name="tier" value="plus" />
+                <input type="hidden" name="tier" value="basic" />
                 <button
                   type="submit"
-                  className="w-full text-left rounded-lg border-2 border-primary/40 bg-primary/5 hover:border-primary/60 p-5 transition-colors"
+                  className="w-full text-left rounded-lg border border-border bg-card hover:border-foreground/20 p-5 transition-colors"
                 >
+                  <div className="flex items-baseline justify-between">
+                    <div>
+                      <p className="text-xs uppercase tracking-widest text-muted-foreground mb-1">Basic</p>
+                      <p className="text-base font-semibold text-foreground">Printable PDF · instant download</p>
+                    </div>
+                    <p className="text-2xl font-bold text-foreground">€{priceEur}</p>
+                  </div>
+                </button>
+              </form>
+              {product.tier_b_price_cents && product.tier_b_description ? (
+                <form action="/api/shop/checkout" method="post">
+                  <input type="hidden" name="slug" value={product.slug ?? ''} />
+                  <input type="hidden" name="tier" value="plus" />
+                  <button
+                    type="submit"
+                    className="w-full text-left rounded-lg border-2 border-primary/40 bg-primary/5 hover:border-primary/60 p-5 transition-colors"
+                  >
+                    <div className="flex items-baseline justify-between mb-2">
+                      <div>
+                        <p className="text-xs uppercase tracking-widest text-primary mb-1">Plus · most popular</p>
+                        <p className="text-base font-semibold text-foreground">PDF + editable Canva + 3 bonus pages</p>
+                      </div>
+                      <p className="text-2xl font-bold text-foreground">€{(product.tier_b_price_cents / 100).toFixed(2)}</p>
+                    </div>
+                    <p className="text-xs text-muted-foreground leading-relaxed">{product.tier_b_description}</p>
+                  </button>
+                </form>
+              ) : null}
+              {product.tier_c_price_cents && product.tier_c_description ? (
+                <form action="/api/shop/checkout" method="post" className="rounded-lg border border-border bg-card p-5">
+                  <input type="hidden" name="slug" value={product.slug ?? ''} />
+                  <input type="hidden" name="tier" value="pro" />
                   <div className="flex items-baseline justify-between mb-2">
                     <div>
-                      <p className="text-xs uppercase tracking-widest text-primary mb-1">Plus · most popular</p>
-                      <p className="text-base font-semibold text-foreground">PDF + editable Canva + 3 bonus pages</p>
+                      <p className="text-xs uppercase tracking-widest text-muted-foreground mb-1">Pro · personalized</p>
+                      <p className="text-base font-semibold text-foreground">Everything + personalized for you</p>
                     </div>
-                    <p className="text-2xl font-bold text-foreground">€{(product.tier_b_price_cents / 100).toFixed(2)}</p>
+                    <p className="text-2xl font-bold text-foreground">€{(product.tier_c_price_cents / 100).toFixed(2)}</p>
                   </div>
-                  <p className="text-xs text-muted-foreground leading-relaxed">{product.tier_b_description}</p>
-                </button>
-              </form>
-            ) : null}
-            {product.tier_c_price_cents && product.tier_c_description ? (
-              <form action="/api/shop/checkout" method="post" className="rounded-lg border border-border bg-card p-5">
-                <input type="hidden" name="slug" value={product.slug ?? ''} />
-                <input type="hidden" name="tier" value="pro" />
-                <div className="flex items-baseline justify-between mb-2">
-                  <div>
-                    <p className="text-xs uppercase tracking-widest text-muted-foreground mb-1">Pro · personalized</p>
-                    <p className="text-base font-semibold text-foreground">Everything + personalized for you</p>
-                  </div>
-                  <p className="text-2xl font-bold text-foreground">€{(product.tier_c_price_cents / 100).toFixed(2)}</p>
-                </div>
-                <p className="text-xs text-muted-foreground leading-relaxed mb-4">{product.tier_c_description}</p>
+                  <p className="text-xs text-muted-foreground leading-relaxed mb-4">{product.tier_c_description}</p>
 
-                {/* Sprint G — Personalization inputs (Pro only) */}
-                <div className="space-y-3 mt-4 mb-4 p-3 rounded bg-muted/40 border border-border/50">
-                  <p className="text-[11px] uppercase tracking-widest text-muted-foreground">
-                    Personalize this download
-                  </p>
-                  <div>
-                    <label htmlFor="custom_name" className="block text-xs text-foreground mb-1">
-                      Name to print on cover
-                    </label>
-                    <input
-                      id="custom_name"
-                      type="text"
-                      name="custom_name"
-                      maxLength={40}
-                      placeholder="e.g. Sarah"
-                      className="w-full px-3 py-2 text-sm rounded border border-border bg-background"
-                      required
-                    />
+                  {/* Sprint G — Personalization inputs (Pro only) */}
+                  <div className="space-y-3 mt-4 mb-4 p-3 rounded bg-muted/40 border border-border/50">
+                    <p className="text-[11px] uppercase tracking-widest text-muted-foreground">
+                      Personalize this download
+                    </p>
+                    <div>
+                      <label htmlFor="custom_name" className="block text-xs text-foreground mb-1">
+                        Name to print on cover
+                      </label>
+                      <input
+                        id="custom_name"
+                        type="text"
+                        name="custom_name"
+                        maxLength={40}
+                        placeholder="e.g. Sarah"
+                        className="w-full px-3 py-2 text-sm rounded border border-border bg-background"
+                        required
+                      />
+                    </div>
+                    <div>
+                      <label htmlFor="custom_date" className="block text-xs text-foreground mb-1">
+                        Date (optional — e.g. wedding date, birthday)
+                      </label>
+                      <input
+                        id="custom_date"
+                        type="text"
+                        name="custom_date"
+                        maxLength={30}
+                        placeholder="e.g. June 2026"
+                        className="w-full px-3 py-2 text-sm rounded border border-border bg-background"
+                      />
+                    </div>
                   </div>
-                  <div>
-                    <label htmlFor="custom_date" className="block text-xs text-foreground mb-1">
-                      Date (optional — e.g. wedding date, birthday)
-                    </label>
-                    <input
-                      id="custom_date"
-                      type="text"
-                      name="custom_date"
-                      maxLength={30}
-                      placeholder="e.g. June 2026"
-                      className="w-full px-3 py-2 text-sm rounded border border-border bg-background"
-                    />
-                  </div>
-                </div>
 
-                <button
-                  type="submit"
-                  className="w-full rounded-lg bg-foreground text-background hover:opacity-90 p-3 transition-opacity font-semibold text-sm"
-                >
-                  Order personalized — €{(product.tier_c_price_cents / 100).toFixed(2)}
-                </button>
-              </form>
-            ) : null}
-          </div>
+                  <button
+                    type="submit"
+                    className="w-full rounded-lg bg-foreground text-background hover:opacity-90 p-3 transition-opacity font-semibold text-sm"
+                  >
+                    Order personalized — €{(product.tier_c_price_cents / 100).toFixed(2)}
+                  </button>
+                </form>
+              ) : null}
+            </div>
+          )}
 
           {/* Reassurance row */}
           <ul className="mt-5 grid grid-cols-2 gap-3 text-xs text-muted-foreground">

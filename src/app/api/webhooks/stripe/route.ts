@@ -174,6 +174,11 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session): Promis
   });
 
   // ── 3) Send buyer email (best-effort) ──
+  // Sprint I — tier-aware delivery. 'editable' tier ek Canva link + instructions PDF içerir.
+  const buyerTier = (session.metadata?.tier as string) ?? 'basic';
+  const editableShareUrl = session.metadata?.editable_canva_share_url as string | undefined;
+  const editableInstructionsUrl = session.metadata?.editable_instructions_pdf_url as string | undefined;
+
   if (session.customer_details?.email) {
     try {
       await sendDeliveryEmail({
@@ -182,10 +187,33 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session): Promis
         productTitle: product.shop_title ?? 'Your purchase',
         downloadUrl,
         expiresAt,
+        // Sprint I — editable tier extras (yoksa undefined geçirilir, template render etmez)
+        tier: buyerTier as 'basic' | 'pro' | 'editable',
+        editableCanvaShareUrl: buyerTier === 'editable' ? editableShareUrl : undefined,
+        editableInstructionsPdfUrl: buyerTier === 'editable' ? editableInstructionsUrl : undefined,
       });
     } catch (err) {
       console.error('[stripe webhook] delivery email failed', err);
     }
+  }
+
+  // ── 4a) Server-side conversion tracking (Meta CAPI + GA4 MP + Pinterest CAPI)
+  // Client-side Pixel'in iOS14/ad-blocker kayıplarını kapatır. event_id ile dedup
+  // (success sayfası de aynı session.id'yi gönderirse Meta tek conversion sayar).
+  try {
+    const { trackPurchaseServerSide } = await import('@/lib/analytics/server-track');
+    void trackPurchaseServerSide({
+      eventId:     session.id,
+      value:       (session.amount_total ?? product.price_cents) / 100,
+      currency:    (session.currency ?? 'eur').toUpperCase(),
+      email:       session.customer_details?.email ?? undefined,
+      country:     session.customer_details?.address?.country ?? undefined,
+      productId:   product.id,
+      productName: product.shop_title ?? undefined,
+      eventTime:   session.created ?? Math.floor(Date.now() / 1000),
+    });
+  } catch (err) {
+    console.warn('[stripe webhook] server-side analytics push failed', err);
   }
 
   // ── 4) Telegram admin notification ──
@@ -256,6 +284,10 @@ async function sendDeliveryEmail(opts: {
   productTitle: string;
   downloadUrl: string;
   expiresAt: Date;
+  // Sprint I — editable tier extras
+  tier?: 'basic' | 'pro' | 'editable';
+  editableCanvaShareUrl?: string;
+  editableInstructionsPdfUrl?: string;
 }): Promise<void> {
   // Use the existing mail/smtp helper
   const { sendMail } = await import('@/lib/mail/smtp');
@@ -266,13 +298,31 @@ async function sendDeliveryEmail(opts: {
     timeStyle: 'short',
   });
 
-  const subject = `Your download: ${opts.productTitle}`;
+  const isEditable = opts.tier === 'editable' && !!opts.editableCanvaShareUrl;
+
+  const subject = isEditable
+    ? `Your editable Canva template: ${opts.productTitle}`
+    : `Your download: ${opts.productTitle}`;
   const greeting = opts.toName ? `Hi ${opts.toName.split(' ')[0]},` : 'Hi,';
 
-  const html = `<!doctype html>
-<html><body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; color: #1c1916; max-width: 560px; margin: 0 auto; padding: 24px;">
-  <h1 style="font-size: 22px; margin-bottom: 8px;">Thanks for your purchase</h1>
-  <p>${greeting}</p>
+  // Sprint I — editable tier section: prominent Canva edit button + instructions link
+  const editableBlock = isEditable
+    ? `
+  <div style="background: #F2F4F8; border-left: 4px solid #5B6BB0; padding: 20px; border-radius: 8px; margin: 24px 0;">
+    <h2 style="font-size: 16px; margin: 0 0 12px; color: #1D2233; font-weight: 700; letter-spacing: -0.4px;">📐 Editable Canva Template</h2>
+    <p style="margin: 0 0 16px; font-size: 14px; line-height: 1.5; color: #1D2233;">
+      Click below to open your design in Canva and customize text, colors, and images. A free Canva account is enough.
+    </p>
+    <p style="margin: 16px 0;">
+      <a href="${escapeHtml(opts.editableCanvaShareUrl!)}" style="background: #5B6BB0; color: #FFFFFF; padding: 14px 28px; text-decoration: none; border-radius: 6px; font-weight: 700; font-size: 14px; display: inline-block;">Open in Canva →</a>
+    </p>
+    ${opts.editableInstructionsPdfUrl
+      ? `<p style="margin: 12px 0 0; font-size: 13px; color: #6E7488;">Need help? <a href="${escapeHtml(opts.editableInstructionsPdfUrl)}" style="color: #5B6BB0;">Download step-by-step instructions PDF</a></p>`
+      : ''}
+  </div>`
+    : '';
+
+  const baseBlock = `
   <p>Your download for <strong>${escapeHtml(opts.productTitle)}</strong> is ready.</p>
   <p style="margin: 28px 0;">
     <a href="${opts.downloadUrl}" style="background: #1c1916; color: #fbfaf6; padding: 14px 28px; text-decoration: none; border-radius: 4px; font-weight: bold;">Download your PDF</a>
@@ -280,7 +330,14 @@ async function sendDeliveryEmail(opts: {
   <p style="font-size: 13px; color: #6b6b6b;">
     This link works for 24 hours and can be used up to 5 times. After that, reply to this email and we'll send a fresh link.<br>
     Link expires: ${expiry} (Europe/Berlin)
-  </p>
+  </p>`;
+
+  const html = `<!doctype html>
+<html><body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; color: #1c1916; max-width: 560px; margin: 0 auto; padding: 24px;">
+  <h1 style="font-size: 22px; margin-bottom: 8px;">Thanks for your purchase</h1>
+  <p>${greeting}</p>
+  ${editableBlock}
+  ${baseBlock}
   <hr style="border: 0; border-top: 1px solid #e0d8cc; margin: 32px 0;">
   <p style="font-size: 11px; color: #6b6b6b; line-height: 1.5;">
     Fly &amp; Froth · Karben, Germany · www.fly-froth.com<br>
@@ -289,12 +346,23 @@ async function sendDeliveryEmail(opts: {
   </p>
 </body></html>`;
 
-  // Plain-text fallback for clients that don't render HTML
-  const text = [
+  const textLines = [
     greeting,
     '',
     `Your download for "${opts.productTitle}" is ready.`,
     '',
+  ];
+  if (isEditable) {
+    textLines.push(
+      'EDITABLE CANVA TEMPLATE',
+      `Open in Canva: ${opts.editableCanvaShareUrl}`,
+      '',
+      ...(opts.editableInstructionsPdfUrl
+        ? [`Step-by-step instructions PDF: ${opts.editableInstructionsPdfUrl}`, '']
+        : []),
+    );
+  }
+  textLines.push(
     `Download link (24 h, 5 uses): ${opts.downloadUrl}`,
     `Expires: ${expiry} (Europe/Berlin)`,
     '',
@@ -302,12 +370,12 @@ async function sendDeliveryEmail(opts: {
     '',
     '— Fly & Froth, Karben, Germany',
     'Gemäß §19 UStG enthält der Rechnungsbetrag keine Umsatzsteuer.',
-  ].join('\n');
+  );
 
   await sendMail({
     to: opts.toEmail,
     subject,
-    body: text,
+    body: textLines.join('\n'),
     html,
   });
 }
