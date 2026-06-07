@@ -609,3 +609,54 @@ export async function runDailyTrendPipeline(
 
   return summary;
 }
+
+/**
+ * DailyRunSummary'yi Telegram digest mesajına çevir. Cron'ların sonunda
+ * notifyAdmins üzerinden gönderilir.
+ */
+export function formatDigestMessage(summary: DailyRunSummary): string {
+  const lines: string[] = [];
+  lines.push('🎯 Trend Engine — günlük rapor');
+  lines.push(`📅 ${summary.runAt.slice(0, 10)}`);
+  lines.push('');
+
+  if (summary.productsCreated === 0) {
+    lines.push('⚠️ Bu çalıştırmada ürün üretilemedi.');
+    if (summary.errors.length) {
+      lines.push('');
+      lines.push('Hata özetleri:');
+      summary.errors.slice(0, 3).forEach((e) => lines.push(`• ${e.slice(0, 600)}`));
+    }
+    return lines.join('\n');
+  }
+
+  lines.push(
+    `🆕 ${summary.productsCreated} ürün önerisi (${summary.nichesConsidered} niş analiz edildi)`,
+  );
+  lines.push('');
+
+  summary.results.forEach((r, i) => {
+    const eur = (r.priceCents / 100).toFixed(2);
+    const compIcon = r.competition === 'low' ? '🟢' : r.competition === 'medium' ? '🟡' : '🔴';
+    lines.push(`━━━ #${i + 1} ━━━`);
+    lines.push(`📌 ${r.topic}`);
+    lines.push(`📊 Skor: ${r.score}/100  ${compIcon} rekabet: ${r.competition}`);
+    lines.push(`🇹🇷 ${r.turkishSummary}`);
+    lines.push(`🎯 Boşluk (TR): ${r.turkishGapAngle}`);
+    lines.push(`🛍️ Tip: ${r.productType} • €${eur}`);
+    lines.push(`📝 Etsy başlık: ${r.etsyTitle.slice(0, 120)}${r.etsyTitle.length > 120 ? '…' : ''}`);
+    lines.push(`🏪 Shop başlık: ${r.shopTitle.slice(0, 80)}${r.shopTitle.length > 80 ? '…' : ''}`);
+    lines.push(`🏷️ Tags: ${r.tags.slice(0, 6).join(', ')}…`);
+    lines.push('');
+  });
+
+  if (summary.errors.length > 0) {
+    lines.push(`⚠️ ${summary.errors.length} hata oluştu:`);
+    summary.errors.slice(0, 3).forEach((e) => lines.push(`• ${e.slice(0, 350)}`));
+  }
+
+  lines.push('');
+  lines.push('💡 Yukarıdaki kartlardan ✅/❌/🔄/✏️ ile onayla.');
+
+  return lines.join('\n');
+}

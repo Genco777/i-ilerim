@@ -90,7 +90,9 @@ async function extractInput(req: Request): Promise<CheckoutInput> {
 }
 
 export async function POST(req: Request) {
-  const { slug, tier, customName, customDate } = await extractInput(req);
+  // Sprint I — 'tier' editable guard'da yeniden atanabiliyor (let zorunlu).
+  // eslint-disable-next-line prefer-const
+  let { slug, tier, customName, customDate } = await extractInput(req);
 
   if (!slug) {
     return NextResponse.json({ error: 'slug required' }, { status: 400 });
