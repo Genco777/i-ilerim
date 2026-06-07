@@ -1,4 +1,4 @@
-import { NextResponse } from 'next/server';
+import { NextResponse, after } from 'next/server';
 import Anthropic from '@anthropic-ai/sdk';
 import {
   sendMessage,
@@ -744,16 +744,17 @@ async function handlePostCommand(
       : `🎨 Üretiliyor: "${topic}"\n(15-30 saniye sürer, biraz bekle…)`,
   });
 
-  // Fire-and-forget — lambda maxDuration=300s bu arka planı kalıcı tutar.
-  void (async () => {
+  // BUG FIX v2 — Vercel'de `void (async () => ...)` lambda response sonrası
+  // ÖLÜYOR (process terminated). Next.js 15+ `after()` API explicit olarak
+  // response sent sonrası arka planı canlı tutar (waitUntil ile).
+  after(async () => {
     try {
       const post = await generatePost({
         topic,
         telegramChatId: String(chatId),
         telegramMessageId: String(messageId),
         channel,
-        // BUG FIX — useCanva:true → Canva env varsa Canva, yoksa procedural
-        // premium-vizyon brand'lı görsel (eski gpt-image-1 fallback değil).
+        // useCanva:true → Canva env varsa Canva, yoksa procedural premium-vizyon
         useCanva: true,
       });
 
@@ -772,9 +773,10 @@ async function handlePostCommand(
         replyMarkup: previewKeyboard(post.id, isStory ? 'story' : 'post'),
       });
     } catch (err) {
+      console.error('[post-bg] generatePost failed', err);
       await notifyError(chatId, err).catch(() => {});
     }
-  })();
+  });
 }
 
 async function handleGenerateCommand(
