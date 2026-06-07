@@ -96,10 +96,18 @@ export async function getCanvaAccessToken(): Promise<string> {
   return tokens.access_token;
 }
 
-/** İlk OAuth bağlantısından gelen code ile token al ve kaydet. */
-export async function exchangeCodeForTokens(code: string, redirectUri: string): Promise<CanvaTokens> {
+/** İlk OAuth bağlantısından gelen code ile token al ve kaydet.
+ *  PKCE zorunlu: callback'te cookie'den okunan code_verifier de gönderilir. */
+export async function exchangeCodeForTokens(code: string, redirectUri: string, codeVerifier?: string): Promise<CanvaTokens> {
   const clientId = process.env.CANVA_CLIENT_ID!;
   const clientSecret = process.env.CANVA_CLIENT_SECRET!;
+
+  const bodyParams: Record<string, string> = {
+    grant_type: 'authorization_code',
+    code,
+    redirect_uri: redirectUri,
+  };
+  if (codeVerifier) bodyParams.code_verifier = codeVerifier;
 
   const res = await fetch(TOKEN_URL, {
     method: 'POST',
@@ -107,11 +115,7 @@ export async function exchangeCodeForTokens(code: string, redirectUri: string): 
       'Content-Type': 'application/x-www-form-urlencoded',
       Authorization: `Basic ${Buffer.from(`${clientId}:${clientSecret}`).toString('base64')}`,
     },
-    body: new URLSearchParams({
-      grant_type: 'authorization_code',
-      code,
-      redirect_uri: redirectUri,
-    }),
+    body: new URLSearchParams(bodyParams),
   });
 
   if (!res.ok) throw new Error(`Canva code exchange failed (${res.status}): ${await res.text()}`);

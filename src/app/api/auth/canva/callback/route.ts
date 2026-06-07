@@ -46,9 +46,15 @@ export async function GET(req: Request) {
     return html('<h1>State mismatch — CSRF check failed</h1><p>/api/auth/canva/start ile baştan dene.</p>', 400);
   }
 
+  // PKCE — verifier'i cookie'den oku, token exchange'e gönder
+  const codeVerifier = parseCookie(req.headers.get('cookie') ?? '', 'canva_oauth_verifier');
+  if (!codeVerifier) {
+    return html('<h1>code_verifier cookie yok</h1><p>/api/auth/canva/start ile baştan dene.</p>', 400);
+  }
+
   try {
     const redirectUri = getRedirectUri(req);
-    const tokens = await exchangeCodeForTokens(code, redirectUri);
+    const tokens = await exchangeCodeForTokens(code, redirectUri, codeVerifier);
     const expiresInH = Math.round((tokens.expires_at - Date.now()) / (1000 * 60 * 60));
 
     return html(`<!doctype html>

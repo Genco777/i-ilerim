@@ -1,13 +1,12 @@
 /**
  * GET /api/auth/canva/start?secret=<CRON_SECRET>
  *
- * Initiates Canva Connect OAuth 2.0. Browser → Canva izin ekranı → onayla →
- * /callback'e döner → tokens DB'ye yazılır.
- *
- * Tek seferlik admin işlemi. CRON_SECRET ile basit koruma.
+ * Initiates Canva Connect OAuth 2.0 with PKCE (S256).
+ * Canva Connect API PKCE'yi ZORUNLU yapıyor — code_challenge olmadan 400.
  */
 
 import { NextResponse } from 'next/server';
+import crypto from 'node:crypto';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -30,6 +29,10 @@ function getRedirectUri(req: Request): string {
   return `${url.origin}/api/auth/canva/callback`;
 }
 
+function base64UrlEncode(buf: Buffer): string {
+  return buf.toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
 export async function GET(req: Request) {
   const url = new URL(req.url);
   const secret = url.searchParams.get('secret');
@@ -38,29 +41,39 @@ export async function GET(req: Request) {
   }
 
   if (!process.env.CANVA_CLIENT_ID) {
-    return new NextResponse('CANVA_CLIENT_ID env tanımlı değil. Önce Vercel env\'lerine ekle.', { status: 500 });
+    return new NextResponse("CANVA_CLIENT_ID env tanımlı değil. Önce Vercel env'lerine ekle.", { status: 500 });
   }
 
+  // PKCE — code_verifier 43-128 char random, code_challenge SHA256(verifier) base64url
+  const codeVerifier = base64UrlEncode(crypto.randomBytes(32)); // 43 char
+  const codeChallenge = base64UrlEncode(
+    crypto.createHash('sha256').update(codeVerifier).digest(),
+  );
   const state = crypto.randomUUID();
   const redirectUri = getRedirectUri(req);
 
   const params = new URLSearchParams({
-    code_challenge_method: 'S256',
     response_type: 'code',
     client_id: process.env.CANVA_CLIENT_ID,
     redirect_uri: redirectUri,
     scope: SCOPES,
     state,
+    code_challenge: codeChallenge,
+    code_challenge_method: 'S256',
   });
-
-  // Canva Connect OAuth code_challenge isteğe bağlı (PKCE) — basit confidential
-  // flow'da skip edebiliriz. Client secret backend'de zaten var.
-  params.delete('code_challenge_method');
 
   const authUrl = `${CANVA_AUTHORIZE_URL}?${params.toString()}`;
 
   const response = NextResponse.redirect(authUrl);
+  // State + verifier 10 dk httpOnly cookie
   response.cookies.set('canva_oauth_state', state, {
+    httpOnly: true,
+    secure: true,
+    sameSite: 'lax',
+    maxAge: 600,
+    path: '/',
+  });
+  response.cookies.set('canva_oauth_verifier', codeVerifier, {
     httpOnly: true,
     secure: true,
     sameSite: 'lax',
