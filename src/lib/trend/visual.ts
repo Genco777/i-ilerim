@@ -166,10 +166,13 @@ export async function composeMockupsForHero(
       // TANRILAR V-10: nano-banana-pro (Gemini 3 Pro Image) at 2K. Hyper-
       // realistic lifestyle scenes, $0.10×5 = $0.50/product. Parallel ≈ 25-40s.
       // 2K resolution = 2048×2048 sharp enough for Etsy hero (Etsy max 3000px).
+      // Maliyet fix: mockup'lar Banana 2 ile yeterli kalitede (lifestyle mockup,
+      // hero olarak değil sadece feed thumbnail). Pro'dan $0.10 → $0.04, 5 mockup
+      // başına $0.50 → $0.20 tasarruf. Hero (cover-renderer) Pro kalır.
       const banana = await generateMockupsForProduct(coverUrl, productHint, {
-        model: 'nano-banana-pro',
+        model: 'nano-banana-2',
         aspectRatio: '1:1',
-        resolution: '2K',
+        resolution: '1K',
       });
 
       if (banana.length >= 1) {

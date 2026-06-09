@@ -60,6 +60,11 @@ export interface NanoBananaOptions {
   model?: NanoBananaModel;
   /** Default 3. */
   maxRetries?: number;
+  /** Default 90_000ms (90s). Tek bir prediction'ın max bekleme süresi. Aşılırsa
+   *  Replicate cancel edilir (canceled prediction'lar ücretsizdir). 10-dk asılı
+   *  kalan failed prediction maliyetlerini engellemek için.
+   *  Cost fix B: nano-banana-2 normalde 8-15s, pro 25-40s; 90s yeterli tampon. */
+  timeoutMs?: number;
 }
 
 let _client: Replicate | null = null;
@@ -99,13 +104,19 @@ export async function nanoBananaGenerate(opts: NanoBananaOptions): Promise<Buffe
   }
 
   let lastError: Error | undefined;
+  const timeoutMs = opts.timeoutMs ?? 90_000;
 
   for (let attempt = 0; attempt < maxRetries; attempt++) {
+    // Cost fix B: AbortController timeout — 10dk asılı prediction'lar ücreti
+    // çekiyor. 90s'de cancel edersek Replicate canceled'ı ücretsiz sayar.
+    const ac = new AbortController();
+    const timer = setTimeout(() => ac.abort(), timeoutMs);
     try {
       const output = await getClient().run(
         modelId as `${string}/${string}:${string}`,
-        { input },
+        { input, signal: ac.signal },
       );
+      clearTimeout(timer);
 
       let url: string | undefined;
       if (typeof output === 'string') {
@@ -131,7 +142,12 @@ export async function nanoBananaGenerate(opts: NanoBananaOptions): Promise<Buffe
       if (!res.ok) throw new Error(`Image fetch failed (${res.status}) for ${url}`);
       return Buffer.from(await res.arrayBuffer());
     } catch (err) {
+      clearTimeout(timer);
       lastError = err instanceof Error ? err : new Error(String(err));
+      // AbortError = timeout, retry'a değer (next attempt fresh request)
+      if (ac.signal.aborted) {
+        console.warn(`[nano-banana ${model}] attempt ${attempt + 1}/${maxRetries} TIMEOUT (${timeoutMs}ms) — canceled to avoid hung-prediction billing`);
+      }
       if (attempt < maxRetries - 1) {
         const delay = Math.min(1000 * Math.pow(2, attempt), 10_000);
         console.warn(

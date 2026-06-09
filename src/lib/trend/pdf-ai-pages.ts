@@ -177,7 +177,7 @@ export async function generateAiPages(args: {
         aspectRatio: '3:4',
         resolution: '2K',
         outputFormat: 'jpg',
-        model: 'nano-banana-pro',
+        model: 'nano-banana-2',
       });
 
   const [coverR, dividerR, backR] = await Promise.allSettled([
