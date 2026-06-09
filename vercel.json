@@ -71,8 +71,21 @@
       "schedule": "0 21 * * *"
     },
     {
-      "path": "/api/cron/social-daily-digest?secret=080084ec9089202b8d409dc4e1c5672aea675a581133c994a63e86f6e31868a1",
-      "schedule": "0 22 * * *"
+      "_comment": "Sprint K — Günde 2 post + 2 story (4 yayın). Saatler UTC.",
+      "path": "/api/cron/social-daily-digest?mode=post&secret=080084ec9089202b8d409dc4e1c5672aea675a581133c994a63e86f6e31868a1",
+      "schedule": "0 8 * * *"
+    },
+    {
+      "path": "/api/cron/social-daily-digest?mode=story&secret=080084ec9089202b8d409dc4e1c5672aea675a581133c994a63e86f6e31868a1",
+      "schedule": "0 12 * * *"
+    },
+    {
+      "path": "/api/cron/social-daily-digest?mode=post&secret=080084ec9089202b8d409dc4e1c5672aea675a581133c994a63e86f6e31868a1",
+      "schedule": "0 16 * * *"
+    },
+    {
+      "path": "/api/cron/social-daily-digest?mode=story&secret=080084ec9089202b8d409dc4e1c5672aea675a581133c994a63e86f6e31868a1",
+      "schedule": "0 20 * * *"
     },
     {
       "path": "/api/cron/cart-abandon-followup?secret=080084ec9089202b8d409dc4e1c5672aea675a581133c994a63e86f6e31868a1",

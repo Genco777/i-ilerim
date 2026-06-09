@@ -118,6 +118,15 @@ function buildGroupCaption(
 export async function GET(req: Request) {
   if (!checkAuth(req)) return unauthorized();
 
+  // Sprint K — mode query param: günde 2 post + 2 story isteği.
+  // ?mode=post  → sadece IG/FB carousel post (ig_post_id IS NULL filter)
+  // ?mode=story → sadece IG story (ig_story_post_id IS NULL filter)
+  // ?mode=all (default) → eski davranış (her ikisi birden)
+  const url = new URL(req.url);
+  const mode = (url.searchParams.get('mode') ?? 'all').toLowerCase();
+  const onlyPost  = mode === 'post';
+  const onlyStory = mode === 'story';
+
   // Kill switch for the social cron specifically
   const enabled = (process.env.SOCIAL_CRON_ENABLED ?? 'true').toLowerCase();
   if (enabled === 'false' || enabled === '0') {
@@ -160,7 +169,10 @@ export async function GET(req: Request) {
   };
 
   // 1) Per-group IG + FB carousels (hero images, max 10 per carousel)
-  for (const [type, items] of byType.entries()) {
+  if (onlyStory) {
+    // Story-only mode: skip carousels
+    void byType;
+  } else for (const [type, items] of byType.entries()) {
     const heroes = items
       .map((p) => p.hero_image_url)
       .filter((u): u is string => !!u)
@@ -210,7 +222,11 @@ export async function GET(req: Request) {
   }
 
   // 2) Per-product IG Story — video if available, else hero image
-  for (const p of rows) {
+  // (post-only mode skip)
+  if (onlyPost) {
+    // Skip stories
+    void rows;
+  } else for (const p of rows) {
     if (!p.hero_image_url) continue;
     try {
       const story = p.video_url
