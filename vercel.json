@@ -71,7 +71,6 @@
       "schedule": "0 21 * * *"
     },
     {
-      "_comment": "Sprint K — Günde 2 post + 2 story (4 yayın). Saatler UTC.",
       "path": "/api/cron/social-daily-digest?mode=post&secret=080084ec9089202b8d409dc4e1c5672aea675a581133c994a63e86f6e31868a1",
       "schedule": "0 8 * * *"
     },
