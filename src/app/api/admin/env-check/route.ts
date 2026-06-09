@@ -18,20 +18,28 @@ export async function GET(req: Request) {
   }
 
   const envs = [
+    // Cost-related — image/video gen
+    'ENABLE_AI_VIDEO',
+    'REPLICATE_API_TOKEN',
+    'HIGGSFIELD_API_KEY',
+    'OPENAI_API_KEY',
     // Canva Connect (Sprint I)
     'CANVA_CLIENT_ID',
     'CANVA_CLIENT_SECRET',
     'CANVA_TEMPLATE_ID_DEFAULT',
     'CANVA_REDIRECT_URI',
-    // Other crucial
+    // Design mode
     'POST_DESIGN_MODE',
-    'OPENAI_API_KEY',
+    'NEXT_PUBLIC_SITE_URL',
+    // Crucial
     'TELEGRAM_BOT_TOKEN',
     'DATABASE_URL',
     'STRIPE_SECRET_KEY',
     'NEXT_PUBLIC_GA4_ID',
     'NEXT_PUBLIC_META_PIXEL_ID',
     'PINTEREST_APP_ID',
+    // Daily product cap (cost driver)
+    'DAILY_PRODUCT_CAP',
   ];
 
   const status: Record<string, { set: boolean; preview?: string }> = {};
