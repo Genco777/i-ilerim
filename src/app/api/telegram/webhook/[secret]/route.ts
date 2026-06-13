@@ -4649,7 +4649,7 @@ async function handleCommand(
       });
       return;
     }
-    await setSystemPaused(true, `tg:${userId}`);
+    await setSystemPaused(true, `tg:${chatId}`);
     await sendMessage({
       chatId,
       text: [
@@ -4683,7 +4683,7 @@ async function handleCommand(
       });
       return;
     }
-    await setSystemPaused(false, `tg:${userId}`);
+    await setSystemPaused(false, `tg:${chatId}`);
     await sendMessage({
       chatId,
       text: [
