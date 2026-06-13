@@ -4638,6 +4638,86 @@ async function handleCommand(
     return;
   }
 
+  // ── Kill switch — sistem genel durdur/başlat ──
+  if (trimmed === '/durdur' || trimmed === '/pause' || trimmed === '/stop') {
+    const { setSystemPaused, getPauseMeta } = await import('@/lib/system/kill-switch');
+    const before = await getPauseMeta();
+    if (before.paused) {
+      await sendMessage({
+        chatId,
+        text: `⏸ Sistem zaten durmuş.\nDeğişim: ${before.changed_at ?? '—'} (${before.changed_by ?? '—'})\n\nBaşlatmak için: /baslat`,
+      });
+      return;
+    }
+    await setSystemPaused(true, `tg:${userId}`);
+    await sendMessage({
+      chatId,
+      text: [
+        '⏸ Sistem durduruldu.',
+        '',
+        'Etkilenen cron\'lar:',
+        '• trend-discovery (planner)',
+        '• trend-discovery-poster',
+        '• social-daily-digest',
+        '',
+        'Çalışmaya devam eden:',
+        '• Telegram webhook (sen kontrol edebilesin)',
+        '• Cart abandon followup',
+        '• Reviews ask',
+        '• Stripe webhook (satışları kabul eder)',
+        '',
+        'Başlatmak için: /baslat',
+        'Durumu görmek için: /durum',
+      ].join('\n'),
+    });
+    return;
+  }
+
+  if (trimmed === '/baslat' || trimmed === '/resume' || trimmed === '/start_system') {
+    const { setSystemPaused, getPauseMeta } = await import('@/lib/system/kill-switch');
+    const before = await getPauseMeta();
+    if (!before.paused) {
+      await sendMessage({
+        chatId,
+        text: `▶️ Sistem zaten çalışıyor.\nSon değişim: ${before.changed_at ?? '—'} (${before.changed_by ?? '—'})`,
+      });
+      return;
+    }
+    await setSystemPaused(false, `tg:${userId}`);
+    await sendMessage({
+      chatId,
+      text: [
+        '▶️ Sistem başlatıldı.',
+        '',
+        'Cron\'lar normal şekilde çalışacak:',
+        '• Trend keşfi (planner+poster)',
+        '• Sosyal medya yayınları (2 post + 2 story / gün)',
+        '',
+        'Durdurmak için: /durdur',
+        'Durumu görmek için: /durum',
+      ].join('\n'),
+    });
+    return;
+  }
+
+  if (trimmed === '/durum' || trimmed === '/status') {
+    const { getPauseMeta } = await import('@/lib/system/kill-switch');
+    const meta = await getPauseMeta();
+    const stateEmoji = meta.paused ? '⏸ Durduruldu' : '▶️ Çalışıyor';
+    await sendMessage({
+      chatId,
+      text: [
+        `Sistem durumu: ${stateEmoji}`,
+        '',
+        meta.changed_at ? `Son değişim: ${meta.changed_at}` : '',
+        meta.changed_by ? `Değiştiren: ${meta.changed_by}` : '',
+        '',
+        meta.paused ? 'Başlatmak için: /baslat' : 'Durdurmak için: /durdur',
+      ].filter(Boolean).join('\n'),
+    });
+    return;
+  }
+
   if (trimmed === '/generate' || trimmed.startsWith('/generate ')) {
     const topic = trimmed === '/generate' ? '' : trimmed.slice('/generate'.length).trim();
     await handleGenerateCommand(chatId, messageId, topic);

@@ -47,6 +47,12 @@ export async function GET(req: Request) {
     return NextResponse.json({ ok: true, skipped: true, reason: 'disabled' });
   }
 
+  // Telegram kill switch
+  const { isSystemPaused } = await import('@/lib/system/kill-switch');
+  if (await isSystemPaused()) {
+    return NextResponse.json({ ok: true, skipped: true, reason: 'system-paused' });
+  }
+
   // Separate kill switch so we can disable just the poster cron without
   // touching the planner one (handy while iterating on the poster pipeline).
   const posterEnabled = (process.env.POSTER_CRON_ENABLED ?? 'true').toLowerCase();

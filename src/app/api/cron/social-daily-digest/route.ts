@@ -127,6 +127,12 @@ export async function GET(req: Request) {
   const onlyPost  = mode === 'post';
   const onlyStory = mode === 'story';
 
+  // Telegram kill switch (Mehmet /durdur ile durdurdu mu)
+  const { isSystemPaused } = await import('@/lib/system/kill-switch');
+  if (await isSystemPaused()) {
+    return NextResponse.json({ ok: true, skipped: true, reason: 'system-paused' });
+  }
+
   // Kill switch for the social cron specifically
   const enabled = (process.env.SOCIAL_CRON_ENABLED ?? 'true').toLowerCase();
   if (enabled === 'false' || enabled === '0') {

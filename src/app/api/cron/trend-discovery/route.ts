@@ -37,6 +37,12 @@ export async function GET(req: Request) {
     return NextResponse.json({ ok: true, skipped: true, reason: 'disabled' });
   }
 
+  // Telegram kill switch — /durdur ile Mehmet manuel durdurdu mu?
+  const { isSystemPaused } = await import('@/lib/system/kill-switch');
+  if (await isSystemPaused()) {
+    return NextResponse.json({ ok: true, skipped: true, reason: 'system-paused' });
+  }
+
   try {
     const summary = await runDailyTrendPipeline({ dryRun });
     const digest = formatDigestMessage(summary);
