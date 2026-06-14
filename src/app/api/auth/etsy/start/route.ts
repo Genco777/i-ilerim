@@ -18,7 +18,9 @@ export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 const COOKIE_NAME = 'etsy_oauth_pkce';
-const COOKIE_MAX_AGE_SEC = 10 * 60; // 10 min — plenty for the round trip
+// Sprint M4 — Mehmet 10 dk içinde Etsy login + onay yapmadı → cookie expired.
+// 30 dk verelim, yeterli tampon.
+const COOKIE_MAX_AGE_SEC = 30 * 60;
 
 export async function GET() {
   const { verifier, challenge } = generatePkce();

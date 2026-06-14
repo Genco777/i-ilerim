@@ -127,18 +127,60 @@ export async function POST(req: Request) {
       .where(eq(apparelCandidates.id, candidate.id));
 
     const etsyUrl = externalHandle ?? (externalId ? `https://www.etsy.com/listing/${externalId}` : null);
+
+    // Sprint M4 — Etsy listing'e extra asset auto-upload + DRAFT force
+    let uploadSummary = '';
+    let draftSummary = '';
+    if (externalId) {
+      const listingId = Number(externalId);
+
+      // 1) Extra asset upload (flat lay cover, color grid, size chart, video)
+      try {
+        const { uploadApparelAssetsToEtsy } = await import('@/lib/publish/etsy-apparel-upload');
+        const upload = await uploadApparelAssetsToEtsy({
+          listingId,
+          flatLayUrl: candidate.flat_lay_url,
+          colorGridUrl: candidate.color_grid_url,
+          sizeChartUrl: candidate.size_chart_url,
+          videoUrl: candidate.video_url,
+        });
+        uploadSummary = `\n📤 Auto-upload: ${upload.uploadedCount} OK, ${upload.errorCount} fail`;
+        console.log('[printify-webhook] etsy upload result:', JSON.stringify(upload).slice(0, 400));
+      } catch (err) {
+        const msg = err instanceof Error ? err.message.slice(0, 180) : String(err);
+        uploadSummary = `\n⚠️ Auto-upload fail: ${msg}`;
+        console.warn('[printify-webhook] etsy upload fail:', msg);
+      }
+
+      // 2) DRAFT force — Etsy mağaza ayarı listing'i ACTIVE'e çekmiş olabilir,
+      // bizim sistem garanti DRAFT yapsın (Mehmet manual review için bekler).
+      try {
+        const { setListingStateDraft } = await import('@/lib/publish/etsy-apparel-upload');
+        await setListingStateDraft(listingId);
+        draftSummary = `\n📝 Listing DRAFT'a alındı`;
+      } catch (err) {
+        const msg = err instanceof Error ? err.message.slice(0, 120) : String(err);
+        draftSummary = `\n⚠️ DRAFT force fail (manuel kontrol): ${msg}`;
+        console.warn('[printify-webhook] etsy state=draft fail:', msg);
+      }
+    }
+
     await notifyAdminsApparelEvent(
       [
-        `🟢 *Etsy'de yayında!*`,
+        `🟢 *Etsy'de DRAFT hazır!*`,
         ``,
         `*${candidate.slogan}*`,
         candidate.niche ? `_niche: ${candidate.niche}_` : '',
         externalId ? `Etsy listing: ${externalId}` : '',
         etsyUrl ? `🔗 ${etsyUrl}` : '',
+        uploadSummary,
+        draftSummary,
+        ``,
+        `👀 Etsy DRAFT'ı aç → son göz at → "Yayınla"`,
       ].filter(Boolean).join('\n'),
     );
 
-    return NextResponse.json({ ok: true, productId, etsyListingId: externalId });
+    return NextResponse.json({ ok: true, productId, etsyListingId: externalId, uploadSummary });
   }
 
   if (eventType === 'product:publish:failed' || eventType === 'product:publish.failed') {

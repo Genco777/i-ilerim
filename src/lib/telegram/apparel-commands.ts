@@ -146,13 +146,20 @@ export async function handleApparelApproveCommand(chatId: number, shortId: strin
     return;
   }
 
-  // M3.5 fix v3 — publishProduct çağrısı KALDIRILDI.
-  // Eskisi: Etsy'ye direkt ACTIVE listing olarak gidiyordu (Mehmet DRAFT istiyor).
-  // Yeni: Sadece DB status='approved', Mehmet Printify dashboard'da manuel
-  // mockup seçer + "Publish to Etsy" tıklar → Etsy'de DRAFT olarak gelir.
-  // Tam otomatik DRAFT için Sprint M4'te Etsy OAuth + direct API gerek.
+  // Sprint M4 — Tek tıklama tam otomatik akış:
+  // 1. publishProduct → Printify Etsy'ye push (DRAFT or ACTIVE — Etsy mağaza ayarına bağlı)
+  // 2. Kling video gen (DB'ye video_url)
+  // 3. Printify webhook → Etsy listing_id geldi
+  // 4. Webhook handler: flat lay (cover) + color grid + size chart + video upload
+  // 5. Webhook handler: Etsy listing state='draft' force (ACTIVE ise DRAFT'a çek)
+  // Mehmet sadece Etsy DRAFT'ı onaylar.
+
+  await sendMessage({ chatId, text: `⏳ "${candidate.slogan}" tam otomatik Etsy DRAFT pipeline başlıyor...` });
 
   try {
+    const shop = await getEtsyShop();
+    await publishProduct(shop.id, candidate.printify_product_id);
+
     await db
       .update(apparelCandidates)
       .set({
@@ -166,17 +173,17 @@ export async function handleApparelApproveCommand(chatId: number, shortId: strin
     await sendMessage({
       chatId,
       text: [
-        `✅ *${candidate.slogan}* onaylandı`,
+        `✅ *${candidate.slogan}* Etsy'ye gönderildi`,
         '',
-        `📋 *Sıradaki adımlar (Mehmet manuel):*`,
-        `1. Printify'da ürünü aç:`,
-        `   https://printify.com/app/store/products/${candidate.printify_product_id}`,
-        `2. Mockup carousel'dan **10-15 mockup seç** (lifestyle + flat lay dahil)`,
-        `3. Sağ üstte **"Publish to Etsy"** butonuna tıkla`,
-        `4. Etsy'ye **DRAFT** olarak gider (active değil)`,
-        `5. Etsy'de listing'i aç, son kontrol + photo upload + "Yayınla"`,
+        `Printify Etsy sync 1-5dk içinde tamamlanır. Sonra Sistem otomatik:`,
+        `• 🎨 Flat lay cover photo`,
+        `• 🌈 Color grid`,
+        `• 📏 Size chart`,
+        `• 🎬 Kling video`,
+        `→ Etsy listing'e otomatik yüklenir + DRAFT'a alınır`,
         '',
-        `⚙️ Sprint M4'te bu adımlar otomatize olacak (Etsy OAuth gerekli).`,
+        `Webhook gelince Telegram'a "🟢 Etsy'de DRAFT hazır" bildirimi atarım.`,
+        `Sen Etsy DRAFT'ı açıp sadece "Yayınla" tıklarsın.`,
       ].join('\n'),
       parseMode: 'Markdown',
     });
