@@ -22,6 +22,7 @@ import {
   handleApparelListCommand,
   handleApparelApproveCommand,
   handleApparelRejectCommand,
+  handleApparelStatsCommand,
 } from '@/lib/telegram/apparel-commands';
 import {
   invoiceTypeKeyboard,
@@ -4708,6 +4709,10 @@ async function handleCommand(
   // ── Sprint K Faz 6 Parça B — Apparel approval komutları ──
   if (trimmed === '/candidates' || trimmed === '/candidate' || trimmed === '/apparel') {
     await handleApparelListCommand(chatId);
+    return;
+  }
+  if (trimmed === '/apparel_stats' || trimmed === '/stats') {
+    await handleApparelStatsCommand(chatId);
     return;
   }
   if (/^\/approve_[a-f0-9]+$/i.test(trimmed)) {

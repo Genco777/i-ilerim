@@ -24,6 +24,51 @@ function fmtShortId(uuid: string): string {
   return uuid.replace(/-/g, '').slice(0, 8);
 }
 
+/** /apparel_stats — tüm apparel candidate'ların özet rakamları. */
+export async function handleApparelStatsCommand(chatId: number): Promise<void> {
+  const byStatus = await db
+    .select({ status: apparelCandidates.status, c: sql<number>`count(*)::int` })
+    .from(apparelCandidates)
+    .groupBy(apparelCandidates.status);
+
+  const byNiche = await db
+    .select({ niche: apparelCandidates.niche, c: sql<number>`count(*)::int` })
+    .from(apparelCandidates)
+    .groupBy(apparelCandidates.niche)
+    .orderBy(sql`count(*) desc`)
+    .limit(8);
+
+  const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+  const last7days = await db
+    .select({ c: sql<number>`count(*)::int` })
+    .from(apparelCandidates)
+    .where(sql`${apparelCandidates.created_at} >= ${sevenDaysAgo}`);
+
+  const totalNow = byStatus.reduce((sum, r) => sum + Number(r.c), 0);
+  const statusEmoji: Record<string, string> = {
+    pending: '🟡',
+    approved: '🟢',
+    rejected: '🗑️',
+    published: '✅',
+    failed: '🔴',
+  };
+
+  const lines: string[] = [
+    `*🧥 Apparel Stats*`,
+    '',
+    `*Toplam:* ${totalNow} candidate`,
+    `*Son 7 gün:* ${Number(last7days[0]?.c ?? 0)} üretildi`,
+    '',
+    `*Status:*`,
+    ...byStatus.map((r) => `${statusEmoji[r.status] ?? '•'} ${r.status}: ${Number(r.c)}`),
+    '',
+    `*Niche dağılımı:*`,
+    ...byNiche.map((r) => `• ${r.niche}: ${Number(r.c)}`),
+  ];
+
+  await sendMessage({ chatId, text: lines.join('\n'), parseMode: 'Markdown' });
+}
+
 /** /candidates — pending listesi. */
 export async function handleApparelListCommand(chatId: number): Promise<void> {
   const rows = await db
