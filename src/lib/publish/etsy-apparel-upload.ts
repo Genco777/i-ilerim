@@ -7,16 +7,26 @@
  * Tetikleyici: Printify `product:publish:succeeded` webhook → Etsy listing_id
  * geldikten sonra bu helper'lar çağrılır.
  *
- * NOT: Mevcut etsy.adapter.ts'in helper'larını (etsyFetch, fetchAsBlob,
- * getEtsyShopId, isEtsyConnected) reuse ediyoruz.
+ * NOT: Helper'lar etsy.client'tan import (etsy.adapter'da export değil).
+ * fetchAsBlob lokal implement — minimal, decoupled.
  */
 
 import {
   etsyFetch,
-  fetchAsBlob,
   getEtsyShopId,
   isEtsyConnected,
-} from './etsy.adapter';
+} from './etsy.client';
+
+/** URL'den blob indir — etsy.adapter'daki private helper'ın lokal kopyası. */
+async function fetchAsBlob(url: string): Promise<{ blob: Blob; contentType: string }> {
+  const res = await fetch(url);
+  if (!res.ok) {
+    throw new Error(`fetchAsBlob: HTTP ${res.status} — ${url.slice(0, 100)}`);
+  }
+  const contentType = res.headers.get('content-type') ?? 'application/octet-stream';
+  const blob = await res.blob();
+  return { blob, contentType };
+}
 
 export interface EtsyImageUploadResult {
   listing_image_id: number;

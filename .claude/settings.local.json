@@ -1,0 +1,30 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git add *)",
+      "Bash(Get-Item C:\\\\Users\\\\flyfr\\\\fly-froth-social\\\\.git\\\\index.lock)",
+      "Bash(Select-Object LastWriteTime, Length)",
+      "Bash(git commit *)",
+      "Bash(git push *)",
+      "Bash(pnpm tsx *)",
+      "Bash(vercel --version)",
+      "Bash(vercel env *)",
+      "Bash(grep -E \"IMAGE_MODEL|IMAGE_QUALITY|^$\")",
+      "Bash(vercel ls *)",
+      "Bash(vercel inspect *)",
+      "Bash(pnpm exec *)",
+      "Bash(pnpm db:generate)",
+      "Bash(python -m json.tool)",
+      "Bash(node -e ' *)",
+      "Bash(node *)",
+      "Bash(python -c \"import sys, json; d=json.load\\(sys.stdin\\); print\\('Entries:', len\\(d['entries']\\)\\); print\\('Last 3:', json.dumps\\(d['entries'][-3:], indent=2\\)\\)\")",
+      "Bash(grep -E \"compose-info-card|^$\")",
+      "Bash(git diff *)",
+      "Bash(git check-ignore *)",
+      "Bash(npx tsc *)",
+      "Bash(where vercel *)",
+      "Bash(vercel domains *)",
+      "Bash(vercel logs *)"
+    ]
+  }
+}

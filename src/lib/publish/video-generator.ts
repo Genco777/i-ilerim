@@ -13,12 +13,11 @@
 
 import Replicate from 'replicate';
 
-// Sprint M3.5 fix — Kling 404 olduğunda fallback chain.
-// Sırayla dene: ilk başarılı olanı kullan.
+// Sprint M3.5 fix v2 — Minimax çıkarıldı (null output sorunu, input format
+// deprecated olabilir). Kling + LTX yeterli — ikisi de stable Replicate'de.
 const VIDEO_MODELS = [
-  'minimax/video-01',                        // $0.15, 5sn, stable
-  'kwaivgi/kling-v1.6-standard',             // $0.13, 5sn (yeniden dene)
-  'lightricks/ltx-video-097-distilled',      // $0.05, daha basit
+  'kwaivgi/kling-v1.6-standard',             // $0.13, 5sn (primary)
+  'lightricks/ltx-video-097-distilled',      // $0.05, basit fallback
 ] as const;
 
 let _client: Replicate | null = null;
@@ -69,14 +68,11 @@ export async function generateProductVideo(opts: ProductVideoOpts): Promise<Prod
     const ac = new AbortController();
     const timer = setTimeout(() => ac.abort(), 120_000); // 2dk timeout
     try {
-      // Her model'in farklı input format'ı var — generic mapping
+      // Her model'in farklı input format'ı var
       const input: Record<string, unknown> = {
         prompt: motionPrompt,
       };
-      // Minimax: image_url, kling: start_image, ltx: image
-      if (modelId.startsWith('minimax/')) {
-        input.first_frame_image = opts.imageUrl;
-      } else if (modelId.startsWith('kwaivgi/kling')) {
+      if (modelId.startsWith('kwaivgi/kling')) {
         input.start_image = opts.imageUrl;
         input.duration = durationSec;
         input.aspect_ratio = aspectRatio;
@@ -123,7 +119,6 @@ export async function generateProductVideo(opts: ProductVideoOpts): Promise<Prod
       }
 
       const costMap: Record<string, number> = {
-        'minimax/video-01': 0.15,
         'kwaivgi/kling-v1.6-standard': durationSec === 5 ? 0.13 : 0.26,
         'lightricks/ltx-video-097-distilled': 0.05,
       };
