@@ -146,13 +146,13 @@ export async function handleApparelApproveCommand(chatId: number, shortId: strin
     return;
   }
 
-  // Quick ack
-  await sendMessage({ chatId, text: `⏳ "${candidate.slogan}" Etsy'ye gönderiliyor...` });
+  // M3.5 fix v3 — publishProduct çağrısı KALDIRILDI.
+  // Eskisi: Etsy'ye direkt ACTIVE listing olarak gidiyordu (Mehmet DRAFT istiyor).
+  // Yeni: Sadece DB status='approved', Mehmet Printify dashboard'da manuel
+  // mockup seçer + "Publish to Etsy" tıklar → Etsy'de DRAFT olarak gelir.
+  // Tam otomatik DRAFT için Sprint M4'te Etsy OAuth + direct API gerek.
 
   try {
-    const shop = await getEtsyShop();
-    await publishProduct(shop.id, candidate.printify_product_id);
-
     await db
       .update(apparelCandidates)
       .set({
@@ -166,13 +166,17 @@ export async function handleApparelApproveCommand(chatId: number, shortId: strin
     await sendMessage({
       chatId,
       text: [
-        `✅ *${candidate.slogan}* Etsy'ye gönderildi`,
+        `✅ *${candidate.slogan}* onaylandı`,
         '',
-        `Printify Etsy sync 1-5dk içinde başlar.`,
-        `Etsy seller dashboard'da DRAFT olarak gözükür:`,
-        `https://www.etsy.com/your/shops/me/tools/listings/drafts`,
+        `📋 *Sıradaki adımlar (Mehmet manuel):*`,
+        `1. Printify'da ürünü aç:`,
+        `   https://printify.com/app/store/products/${candidate.printify_product_id}`,
+        `2. Mockup carousel'dan **10-15 mockup seç** (lifestyle + flat lay dahil)`,
+        `3. Sağ üstte **"Publish to Etsy"** butonuna tıkla`,
+        `4. Etsy'ye **DRAFT** olarak gider (active değil)`,
+        `5. Etsy'de listing'i aç, son kontrol + photo upload + "Yayınla"`,
         '',
-        `Sonra elle "Yayınla" butonuna basarsın, canlıya çıkar.`,
+        `⚙️ Sprint M4'te bu adımlar otomatize olacak (Etsy OAuth gerekli).`,
       ].join('\n'),
       parseMode: 'Markdown',
     });
