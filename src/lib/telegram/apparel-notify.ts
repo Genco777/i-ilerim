@@ -8,7 +8,7 @@
  * publish butonuna basar. Parça B'de /approve_<id> /reject_<id> komutları.
  */
 
-import { sendMessage, sendPhoto } from './bot';
+import { sendMessage, sendPhoto, type InlineKeyboardMarkup } from './bot';
 
 export interface ApparelCandidate {
   id: string;
@@ -63,8 +63,10 @@ export async function notifyApparelCandidates(opts: NotifyOpts): Promise<void> {
     `Niche: *${opts.niche}*`,
     `Üretilen: ${opts.candidates.length}${opts.failures ? ` (${opts.failures} fail)` : ''}`,
     ``,
-    `Aşağıda ${opts.candidates.length} mockup. Beğendiğini Printify link'ten aç → "Publish" → Etsy'ye gider.`,
-    `Parça B (yakında): /approve_<id> ile tek komutla Etsy'ye gönderme.`,
+    `Her ürün için aşağıdaki butonlar:`,
+    `✅ Onayla → Etsy'ye gönderir + Kling video üretir`,
+    `❌ Sil → Printify'dan silinir`,
+    `🌈/📏 → Ek görselleri tarayıcıda açar`,
   ].join('\n');
 
   for (const chatId of chatIds) {
@@ -73,13 +75,9 @@ export async function notifyApparelCandidates(opts: NotifyOpts): Promise<void> {
     );
   }
 
-  // 2) Her candidate için ayrı mesaj
+  // 2) Her candidate — flat lay COVER + caption + inline keyboard
   for (const c of opts.candidates) {
     const sid = shortId(c.id);
-    const extraImages: string[] = [];
-    if (c.flat_lay_url) extraImages.push(`🎨 Flat lay: ${c.flat_lay_url}`);
-    if (c.color_grid_url) extraImages.push(`🌈 Color grid: ${c.color_grid_url}`);
-    if (c.size_chart_url) extraImages.push(`📏 Size chart: ${c.size_chart_url}`);
 
     const caption = [
       `*${c.slogan}*`,
@@ -88,16 +86,42 @@ export async function notifyApparelCandidates(opts: NotifyOpts): Promise<void> {
       c.inspired_by ? `inspired: ${c.inspired_by}` : '',
       ``,
       `🆔 ${sid}`,
-      `🔗 ${printifyLink(c.printify_product_id)}`,
-      ...(extraImages.length > 0 ? ['', '*Ek görseller (Etsy listing\'e ekle):*', ...extraImages] : []),
     ].filter(Boolean).join('\n');
+
+    // Inline keyboard — onayla/sil callback + extra image URL buttons
+    const keyboardRows: Array<Array<{ text: string; callback_data?: string; url?: string }>> = [];
+    keyboardRows.push([
+      { text: '✅ Onayla', callback_data: `apparel:approve:${sid}` },
+      { text: '❌ Sil', callback_data: `apparel:reject:${sid}` },
+    ]);
+    const extraButtons: Array<{ text: string; url: string }> = [];
+    if (c.color_grid_url) extraButtons.push({ text: '🌈 Color Grid', url: c.color_grid_url });
+    if (c.size_chart_url) extraButtons.push({ text: '📏 Size Chart', url: c.size_chart_url });
+    if (extraButtons.length > 0) keyboardRows.push(extraButtons);
+    keyboardRows.push([{ text: '🛍 Printify', url: printifyLink(c.printify_product_id) }]);
+
+    const replyMarkup: InlineKeyboardMarkup = { inline_keyboard: keyboardRows };
+
+    // COVER PHOTO = flat lay (lifestyle), yoksa Printify preview fallback
+    const coverPhoto = c.flat_lay_url ?? c.printify_preview_url;
 
     for (const chatId of chatIds) {
       try {
-        if (c.printify_preview_url) {
-          await sendPhoto({ chatId, photo: c.printify_preview_url, caption, parseMode: 'Markdown' });
+        if (coverPhoto) {
+          await sendPhoto({
+            chatId,
+            photo: coverPhoto,
+            caption,
+            parseMode: 'Markdown',
+            replyMarkup,
+          });
         } else {
-          await sendMessage({ chatId, text: caption, parseMode: 'Markdown' });
+          await sendMessage({
+            chatId,
+            text: caption,
+            parseMode: 'Markdown',
+            replyMarkup,
+          });
         }
       } catch (err) {
         console.warn(

@@ -5034,6 +5034,21 @@ async function handleCallback(
     return;
   }
 
+  // Sprint M3.5 — Apparel inline button callbacks
+  // Format: apparel:approve:<shortId> | apparel:reject:<shortId>
+  if (data.startsWith('apparel:')) {
+    const parts = data.split(':');
+    const apparelAction = parts[1];
+    const sid = parts[2] ?? '';
+    if (!sid) return;
+    if (apparelAction === 'approve') {
+      await handleApparelApproveCommand(chatId, sid);
+    } else if (apparelAction === 'reject') {
+      await handleApparelRejectCommand(chatId, sid);
+    }
+    return;
+  }
+
   const [action, postId, ...rest] = data.split(':');
 
   try {
