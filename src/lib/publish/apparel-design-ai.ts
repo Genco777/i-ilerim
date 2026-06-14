@@ -28,8 +28,8 @@ export interface ApparelAIOpts {
    * Boşsa otomatik slogan'dan tahmin edilir (basit keyword extract).
    */
   theme?: string;
-  /** İlüstrasyon stili — varsayılan: "vintage stamp" */
-  style?: 'vintage-stamp' | 'line-art' | 'retro-poster' | 'botanical' | 'minimal-graphic';
+  /** İlüstrasyon stili — varsayılan: "modern-flat" (clean, bg removal-friendly) */
+  style?: 'modern-flat' | 'vintage-stamp' | 'line-art' | 'retro-poster' | 'botanical' | 'minimal-graphic';
   /** Aspect ratio — varsayılan 4:5 (portrait, apparel print için ideal) */
   aspectRatio?: '1:1' | '4:5' | '3:4';
   /** Resolution — varsayılan 2K (sharp print için) */
@@ -42,15 +42,20 @@ export interface ApparelAIResult {
   model: string;
   mimeType: 'image/png';
   costEstimateUsd: number;
+  /** Hangi bg removal yöntemi başarıyla kullanıldı */
+  bgRemoveMethod?: 'rembg-ml' | 'sharp-threshold';
+  /** rembg fail olursa hata mesajı (debug için) */
+  rembgError?: string | null;
 }
 
 // ── Style → prompt prefix mapping ────────────────────────────────────────────
 const STYLE_PROMPTS: Record<NonNullable<ApparelAIOpts['style']>, string> = {
-  'vintage-stamp':   'vintage stamp illustration, thick black ink, distressed texture, hand-drawn feel, 1970s aesthetic',
-  'line-art':        'minimalist single-line continuous line art illustration, fine black ink lines, modern editorial style',
-  'retro-poster':    'retro 70s poster art style, bold black line illustration, slight grain texture, vintage advertising aesthetic',
-  'botanical':       'delicate botanical line drawing, thin black ink, hand-illustrated flora and foliage, vintage botanical guide style',
-  'minimal-graphic': 'modern minimalist graphic illustration, bold geometric shapes, single color black ink, scandinavian design',
+  'modern-flat':     'clean modern flat vector illustration, bold solid black silhouette, NO texture, NO grain, NO distressing, pure crisp edges',
+  'vintage-stamp':   'vintage stamp illustration style but CLEAN edges, solid black ink, NO paper texture, NO grain — pure flat vector look',
+  'line-art':        'minimalist single-line continuous line art illustration, fine clean black ink lines, NO texture, modern editorial style',
+  'retro-poster':    'retro 70s poster art, bold solid black shapes, NO grain, NO texture — pure flat vector style',
+  'botanical':       'delicate botanical line drawing, clean thin black ink, NO texture, NO shading — pure vector flat style',
+  'minimal-graphic': 'modern minimalist graphic, bold geometric shapes, single solid black, scandinavian flat design, NO texture',
 };
 
 // ── Auto-theme extraction from slogan ────────────────────────────────────────
@@ -79,13 +84,13 @@ function buildPrompt(opts: Required<Pick<ApparelAIOpts, 'slogan' | 'style'>> & {
   return [
     `T-shirt apparel design, ${styleDesc}.`,
     `Central illustration: ${opts.theme}.`,
-    `Below the illustration, the text "${opts.slogan}" rendered in clean uppercase serif typography,`,
-    `letter-spacing slightly wide, all elements in BLACK INK only.`,
-    `Pure white solid background, NO photographic elements, NO 3D rendering,`,
-    `no gradients, no soft shadows — flat 2D vector-style illustration only.`,
-    `Composition: vertically centered, plenty of negative space around the design,`,
-    `entire design fits within a 4:5 portrait frame with generous margins.`,
-    `Style reference: modern Etsy bestseller t-shirt graphic, vintage editorial aesthetic.`,
+    `Below the illustration, the text "${opts.slogan}" in clean bold sans-serif typography,`,
+    `letter-spacing slightly wide, ALL elements in PURE SOLID BLACK ink (RGB 0,0,0) only.`,
+    `CRITICAL: PURE WHITE SOLID BACKGROUND (RGB 255,255,255 exactly), NO texture, NO paper, NO grain,`,
+    `NO gradients, NO shadows, NO photographic elements, NO 3D rendering — flat 2D vector illustration ONLY.`,
+    `Background must be 100% pure white #FFFFFF — no off-white, no cream, no beige.`,
+    `Composition: vertically centered, generous margins, entire design in 4:5 portrait frame.`,
+    `Style: modern Etsy bestseller t-shirt graphic suitable for direct-to-garment printing.`,
   ].join(' ');
 }
 
@@ -121,13 +126,14 @@ async function removeWhiteBackground(input: Buffer): Promise<Buffer> {
   const alpha = Buffer.alloc(W * H);
   for (let i = 0; i < grayscale.length; i++) {
     const g = grayscale[i];
-    if (g >= 245) {
-      alpha[i] = 0;            // pure white → tam transparent
-    } else if (g <= 200) {
+    // Sıkı threshold: pure white #FFFFFF zorlu prompt sayesinde bg ≈ 250-255
+    if (g >= 235) {
+      alpha[i] = 0;            // near-white → tam transparent (off-white dahil)
+    } else if (g <= 180) {
       alpha[i] = 255;          // ink → tam opaque
     } else {
-      // 201-244 smooth ramp (anti-aliasing edges için)
-      alpha[i] = Math.round(((244 - g) / 44) * 255);
+      // 181-234 smooth ramp (anti-aliasing edges)
+      alpha[i] = Math.round(((234 - g) / 54) * 255);
     }
   }
 
@@ -148,7 +154,7 @@ export async function generateApparelDesignAI(opts: ApparelAIOpts): Promise<Appa
     throw new Error('generateApparelDesignAI: slogan boş olamaz');
   }
 
-  const style = opts.style ?? 'vintage-stamp';
+  const style = opts.style ?? 'modern-flat';
   const theme = (opts.theme && opts.theme.trim()) || autoTheme(slogan);
   const aspectRatio = opts.aspectRatio ?? '4:5';
   const resolution = opts.resolution ?? '2K';
@@ -174,10 +180,12 @@ export async function generateApparelDesignAI(opts: ApparelAIOpts): Promise<Appa
   // olursa). Toplam maliyet: $0.045 per apparel design.
   let transparentBuffer: Buffer;
   let bgRemoveMethod: 'rembg-ml' | 'sharp-threshold' = 'rembg-ml';
+  let rembgError: string | null = null;
   try {
     transparentBuffer = await removeBackgroundML(rawBuffer);
   } catch (err) {
-    console.warn('[apparel-design-ai] rembg fail, sharp threshold fallback:', err instanceof Error ? err.message : String(err));
+    rembgError = err instanceof Error ? err.message.slice(0, 400) : String(err);
+    console.warn('[apparel-design-ai] rembg fail, sharp threshold fallback:', rembgError);
     transparentBuffer = await removeWhiteBackground(rawBuffer);
     bgRemoveMethod = 'sharp-threshold';
   }
@@ -188,6 +196,8 @@ export async function generateApparelDesignAI(opts: ApparelAIOpts): Promise<Appa
     model: 'google/nano-banana-2',
     mimeType: 'image/png',
     costEstimateUsd: bgRemoveMethod === 'rembg-ml' ? 0.045 : 0.04,
+    bgRemoveMethod,
+    rembgError,
   };
 }
 

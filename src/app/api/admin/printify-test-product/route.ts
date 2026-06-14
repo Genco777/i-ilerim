@@ -97,10 +97,10 @@ export async function GET(req: Request) {
   try {
     if (slogan && slogan.trim() && modeParam === 'ai') {
       // Faz 4: Nano Banana 2 illustration + slogan combo (DEFAULT)
-      const aiStyles = ['vintage-stamp', 'line-art', 'retro-poster', 'botanical', 'minimal-graphic'] as const;
+      const aiStyles = ['modern-flat', 'vintage-stamp', 'line-art', 'retro-poster', 'botanical', 'minimal-graphic'] as const;
       const aiStyle = (aiStyles as readonly string[]).includes(styleParam)
         ? (styleParam as typeof aiStyles[number])
-        : 'vintage-stamp';
+        : 'modern-flat';
 
       const design = await generateApparelDesignAI({
         slogan: slogan.trim(),
@@ -123,7 +123,9 @@ export async function GET(req: Request) {
           model: design.model,
           buffer_kb: Math.round(design.buffer.length / 1024),
           costUsd: design.costEstimateUsd,
-          promptUsed: design.prompt.slice(0, 200),
+          bgRemoveMethod: design.bgRemoveMethod ?? 'unknown',
+          rembgError: design.rembgError ?? null,
+          promptUsed: design.prompt.slice(0, 250),
         },
       });
     } else if (slogan && slogan.trim() && modeParam === 'typo') {
