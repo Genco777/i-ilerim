@@ -1105,6 +1105,60 @@ export const downloadTokens = pgTable(
 );
 
 /**
+ * Sprint K Faz 6 — Daily auto-generated apparel candidates (cron-driven).
+ *
+ * Cron (08:00 UTC daily):
+ *   1. niche rotation (gün → niche)
+ *   2. apparel-research (Google Trends + GPT-4o) → 5 slogan candidate
+ *   3. Banana 2 + Sharp manual RGBA → transparent PNG
+ *   4. Printify product create (DRAFT, Etsy'ye gitmiyor)
+ *   5. apparel_candidates row insert (status='pending')
+ *   6. Telegram'a notification (mockup URL + slogan + komut)
+ *   7. Mehmet /approve_<id> ya da /reject_<id> ile karar verir
+ *
+ * Status lifecycle:
+ *   pending → approved (Etsy'ye gönderildi)
+ *   pending → rejected (Printify'dan silindi)
+ *   approved → published (Etsy listing aktif oldu)
+ *   pending → failed (cron'da hata oldu)
+ */
+export const apparelCandidates = pgTable(
+  'apparel_candidates',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    cron_run_id: text('cron_run_id'),
+    niche: text('niche').notNull(),
+
+    // LLM çıktıları (research helper'dan)
+    slogan: text('slogan').notNull(),
+    theme: text('theme').notNull(),
+    style: text('style').notNull(),
+    demand_hint: text('demand_hint'),
+    inspired_by: text('inspired_by'),
+
+    // Printify
+    printify_product_id: text('printify_product_id').notNull(),
+    printify_preview_url: text('printify_preview_url'),
+
+    // Etsy (approve sonrası)
+    etsy_listing_id: text('etsy_listing_id'),
+
+    // Lifecycle
+    status: text('status').notNull().default('pending'), // pending|approved|rejected|published|failed
+    error_log: text('error_log'),
+    decided_at: timestamp('decided_at', { withTimezone: true }),
+    decided_by: text('decided_by'),
+    created_at: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updated_at: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    statusIdx: index('apparel_candidate_status_idx').on(t.status),
+    cronRunIdx: index('apparel_candidate_cron_idx').on(t.cron_run_id),
+    createdIdx: index('apparel_candidate_created_idx').on(t.created_at),
+  }),
+);
+
+/**
  * Tracks where each product is published — Faz 4 will populate Pinterest/Meta.
  * Faz 3 only uses stripe_shop entries.
  */
