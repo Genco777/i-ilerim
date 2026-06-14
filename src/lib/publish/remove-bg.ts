@@ -14,7 +14,14 @@
 
 import Replicate from 'replicate';
 
-const MODEL_ID = '851-labs/background-remover' as const;
+// Fallback chain — Replicate'de en stable + public bg remover modelleri.
+// 851-labs/background-remover 404 dönüyordu (private ya da kaldırıldı).
+// Sıralı dene: ilk başarılı olanı kullan.
+const MODEL_CANDIDATES = [
+  'cjwbw/rembg',                  // U2Net based, eski klasik, public
+  'lucataco/remove-bg',           // Modnet based, popüler
+  'pollinations/modnet',          // alternatif
+] as const;
 
 let _client: Replicate | null = null;
 function getClient(): Replicate {
@@ -26,55 +33,58 @@ function getClient(): Replicate {
   return _client;
 }
 
+function parseReplicateOutput(output: unknown): string | undefined {
+  if (typeof output === 'string') return output;
+  if (Array.isArray(output) && typeof output[0] === 'string') return output[0];
+  if (
+    output &&
+    typeof output === 'object' &&
+    'url' in output &&
+    typeof (output as { url: unknown }).url === 'function'
+  ) {
+    return (output as { url: () => string }).url();
+  }
+  return undefined;
+}
+
 /**
  * Image buffer'ından background'ı kaldır, transparent PNG buffer döndür.
+ * Birden çok modeli sırayla dener, ilk başarılı olanı kullanır.
  *
- * @param input Banana çıktısı PNG/JPG buffer (white bg)
- * @returns transparent PNG buffer
+ * @throws son fail eden model'in hatası (önceki modellerin hatası bir araya getirilir)
  */
 export async function removeBackgroundML(input: Buffer): Promise<Buffer> {
-  // Replicate input image: data URI (base64 PNG)
   const dataUri = `data:image/png;base64,${input.toString('base64')}`;
+  const errors: string[] = [];
 
-  // 45s timeout — rembg genelde 3-5s, 45 fazlasıyla yeterli
-  const ac = new AbortController();
-  const timer = setTimeout(() => ac.abort(), 45_000);
+  for (const modelId of MODEL_CANDIDATES) {
+    const ac = new AbortController();
+    const timer = setTimeout(() => ac.abort(), 45_000);
+    try {
+      const output = await getClient().run(
+        modelId as `${string}/${string}`,
+        {
+          input: { image: dataUri },
+          signal: ac.signal,
+        },
+      );
+      clearTimeout(timer);
 
-  try {
-    const output = await getClient().run(
-      MODEL_ID,
-      {
-        input: { image: dataUri },
-        signal: ac.signal,
-      },
-    );
+      const url = parseReplicateOutput(output);
+      if (!url) {
+        throw new Error(`unexpected output shape from ${modelId}: ${JSON.stringify(output).slice(0, 150)}`);
+      }
 
-    clearTimeout(timer);
-
-    // Output URL parsing (Replicate genelde string ya da {url()} object döner)
-    let url: string | undefined;
-    if (typeof output === 'string') {
-      url = output;
-    } else if (Array.isArray(output) && typeof output[0] === 'string') {
-      url = output[0];
-    } else if (
-      output &&
-      typeof output === 'object' &&
-      'url' in output &&
-      typeof (output as { url: unknown }).url === 'function'
-    ) {
-      url = (output as { url: () => string }).url();
+      const res = await fetch(url);
+      if (!res.ok) throw new Error(`output fetch failed (${res.status}) for ${url}`);
+      return Buffer.from(await res.arrayBuffer());
+    } catch (err) {
+      clearTimeout(timer);
+      const msg = err instanceof Error ? err.message.slice(0, 180) : String(err);
+      errors.push(`${modelId}: ${msg}`);
+      // Try next model
     }
-
-    if (!url) {
-      throw new Error('rembg unexpected output shape: ' + JSON.stringify(output).slice(0, 200));
-    }
-
-    const res = await fetch(url);
-    if (!res.ok) throw new Error(`rembg output fetch failed (${res.status}) for ${url}`);
-    return Buffer.from(await res.arrayBuffer());
-  } catch (err) {
-    clearTimeout(timer);
-    throw err;
   }
+
+  throw new Error(`All ${MODEL_CANDIDATES.length} rembg models failed:\n  ${errors.join('\n  ')}`);
 }
