@@ -28,7 +28,7 @@ import { NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { apparelCandidates } from '@/lib/db/schema';
 import { eq } from 'drizzle-orm';
-import { generateApparelDesignAI } from '@/lib/publish/apparel-design-ai';
+import { generateApparelDesignAI, generateApparelDesignAIBothVariants } from '@/lib/publish/apparel-design-ai';
 import {
   uploadImageByBase64,
   createApparelProduct,
@@ -69,7 +69,14 @@ export async function GET(req: Request) {
 
   const url = new URL(req.url);
   const nicheOverride = url.searchParams.get('niche');
-  const count = Math.min(Number(url.searchParams.get('count') ?? '5'), 10);
+  // Sprint L Faz 1: 5 tshirt + 2 tote = 7 candidate/gün
+  const tshirtCount = Math.min(Number(url.searchParams.get('tshirtCount') ?? '5'), 10);
+  const toteCount   = Math.min(Number(url.searchParams.get('toteCount') ?? '2'), 5);
+  const count       = tshirtCount + toteCount;
+  // Legacy ?count= override — sadece tshirt için, tote 0 olur
+  const countOverride = url.searchParams.get('count');
+  const effectiveTshirtCount = countOverride ? Math.min(Number(countOverride), 10) : tshirtCount;
+  const effectiveToteCount   = countOverride ? 0 : toteCount;
   const dryRun = url.searchParams.get('dryRun') === '1';
 
   const niche = (nicheOverride ?? nicheForToday()) as RotatedNiche;
@@ -129,16 +136,16 @@ export async function GET(req: Request) {
     const ideas = await generateSloganIdeas({
       niche,
       googleTrends: googleQueries,
-      count: Math.max(count + 5, 10), // ekstra üret, en iyilerini seçeriz
+      count: Math.max(effectiveTshirtCount + effectiveToteCount + 5, 10), // ekstra üret, en iyilerini seçeriz
     });
 
-    // High demand önce, sonra medium, en fazla count tane al
+    // High demand önce, sonra medium, en fazla tshirtCount+toteCount tane al
     sloganIdeas = [...ideas.ideas]
       .sort((a, b) => {
         const order = { high: 0, medium: 1, low: 2 } as const;
         return (order[a.demandHint] ?? 3) - (order[b.demandHint] ?? 3);
       })
-      .slice(0, count);
+      .slice(0, effectiveTshirtCount + effectiveToteCount);
 
     steps.push({
       step: 'research',
@@ -180,17 +187,43 @@ export async function GET(req: Request) {
   }
 
   // ─── Step 3: Her slogan için design + upload + product create ─
-  for (const idea of sloganIdeas) {
+  // Sprint L Faz 1: ilk N idea tshirt, sonraki M idea tote
+  for (let idx = 0; idx < sloganIdeas.length; idx++) {
+    const idea = sloganIdeas[idx];
+    const productType: 'tshirt' | 'tote' = idx < effectiveTshirtCount ? 'tshirt' : 'tote';
+    // Tote square print area → 1:1 aspect ratio uygun
+    const aspectRatio: '1:1' | '4:5' = productType === 'tote' ? '1:1' : '4:5';
+
     const t1 = Date.now();
     try {
       // a) Banana 2 + Sharp manuel RGBA → transparent PNG
-      const design = await generateApparelDesignAI({
-        slogan: idea.slogan,
-        theme: idea.theme,
-        style: idea.style as 'modern-flat' | 'vintage-stamp' | 'line-art' | 'retro-poster' | 'botanical' | 'minimal-graphic',
-        aspectRatio: '4:5',
-        resolution: '2K',
-      });
+      // Sprint L Faz 2: tshirt için light+dark variant, tote için sadece light
+      let lightBuffer: Buffer;
+      let darkBuffer: Buffer | null = null;
+      let designCostUsd = 0.04;
+
+      if (productType === 'tshirt') {
+        const both = await generateApparelDesignAIBothVariants({
+          slogan: idea.slogan,
+          theme: idea.theme,
+          style: idea.style as 'modern-flat' | 'vintage-stamp' | 'line-art' | 'retro-poster' | 'botanical' | 'minimal-graphic',
+          aspectRatio,
+          resolution: '2K',
+        });
+        lightBuffer = both.lightBuffer;
+        darkBuffer = both.darkBuffer;
+        designCostUsd = both.costEstimateUsd;
+      } else {
+        const design = await generateApparelDesignAI({
+          slogan: idea.slogan,
+          theme: idea.theme,
+          style: idea.style as 'modern-flat' | 'vintage-stamp' | 'line-art' | 'retro-poster' | 'botanical' | 'minimal-graphic',
+          aspectRatio,
+          resolution: '2K',
+        });
+        lightBuffer = design.buffer;
+        designCostUsd = design.costEstimateUsd;
+      }
 
       if (dryRun) {
         steps.push({
@@ -198,39 +231,58 @@ export async function GET(req: Request) {
           ok: true,
           data: {
             slogan: idea.slogan,
-            buffer_kb: Math.round(design.buffer.length / 1024),
-            costUsd: design.costEstimateUsd,
+            productType,
+            light_kb: Math.round(lightBuffer.length / 1024),
+            dark_kb: darkBuffer ? Math.round(darkBuffer.length / 1024) : null,
+            costUsd: designCostUsd,
             dryRun: true,
           },
         });
         continue;
       }
 
-      // b) Printify image upload
-      const uploaded = await uploadImageByBase64(
-        design.buffer.toString('base64'),
-        `apparel-${cronRunId}-${idea.slogan.slice(0, 30).replace(/[^a-z0-9]/gi, '-')}.png`,
+      // b) Printify image upload — light (her zaman) + dark (sadece tshirt)
+      const sloganSlug = idea.slogan.slice(0, 30).replace(/[^a-z0-9]/gi, '-');
+      const lightUpload = await uploadImageByBase64(
+        lightBuffer.toString('base64'),
+        `apparel-${cronRunId}-${productType}-${sloganSlug}-light.png`,
       );
+      let darkUpload: typeof lightUpload | null = null;
+      if (darkBuffer) {
+        darkUpload = await uploadImageByBase64(
+          darkBuffer.toString('base64'),
+          `apparel-${cronRunId}-${productType}-${sloganSlug}-dark.png`,
+        );
+      }
 
       // c) Product create (DRAFT — publishToEtsy=false, sadece Printify'da kalır)
       const description = [
         idea.slogan,
         '',
-        'Soft, comfortable, designed in our studio in Karben, Germany.',
-        'Premium fabric, durable print. Ships from US.',
+        productType === 'tote'
+          ? 'Sturdy canvas tote bag, designed in our studio in Karben, Germany. Strong handles, premium print.'
+          : 'Soft, comfortable t-shirt, designed in our studio in Karben, Germany. Premium fabric, durable print.',
+        'Ships from US.',
         '',
         '— Fly & Froth Studio',
       ].join('\n');
 
+      const productTags = productType === 'tote'
+        ? ['fly and froth', niche, 'canvas tote', 'tote bag', 'eco bag', 'gift']
+        : ['fly and froth', niche, idea.style, 'apparel', 'tshirt', 'gift', 'unisex'];
+
       const product = await createApparelProduct({
         shopId,
-        type: 'tshirt',
+        type: productType,
         title: idea.slogan.slice(0, 130),
         description,
-        imageId: uploaded.id,
-        priceCents: 2499,
-        tags: ['fly and froth', niche, idea.style, 'apparel', 'gift', 'unisex'].slice(0, 13),
+        imageId: lightUpload.id,
+        darkImageId: darkUpload?.id,
+        priceCents: productType === 'tote' ? 1899 : 2499, // tote daha ucuz
+        tags: productTags.slice(0, 13),
       });
+
+      const uploadedPreview = lightUpload.preview_url;
 
       // d) DB insert
       const rows = await db
@@ -244,7 +296,7 @@ export async function GET(req: Request) {
           demand_hint: idea.demandHint,
           inspired_by: idea.inspiredBy ?? null,
           printify_product_id: product.id,
-          printify_preview_url: uploaded.preview_url,
+          printify_preview_url: uploadedPreview,
           status: 'pending',
         })
         .returning({ id: apparelCandidates.id });
@@ -256,16 +308,17 @@ export async function GET(req: Request) {
         theme: idea.theme,
         style: idea.style,
         printify_product_id: product.id,
-        printify_preview_url: uploaded.preview_url,
+        printify_preview_url: uploadedPreview,
         demand_hint: idea.demandHint,
         inspired_by: idea.inspiredBy ?? null,
       });
 
       steps.push({
-        step: `design+create:${idea.slogan.slice(0, 30)}`,
+        step: `design+create:${productType}:${idea.slogan.slice(0, 30)}`,
         ok: true,
         data: {
           id,
+          productType,
           printifyProductId: product.id,
           variants: product.variants?.length ?? 0,
           ms: Date.now() - t1,
@@ -274,7 +327,7 @@ export async function GET(req: Request) {
     } catch (err) {
       failures++;
       steps.push({
-        step: `design+create:${idea.slogan.slice(0, 30)}`,
+        step: `design+create:${productType}:${idea.slogan.slice(0, 30)}`,
         ok: false,
         error: err instanceof Error ? err.message.slice(0, 300) : String(err),
       });

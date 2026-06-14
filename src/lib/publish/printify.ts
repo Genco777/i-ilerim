@@ -169,16 +169,14 @@ export async function uploadImageByBase64(base64: string, fileName: string): Pro
  */
 export const APPAREL_PRESETS = {
   tshirt: {
-    // Blueprint 12 = aslında Bella+Canvas 3001 (premium unisex t-shirt), Monster
-    // Digital provider 29 ile US fast shipping. Önceki test'te 6 renk × 5 size = 30
-    // variant üretti — temiz catalog.
+    // Blueprint 12 = Bella+Canvas 3001 (premium unisex t-shirt), Monster Digital.
     blueprint_id: 12,
-    provider_id: 29,      // Monster Digital (US)
+    provider_id: 29,
     sizes: ['S', 'M', 'L', 'XL', '2XL'] as const,
-    // SADECE AÇIK RENKLER — siyah/koyu tişört üzerinde siyah ink/illustration
-    // görünmüyor (Mehmet feedback'i). Faz 5'te color-aware multi-design ile
-    // dark variant'lar açılacak.
+    // LIGHT colors — siyah ink design bekler (Sprint K Faz 4)
     colors: ['White', 'Heather', 'Athletic Heather', 'Soft Cream', 'Natural'] as const,
+    // DARK colors — beyaz ink design bekler (Sprint L Faz 2, darkImageId ile)
+    darkColors: ['Black', 'Navy', 'Sport Grey', 'Charcoal', 'Forest'] as const,
     placement: 'front' as const,
   },
   hoodie: {
@@ -192,7 +190,8 @@ export const APPAREL_PRESETS = {
     blueprint_id: 49,     // Liberty Bags 8502 — canvas tote
     provider_id: 29,      // Monster Digital (US)
     sizes: ['One Size'] as const,
-    colors: ['Natural', 'Black'] as const,
+    // Light-only — siyah tote dark ink design bekler, Faz L2'de eklenecek
+    colors: ['Natural', 'Cream', 'Beige'] as const,
     placement: 'front' as const,
   },
 } as const;
@@ -204,9 +203,13 @@ interface CreatePrintifyProductOpts {
   type: ApparelType;
   title: string;
   description: string;
-  imageId: string;       // uploadImage'den dönen id
-  priceCents: number;    // satış fiyatı (€ cents, Printify USD ister — Etsy locale dönüştürür)
-  tags?: string[];       // max 13
+  /** Light variants (White, Heather vb.) için image — siyah ink design */
+  imageId: string;
+  /** Sprint L Faz 2: Dark variants (Black, Navy vb.) için image — beyaz ink design.
+   *  Opsiyonel: vermeyince dark color variants kapalı kalır. */
+  darkImageId?: string;
+  priceCents: number;
+  tags?: string[];
 }
 
 interface PrintifyProduct {
@@ -234,62 +237,98 @@ interface PrintifyProduct {
  */
 export async function createApparelProduct(opts: CreatePrintifyProductOpts): Promise<PrintifyProduct> {
   const preset = APPAREL_PRESETS[opts.type];
-  const priceUsd = Math.round(opts.priceCents); // Printify USD cents bekliyor
+  const priceUsd = Math.round(opts.priceCents);
 
-  // 1. Catalog'tan variantları al — blueprint + provider için tüm size+color combos
+  // 1. Catalog'tan tüm variants
   const catalog = await printifyFetch<{
     variants: Array<{ id: number; title: string; options: Record<string, string> }>;
   }>(`/catalog/blueprints/${preset.blueprint_id}/print_providers/${preset.provider_id}/variants.json`);
 
-  // 2. preset.colors + preset.sizes whitelist'ine göre filtrele
-  // Printify options field'ları farklı blueprint'te farklı casing/key kullanır
-  // (color/colour, size/Size). Geniş eşle.
-  const wantedColors = preset.colors.map((c) => c.toLowerCase());
-  const wantedSizes  = preset.sizes.map((s) => s.toLowerCase());
+  const wantedLightColors = preset.colors.map((c) => c.toLowerCase());
+  // Sprint L Faz 2: tshirt için darkColors var, tote için yok
+  const wantedDarkColors = ('darkColors' in preset ? (preset as { darkColors: readonly string[] }).darkColors : [])
+    .map((c) => c.toLowerCase());
+  const wantedSizes = preset.sizes.map((s) => s.toLowerCase());
 
-  function variantMatches(opts: Record<string, string>): boolean {
+  function extractOpts(v: { options: Record<string, string> }): { color: string; size: string } {
     const optsLower: Record<string, string> = {};
-    for (const [k, v] of Object.entries(opts)) {
-      optsLower[k.toLowerCase()] = String(v).toLowerCase();
+    for (const [k, val] of Object.entries(v.options)) {
+      optsLower[k.toLowerCase()] = String(val).toLowerCase();
     }
-    const color = optsLower['color'] ?? optsLower['colour'] ?? '';
-    const size  = optsLower['size'] ?? optsLower['Size'] ?? '';
-    // wantedColors içinde EŞIT ya da renk içeriyor (örn. "Heather Grey" vs "Sport Grey Heather")
-    const colorOk = !color || wantedColors.some((wc) => color === wc || color.includes(wc) || wc.includes(color));
-    const sizeOk  = !size  || wantedSizes.some((ws) => size === ws);
-    return colorOk && sizeOk;
+    return {
+      color: optsLower['color'] ?? optsLower['colour'] ?? '',
+      size: optsLower['size'] ?? '',
+    };
+  }
+  function matchesColor(actual: string, wantedList: string[]): boolean {
+    if (!actual) return false;
+    return wantedList.some((wc) => actual === wc || actual.includes(wc) || wc.includes(actual));
+  }
+  function matchesSize(actual: string): boolean {
+    if (!actual) return true; // tote one-size
+    return wantedSizes.some((ws) => actual === ws);
   }
 
-  let filtered = catalog.variants.filter((v) => variantMatches(v.options));
-  // Eğer filter çok dar geldiyse (0 ya da çok az), tüm catalog'a düş (safety)
-  if (filtered.length === 0) {
-    filtered = catalog.variants;
-  }
-  // Printify hard limit: max 100 variant enabled
-  if (filtered.length > 100) {
-    filtered = filtered.slice(0, 100);
+  // Light + dark variant ayrımı
+  const lightVariants: typeof catalog.variants = [];
+  const darkVariants: typeof catalog.variants = [];
+
+  for (const v of catalog.variants) {
+    const { color, size } = extractOpts(v);
+    if (!matchesSize(size)) continue;
+
+    if (matchesColor(color, wantedLightColors)) {
+      lightVariants.push(v);
+    } else if (opts.darkImageId && wantedDarkColors.length > 0 && matchesColor(color, wantedDarkColors)) {
+      darkVariants.push(v);
+    }
   }
 
-  const variantsPayload = filtered.map((v) => ({
+  // Hiç eşleşme yoksa safety: ilk 50 variant (catalog all) light olarak kullan
+  if (lightVariants.length === 0 && darkVariants.length === 0) {
+    lightVariants.push(...catalog.variants.slice(0, 50));
+  }
+
+  // Cap each side to fit 100 total
+  const lightCap = opts.darkImageId ? 60 : 100; // light dominant
+  const darkCap = 40;
+  const finalLight = lightVariants.slice(0, lightCap);
+  const finalDark = darkVariants.slice(0, darkCap);
+  const allVariants = [...finalLight, ...finalDark];
+
+  const variantsPayload = allVariants.map((v) => ({
     id: v.id,
     price: priceUsd,
     is_enabled: true,
   }));
 
-  // 3. Print area config — front placement, tek image (sadece filtre edilmiş variant'lar)
-  const printAreasPayload = [{
-    variant_ids: filtered.map((v) => v.id),
-    placeholders: [{
-      position: 'front' as const,
-      images: [{
-        id: opts.imageId,
-        x: 0.5,
-        y: 0.5,
-        scale: 1.0,
-        angle: 0,
+  // 3. Print area config — light/dark ayrı placement
+  const printAreasPayload: Array<{
+    variant_ids: number[];
+    placeholders: Array<{
+      position: 'front';
+      images: Array<{ id: string; x: number; y: number; scale: number; angle: number }>;
+    }>;
+  }> = [];
+
+  if (finalLight.length > 0) {
+    printAreasPayload.push({
+      variant_ids: finalLight.map((v) => v.id),
+      placeholders: [{
+        position: 'front',
+        images: [{ id: opts.imageId, x: 0.5, y: 0.5, scale: 1.0, angle: 0 }],
       }],
-    }],
-  }];
+    });
+  }
+  if (finalDark.length > 0 && opts.darkImageId) {
+    printAreasPayload.push({
+      variant_ids: finalDark.map((v) => v.id),
+      placeholders: [{
+        position: 'front',
+        images: [{ id: opts.darkImageId, x: 0.5, y: 0.5, scale: 1.0, angle: 0 }],
+      }],
+    });
+  }
 
   // 4. Product create
   const product = await printifyFetch<PrintifyProduct>(

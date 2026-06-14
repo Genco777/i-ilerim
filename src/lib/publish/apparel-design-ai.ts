@@ -153,6 +153,53 @@ async function removeWhiteBackground(input: Buffer): Promise<Buffer> {
     .toBuffer();
 }
 
+/**
+ * Sprint L Faz 2 — Banana çıktısını "dark variant" olarak dönüştür.
+ *
+ * Banana ham çıktı: bg=white, ink=black.
+ * Dark variant (siyah tişört için): bg=transparent, ink=WHITE.
+ *
+ * Algoritma:
+ *   1. RGB invert (255-R, 255-G, 255-B):
+ *      - bg pixel was white(255) → now black(0) — ama görünmeyecek (transparent)
+ *      - ink pixel was black(0) → now white(255) — koyu shirt'te beyaz görünür
+ *   2. alpha = 255 - grayscale(ORIGINAL) — light variant'la aynı maskleme:
+ *      - Original bg (gray=255) → alpha 0 (transparent)
+ *      - Original ink (gray=0)  → alpha 255 (opaque)
+ *
+ * Sonuç: koyu kumaş üstünde beyaz illustration görünür, beyaz kare yok.
+ */
+async function convertToDarkVariant(input: Buffer): Promise<Buffer> {
+  const meta = await sharp(input).metadata();
+  const W = meta.width;
+  const H = meta.height;
+  if (!W || !H) {
+    throw new Error('convertToDarkVariant: image meta width/height eksik');
+  }
+
+  const rgb = await sharp(input).removeAlpha().raw().toBuffer();
+  const totalPixels = W * H;
+  const rgba = Buffer.alloc(totalPixels * 4);
+
+  for (let i = 0; i < totalPixels; i++) {
+    const r = rgb[i * 3];
+    const g = rgb[i * 3 + 1];
+    const b = rgb[i * 3 + 2];
+    // RGB invert
+    rgba[i * 4]     = 255 - r;
+    rgba[i * 4 + 1] = 255 - g;
+    rgba[i * 4 + 2] = 255 - b;
+    // alpha = 255 - original grayscale (light variant ile aynı maskleme)
+    rgba[i * 4 + 3] = 255 - Math.round((r + g + b) / 3);
+  }
+
+  return await sharp(rgba, {
+    raw: { width: W, height: H, channels: 4 },
+  })
+    .png()
+    .toBuffer();
+}
+
 // ── Public API ──────────────────────────────────────────────────────────────
 export async function generateApparelDesignAI(opts: ApparelAIOpts): Promise<ApparelAIResult> {
   const slogan = opts.slogan?.trim();
@@ -206,4 +253,56 @@ export async function generateApparelDesignAI(opts: ApparelAIOpts): Promise<Appa
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 function _sharpThresholdFallback(buf: Buffer): Promise<Buffer> {
   return removeWhiteBackground(buf);
+}
+
+// ── Sprint L Faz 2 — Both variants (light + dark) ────────────────────────────
+export interface ApparelAIBothResult {
+  lightBuffer: Buffer;
+  darkBuffer: Buffer;
+  prompt: string;
+  model: string;
+  mimeType: 'image/png';
+  costEstimateUsd: number;
+}
+
+/**
+ * Tek Banana çağrı, iki transparent variant döndür:
+ *   - lightBuffer: siyah ink (White, Heather, Natural gibi açık renk shirt'ler için)
+ *   - darkBuffer: beyaz ink (Black, Navy gibi koyu shirt'ler için)
+ *
+ * Maliyet aynı $0.04 (Banana 1 call, Sharp post-process 2×).
+ */
+export async function generateApparelDesignAIBothVariants(opts: ApparelAIOpts): Promise<ApparelAIBothResult> {
+  const slogan = opts.slogan?.trim();
+  if (!slogan) throw new Error('generateApparelDesignAIBothVariants: slogan boş olamaz');
+
+  const style = opts.style ?? 'modern-flat';
+  const theme = (opts.theme && opts.theme.trim()) || autoTheme(slogan);
+  const aspectRatio = opts.aspectRatio ?? '4:5';
+  const resolution = opts.resolution ?? '2K';
+
+  const prompt = buildPrompt({ slogan, style, theme });
+
+  const rawBuffer = await nanoBananaGenerate({
+    prompt,
+    model: 'nano-banana-2',
+    aspectRatio,
+    resolution,
+    timeoutMs: 45_000,
+    maxRetries: 1,
+  });
+
+  const [lightBuffer, darkBuffer] = await Promise.all([
+    removeWhiteBackground(rawBuffer),
+    convertToDarkVariant(rawBuffer),
+  ]);
+
+  return {
+    lightBuffer,
+    darkBuffer,
+    prompt,
+    model: 'google/nano-banana-2',
+    mimeType: 'image/png',
+    costEstimateUsd: 0.04,
+  };
 }
