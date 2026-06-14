@@ -1,5 +1,5 @@
 /**
- * apparel-design.ts — Sprint K Faz 3
+ * apparel-design.tsx — Sprint K Faz 3
  *
  * Apparel print için tasarım üretici (transparent PNG). Slogan tipografisi —
  * premium-vizyon brand (Inter font, indigo accent, FLY & FROTH brand mark).
@@ -8,14 +8,9 @@
  * Printify upload'a Buffer ya da public URL ile gider; bu modül buffer döndürür,
  * caller blob storage'a yükleyip URL'i Printify'a verir.
  *
- * Neden 3000×3600 (4500×5400 değil):
- *   - @vercel/og Satori 4500+ render'da OOM / latency yaratabiliyor lambda'da
- *   - Printify 1500+ piksel kabul ediyor, 3000 fazlasıyla yeterli (300 DPI 10")
- *   - Bella+Canvas 3001 print area 12×16 inch → ürünün ortasına merkezlenirse
- *     gömlek üzerinde ~10 inch wide görünür (ideal slogan boyu)
- *
- * Lambda performans: ilk çağrı font fetch (~500ms) + render (~1500ms) = ~2s.
- * Sonraki çağrılar fontCache modülde → render only ~1.5s.
+ * NOT: bu dosya JSX kullandığı için .tsx uzantılı olmak zorunda (Turbopack .ts
+ * uzantısında JSX parse etmez). Sister modül canva/procedural-fallback.ts
+ * React.createElement kullanır o yüzden .ts olabilmiş.
  */
 
 import React from 'react';
@@ -84,8 +79,6 @@ function inkColorHex(ink: ApparelDesignOpts['inkColor']): string {
 
 // ── React layout (Satori-compatible inline styles) ──────────────────────────
 function renderDesignJSX(opts: Required<ApparelDesignOpts>): React.ReactElement {
-  const W = 3000;
-  const H = 3600;
   const ink = inkColorHex(opts.inkColor);
   const slogan = opts.slogan.trim();
 
@@ -219,8 +212,6 @@ export async function generateApparelDesign(
     width: W,
     height: H,
     fonts,
-    // Transparent background — apparel print için kritik
-    // @ts-expect-error ImageResponse options does not type emoji; runtime supports it
     debug: false,
   });
 
