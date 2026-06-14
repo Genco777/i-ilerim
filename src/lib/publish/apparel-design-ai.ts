@@ -42,9 +42,9 @@ export interface ApparelAIResult {
   model: string;
   mimeType: 'image/png';
   costEstimateUsd: number;
-  /** Hangi bg removal yöntemi başarıyla kullanıldı */
-  bgRemoveMethod?: 'rembg-ml' | 'sharp-threshold';
-  /** rembg fail olursa hata mesajı (debug için) */
+  /** Hangi bg removal yöntemi kullanıldı */
+  bgRemoveMethod?: 'sharp-negate' | 'rembg-ml' | 'sharp-threshold';
+  /** rembg fail olursa hata mesajı (debug için, sharp-negate'te null) */
   rembgError?: string | null;
 }
 
@@ -116,31 +116,24 @@ async function removeWhiteBackground(input: Buffer): Promise<Buffer> {
     throw new Error('removeWhiteBackground: image meta width/height eksik');
   }
 
-  // Grayscale lightness'i raw buffer olarak al
-  const grayscale = await sharp(input)
+  // MATEMATIKSEL YAKLAŞIM (deterministik):
+  // Alpha kanal = grayscale lightness'in tersi.
+  //   - Pure white (255) → negate → 0 → alpha 0 (tam transparent)
+  //   - Pure black (0)   → negate → 255 → alpha 255 (tam opaque)
+  //   - Gri tonlar       → smooth alpha geçiş (anti-aliasing edges otomatik)
+  //
+  // Threshold yok, parametre tuning yok, hiçbir tahmin yok. Banana ne kadar
+  // siyah çizdiyse pixel o kadar opaque, beyaz background otomatik kalkar.
+  const alphaBuffer = await sharp(input)
     .greyscale()
+    .negate()
     .raw()
-    .toBuffer(); // tek kanal, W*H bayt
+    .toBuffer();
 
-  // Alpha kanal hesapla (her piksel için bir bayt)
-  const alpha = Buffer.alloc(W * H);
-  for (let i = 0; i < grayscale.length; i++) {
-    const g = grayscale[i];
-    // Sıkı threshold: pure white #FFFFFF zorlu prompt sayesinde bg ≈ 250-255
-    if (g >= 235) {
-      alpha[i] = 0;            // near-white → tam transparent (off-white dahil)
-    } else if (g <= 180) {
-      alpha[i] = 255;          // ink → tam opaque
-    } else {
-      // 181-234 smooth ramp (anti-aliasing edges)
-      alpha[i] = Math.round(((234 - g) / 54) * 255);
-    }
-  }
-
-  // RGB kanalları al + yeni alpha kanalıyla birleştir
+  // RGB kanalları al + ters lightness'i alpha olarak join et
   const result = await sharp(input)
     .removeAlpha()
-    .joinChannel(alpha, { raw: { width: W, height: H, channels: 1 } })
+    .joinChannel(alphaBuffer, { raw: { width: W, height: H, channels: 1 } })
     .png()
     .toBuffer();
 
@@ -175,29 +168,23 @@ export async function generateApparelDesignAI(opts: ApparelAIOpts): Promise<Appa
     maxRetries: 1,
   });
 
-  // Banana white-bg → transparent PNG. ML-based (851-labs/background-remover,
-  // ~3-5s, ~$0.005). Sharp threshold-based fallback'i kalır (Replicate fail
-  // olursa). Toplam maliyet: $0.045 per apparel design.
-  let transparentBuffer: Buffer;
-  let bgRemoveMethod: 'rembg-ml' | 'sharp-threshold' = 'rembg-ml';
-  let rembgError: string | null = null;
-  try {
-    transparentBuffer = await removeBackgroundML(rawBuffer);
-  } catch (err) {
-    rembgError = err instanceof Error ? err.message.slice(0, 400) : String(err);
-    console.warn('[apparel-design-ai] rembg fail, sharp threshold fallback:', rembgError);
-    transparentBuffer = await removeWhiteBackground(rawBuffer);
-    bgRemoveMethod = 'sharp-threshold';
-  }
+  // DETERMINIST BG REMOVAL — Sharp negate (math-based).
+  // White (R=G=B=255) → grayscale 255 → negate 0 → alpha 0 (transparent)
+  // Black (R=G=B=0)   → grayscale 0   → negate 255 → alpha 255 (opaque)
+  // Anti-aliased edges → smooth alpha transition.
+  //
+  // Threshold + ML yaklaşımları başarısız oldu — bu deterministik matematik
+  // garanti çalışır. Banana ne kadar pure black çizdiyse pixel o kadar opaque.
+  const transparentBuffer = await removeWhiteBackground(rawBuffer);
 
   return {
     buffer: transparentBuffer,
     prompt,
     model: 'google/nano-banana-2',
     mimeType: 'image/png',
-    costEstimateUsd: bgRemoveMethod === 'rembg-ml' ? 0.045 : 0.04,
-    bgRemoveMethod,
-    rembgError,
+    costEstimateUsd: 0.04,
+    bgRemoveMethod: 'sharp-negate',
+    rembgError: null,
   };
 }
 
