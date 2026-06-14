@@ -72,9 +72,41 @@ export async function listPrintifyShops(): Promise<PrintifyShop[]> {
   return printifyFetch<PrintifyShop[]>('/shops.json');
 }
 
-/** Etsy'ye bağlı ilk Printify shop'unu döndür. */
+/**
+ * Etsy'ye bağlı Printify shop'unu döndür.
+ *
+ * Tercih sırası:
+ *   1. PRINTIFY_SHOP_ID env set ise → o ID'yi listede ara (kesin seçim, ÖNERILEN).
+ *      Mehmet'in hesabında birden çok Etsy shop var (Saibne eski, My Etsy Store
+ *      yeni = FlyFroth). Yanlış shop'a ürün gönderilmesin diye env zorunlu sayılır.
+ *   2. Env yoksa → ilk sales_channel='etsy' shop'unu döndür (legacy fallback,
+ *      birden çok Etsy shop bağlıysa hangi mağaza seçildiği belirsiz olabilir).
+ */
 export async function getEtsyShop(): Promise<PrintifyShop> {
   const shops = await listPrintifyShops();
+
+  const wantedId = process.env.PRINTIFY_SHOP_ID;
+  if (wantedId) {
+    const wantedNum = Number(wantedId);
+    if (!Number.isFinite(wantedNum)) {
+      throw new Error(`PRINTIFY_SHOP_ID env (${wantedId}) sayı değil. Örn: PRINTIFY_SHOP_ID=27918822`);
+    }
+    const picked = shops.find((s) => s.id === wantedNum);
+    if (!picked) {
+      throw new Error(
+        `PRINTIFY_SHOP_ID=${wantedNum} hesabınızdaki shop'lar arasında yok. Mevcut: ${shops
+          .map((s) => `${s.id} (${s.title}, ${s.sales_channel})`)
+          .join(', ')}`,
+      );
+    }
+    if (picked.sales_channel !== 'etsy') {
+      throw new Error(
+        `PRINTIFY_SHOP_ID=${wantedNum} shop'u Etsy değil — channel: ${picked.sales_channel}. Doğru Etsy shop ID'sini koy.`,
+      );
+    }
+    return picked;
+  }
+
   const etsy = shops.find((s) => s.sales_channel === 'etsy');
   if (!etsy) throw new Error('No Etsy-connected Printify shop found. Connect via Printify Settings → Shops.');
   return etsy;
@@ -263,20 +295,37 @@ export interface PrintifyConnectionInfo {
   shops: PrintifyShop[];
   etsyShop: PrintifyShop | null;
   apiTokenValid: boolean;
+  selectionMode: 'env' | 'first-etsy-fallback' | 'none';
+  envShopId: string | null;
   error?: string;
 }
 
 /** Connection sağlık kontrolü — env doğru, shop bağlı, token geçerli. */
 export async function diagnosePrintify(): Promise<PrintifyConnectionInfo> {
+  const envShopId = process.env.PRINTIFY_SHOP_ID ?? null;
   try {
     const shops = await listPrintifyShops();
-    const etsyShop = shops.find((s) => s.sales_channel === 'etsy') ?? null;
-    return { shops, etsyShop, apiTokenValid: true };
+
+    let etsyShop: PrintifyShop | null = null;
+    let selectionMode: PrintifyConnectionInfo['selectionMode'] = 'none';
+
+    if (envShopId) {
+      const wantedNum = Number(envShopId);
+      etsyShop = shops.find((s) => s.id === wantedNum) ?? null;
+      selectionMode = etsyShop ? 'env' : 'none';
+    } else {
+      etsyShop = shops.find((s) => s.sales_channel === 'etsy') ?? null;
+      selectionMode = etsyShop ? 'first-etsy-fallback' : 'none';
+    }
+
+    return { shops, etsyShop, apiTokenValid: true, selectionMode, envShopId };
   } catch (err) {
     return {
       shops: [],
       etsyShop: null,
       apiTokenValid: false,
+      selectionMode: 'none',
+      envShopId,
       error: err instanceof Error ? err.message.slice(0, 300) : String(err),
     };
   }
