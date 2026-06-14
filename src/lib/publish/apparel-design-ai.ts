@@ -15,6 +15,7 @@
  * Maliyet: $0.04 per design (nano-banana-2 Flash tier).
  */
 
+import sharp from 'sharp';
 import { nanoBananaGenerate } from './nano-banana';
 
 export interface ApparelAIOpts {
@@ -87,6 +88,58 @@ function buildPrompt(opts: Required<Pick<ApparelAIOpts, 'slogan' | 'style'>> & {
   ].join(' ');
 }
 
+// ── White background → alpha (transparent PNG) ──────────────────────────────
+/**
+ * Banana 2 her zaman solid white background veriyor (transparent_background
+ * destekli değil). T-shirt göğsünde beyaz kare gözükmesin diye Sharp ile
+ * threshold-based bg removal yapıyoruz.
+ *
+ * Strateji:
+ *   - Grayscale → her pixel için lightness (0-255)
+ *   - >= 245: alpha 0 (transparent — white bg)
+ *   - <= 200: alpha 255 (opaque — illustration/text)
+ *   - 200-244: linear smooth transition (no jagged edges)
+ *
+ * Sonuç: transparent PNG, t-shirt kumaşı görünür, sadece siyah ink kalır.
+ */
+async function removeWhiteBackground(input: Buffer): Promise<Buffer> {
+  const meta = await sharp(input).metadata();
+  const W = meta.width;
+  const H = meta.height;
+  if (!W || !H) {
+    throw new Error('removeWhiteBackground: image meta width/height eksik');
+  }
+
+  // Grayscale lightness'i raw buffer olarak al
+  const grayscale = await sharp(input)
+    .greyscale()
+    .raw()
+    .toBuffer(); // tek kanal, W*H bayt
+
+  // Alpha kanal hesapla (her piksel için bir bayt)
+  const alpha = Buffer.alloc(W * H);
+  for (let i = 0; i < grayscale.length; i++) {
+    const g = grayscale[i];
+    if (g >= 245) {
+      alpha[i] = 0;            // pure white → tam transparent
+    } else if (g <= 200) {
+      alpha[i] = 255;          // ink → tam opaque
+    } else {
+      // 201-244 smooth ramp (anti-aliasing edges için)
+      alpha[i] = Math.round(((244 - g) / 44) * 255);
+    }
+  }
+
+  // RGB kanalları al + yeni alpha kanalıyla birleştir
+  const result = await sharp(input)
+    .removeAlpha()
+    .joinChannel(alpha, { raw: { width: W, height: H, channels: 1 } })
+    .png()
+    .toBuffer();
+
+  return result;
+}
+
 // ── Public API ──────────────────────────────────────────────────────────────
 export async function generateApparelDesignAI(opts: ApparelAIOpts): Promise<ApparelAIResult> {
   const slogan = opts.slogan?.trim();
@@ -106,7 +159,7 @@ export async function generateApparelDesignAI(opts: ApparelAIOpts): Promise<Appa
   // değil (white bg, beyaz/açık tişört üstünde görsel olarak transparent gibi).
   // Timeout 45s + maxRetries 1 → toplam max 90s, Vercel Hobby 60s limiti için
   // ilk attempt'ta dönmeli. Pro plan'da retry'a şans verilir.
-  const buffer = await nanoBananaGenerate({
+  const rawBuffer = await nanoBananaGenerate({
     prompt,
     model: 'nano-banana-2',
     aspectRatio,
@@ -115,8 +168,12 @@ export async function generateApparelDesignAI(opts: ApparelAIOpts): Promise<Appa
     maxRetries: 1,
   });
 
+  // Banana'nın white background'unu transparent yap (t-shirt üzerinde beyaz
+  // kare gözükmesin). Sharp ile threshold-based mask, lambda'da ~200ms.
+  const transparentBuffer = await removeWhiteBackground(rawBuffer);
+
   return {
-    buffer,
+    buffer: transparentBuffer,
     prompt,
     model: 'google/nano-banana-2',
     mimeType: 'image/png',
