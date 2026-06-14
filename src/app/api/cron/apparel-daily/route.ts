@@ -27,7 +27,7 @@
 import { NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { apparelCandidates } from '@/lib/db/schema';
-import { eq } from 'drizzle-orm';
+import { eq, and } from 'drizzle-orm';
 import { generateApparelDesignAI, generateApparelDesignAIBothVariants } from '@/lib/publish/apparel-design-ai';
 import {
   uploadImageByBase64,
@@ -82,12 +82,16 @@ export async function GET(req: Request) {
   const niche = (nicheOverride ?? nicheForToday()) as RotatedNiche;
   const cronRunId = cronRunIdForToday();
 
-  // Idempotency: aynı gün zaten çalıştıysa skip (dryRun haricinde)
+  // Idempotency: aynı gün + aynı niche kombosu çalıştıysa skip (dryRun haricinde).
+  // Sprint L: niche-aware — books bugün çalıştı ama coffee aynı gün hala mümkün.
   if (!dryRun) {
     const existing = await db
       .select({ id: apparelCandidates.id })
       .from(apparelCandidates)
-      .where(eq(apparelCandidates.cron_run_id, cronRunId))
+      .where(and(
+        eq(apparelCandidates.cron_run_id, cronRunId),
+        eq(apparelCandidates.niche, niche),
+      ))
       .limit(1);
     if (existing.length > 0) {
       return NextResponse.json({
