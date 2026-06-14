@@ -28,11 +28,13 @@ export interface NotifyOpts {
   failures?: number;
 }
 
-function getAdminChatIds(): string[] {
-  return (process.env.ADMIN_TELEGRAM_CHAT_IDS ?? '')
+function getAdminChatIds(): number[] {
+  // notifyAdmins ile aynı env kullanılır (ALLOWED_TELEGRAM_USER_IDS) — tek
+  // source of truth, yeni env eklemeye gerek yok.
+  return (process.env.ALLOWED_TELEGRAM_USER_IDS ?? '')
     .split(',')
-    .map((s) => s.trim())
-    .filter(Boolean);
+    .map((s) => Number(s.trim()))
+    .filter((n) => Number.isFinite(n));
 }
 
 function shortId(uuid: string): string {
@@ -47,7 +49,7 @@ function printifyLink(productId: string): string {
 export async function notifyApparelCandidates(opts: NotifyOpts): Promise<void> {
   const chatIds = getAdminChatIds();
   if (chatIds.length === 0) {
-    console.warn('[apparel-notify] ADMIN_TELEGRAM_CHAT_IDS yok, mesaj atılmadı');
+    console.warn('[apparel-notify] ALLOWED_TELEGRAM_USER_IDS env yok, mesaj atılmadı');
     return;
   }
 

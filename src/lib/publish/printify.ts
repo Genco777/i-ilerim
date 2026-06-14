@@ -322,6 +322,12 @@ export async function createApparelProduct(opts: CreatePrintifyProductOpts): Pro
  *
  * publishing_succeeded webhook gelirse external_id (Etsy listing ID) alınır.
  */
+/** Printify'dan bir ürünü sil. Etsy draft da otomatik kalkar. */
+export async function deleteProduct(shopId: number, productId: string): Promise<{ ok: true }> {
+  await printifyFetch(`/shops/${shopId}/products/${productId}.json`, { method: 'DELETE' });
+  return { ok: true };
+}
+
 export async function publishProduct(shopId: number, productId: string): Promise<{ ok: true }> {
   await printifyFetch(`/shops/${shopId}/products/${productId}/publish.json`, {
     method: 'POST',

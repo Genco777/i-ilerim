@@ -4700,6 +4700,22 @@ async function handleCommand(
     return;
   }
 
+  // ── Sprint K Faz 6 Parça B — Apparel approval komutları ──
+  if (trimmed === '/candidates' || trimmed === '/candidate' || trimmed === '/apparel') {
+    await handleApparelListCommand(chatId);
+    return;
+  }
+  if (/^\/approve_[a-f0-9]+$/i.test(trimmed)) {
+    const shortId = trimmed.slice('/approve_'.length).toLowerCase();
+    await handleApparelApproveCommand(chatId, shortId);
+    return;
+  }
+  if (/^\/reject_[a-f0-9]+$/i.test(trimmed)) {
+    const shortId = trimmed.slice('/reject_'.length).toLowerCase();
+    await handleApparelRejectCommand(chatId, shortId);
+    return;
+  }
+
   if (trimmed === '/durum' || trimmed === '/status') {
     const { getPauseMeta } = await import('@/lib/system/kill-switch');
     const meta = await getPauseMeta();
