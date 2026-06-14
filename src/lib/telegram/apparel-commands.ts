@@ -19,6 +19,7 @@ import {
   publishProduct,
   deleteProduct,
 } from '@/lib/publish/printify';
+import { generateProductVideo } from '@/lib/publish/video-generator';
 
 function fmtShortId(uuid: string): string {
   return uuid.replace(/-/g, '').slice(0, 8);
@@ -175,6 +176,48 @@ export async function handleApparelApproveCommand(chatId: number, shortId: strin
       ].join('\n'),
       parseMode: 'Markdown',
     });
+
+    // Sprint M3 Faz 5 — Video gen (sadece approved, flat lay varsa)
+    // Maliyet: $0.13 per video, 5 sn lifelike motion
+    if (candidate.flat_lay_url) {
+      try {
+        await sendMessage({
+          chatId,
+          text: `🎬 Product video üretiliyor (~30-60 sn)...`,
+        });
+        const video = await generateProductVideo({
+          imageUrl: candidate.flat_lay_url,
+          durationSec: 5,
+          aspectRatio: '4:5',
+        });
+
+        // DB'ye video_url kaydet
+        await db
+          .update(apparelCandidates)
+          .set({ video_url: video.url, updated_at: new Date() })
+          .where(eq(apparelCandidates.id, candidate.id));
+
+        await sendMessage({
+          chatId,
+          text: [
+            `🎬 *Product video hazır!*`,
+            ``,
+            `Etsy listing edit → "Add a video"`,
+            `${video.url}`,
+            ``,
+            `Süre: ${video.durationSec}sn | Maliyet: $${video.costUsd.toFixed(2)}`,
+          ].join('\n'),
+          parseMode: 'Markdown',
+        });
+      } catch (err) {
+        const errMsg = err instanceof Error ? err.message.slice(0, 200) : String(err);
+        console.warn(`[apparel-approve] video gen fail ${candidate.id}:`, errMsg);
+        await sendMessage({
+          chatId,
+          text: `⚠️ Video üretilemedi (Etsy listing yine de hazır): ${errMsg.slice(0, 100)}`,
+        });
+      }
+    }
   } catch (err) {
     const errMsg = err instanceof Error ? err.message.slice(0, 300) : String(err);
     await db

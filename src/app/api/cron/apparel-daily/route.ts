@@ -369,6 +369,10 @@ export async function GET(req: Request) {
           inspired_by: idea.inspiredBy ?? null,
           printify_product_id: product.id,
           printify_preview_url: uploadedPreview,
+          // Sprint M3 — Visual upgrade extra assets
+          flat_lay_url: flatLayUrl,
+          size_chart_url: sizeChartUrl,
+          color_grid_url: colorGridUrl,
           status: 'pending',
         })
         .returning({ id: apparelCandidates.id });

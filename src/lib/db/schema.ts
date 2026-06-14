@@ -1140,6 +1140,12 @@ export const apparelCandidates = pgTable(
     printify_product_id: text('printify_product_id').notNull(),
     printify_preview_url: text('printify_preview_url'),
 
+    // Sprint M3 — Extra visual assets (Vercel Blob URL'leri)
+    flat_lay_url: text('flat_lay_url'),
+    size_chart_url: text('size_chart_url'),
+    color_grid_url: text('color_grid_url'),
+    video_url: text('video_url'),
+
     // Etsy (approve sonrası)
     etsy_listing_id: text('etsy_listing_id'),
 
