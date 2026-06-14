@@ -216,32 +216,63 @@ interface PrintifyProduct {
 }
 
 /**
- * Belirli bir apparel tipinde ürün oluştur. Printify variantları otomatik
- * doldurur (blueprint + provider'a göre tüm size/color kombinasyonları).
+ * Belirli bir apparel tipinde ürün oluştur.
  *
- * NOT: variants — burada basic implementation tüm variant'ları $25 ile etkin
- * yapıyor. Production'da Printify catalog'unu sorgulayıp variant_ids list'ini
- * gerçek catalog'tan almak gerek.
+ * Variant seçimi:
+ *   1. Catalog'tan tüm size+color combos çek
+ *   2. preset.colors + preset.sizes whitelist'ine göre filtrele (case-insensitive)
+ *   3. Max 100 variant'a slice (Printify hard limit code 8251)
+ *
+ * Bu mantık Gildan 5000 gibi 200+ variant'lı blueprintlerde Etsy'ye en popüler
+ * renk/size kombosunu yükler — overload olmaz.
  */
 export async function createApparelProduct(opts: CreatePrintifyProductOpts): Promise<PrintifyProduct> {
   const preset = APPAREL_PRESETS[opts.type];
   const priceUsd = Math.round(opts.priceCents); // Printify USD cents bekliyor
 
   // 1. Catalog'tan variantları al — blueprint + provider için tüm size+color combos
-  const variants = await printifyFetch<{
+  const catalog = await printifyFetch<{
     variants: Array<{ id: number; title: string; options: Record<string, string> }>;
   }>(`/catalog/blueprints/${preset.blueprint_id}/print_providers/${preset.provider_id}/variants.json`);
 
-  // Tüm variantları enabled hale getir, fiyat set et
-  const variantsPayload = variants.variants.map((v) => ({
+  // 2. preset.colors + preset.sizes whitelist'ine göre filtrele
+  // Printify options field'ları farklı blueprint'te farklı casing/key kullanır
+  // (color/colour, size/Size). Geniş eşle.
+  const wantedColors = preset.colors.map((c) => c.toLowerCase());
+  const wantedSizes  = preset.sizes.map((s) => s.toLowerCase());
+
+  function variantMatches(opts: Record<string, string>): boolean {
+    const optsLower: Record<string, string> = {};
+    for (const [k, v] of Object.entries(opts)) {
+      optsLower[k.toLowerCase()] = String(v).toLowerCase();
+    }
+    const color = optsLower['color'] ?? optsLower['colour'] ?? '';
+    const size  = optsLower['size'] ?? optsLower['Size'] ?? '';
+    // wantedColors içinde EŞIT ya da renk içeriyor (örn. "Heather Grey" vs "Sport Grey Heather")
+    const colorOk = !color || wantedColors.some((wc) => color === wc || color.includes(wc) || wc.includes(color));
+    const sizeOk  = !size  || wantedSizes.some((ws) => size === ws);
+    return colorOk && sizeOk;
+  }
+
+  let filtered = catalog.variants.filter((v) => variantMatches(v.options));
+  // Eğer filter çok dar geldiyse (0 ya da çok az), tüm catalog'a düş (safety)
+  if (filtered.length === 0) {
+    filtered = catalog.variants;
+  }
+  // Printify hard limit: max 100 variant enabled
+  if (filtered.length > 100) {
+    filtered = filtered.slice(0, 100);
+  }
+
+  const variantsPayload = filtered.map((v) => ({
     id: v.id,
     price: priceUsd,
     is_enabled: true,
   }));
 
-  // 2. Print area config — front placement, tek image
+  // 3. Print area config — front placement, tek image (sadece filtre edilmiş variant'lar)
   const printAreasPayload = [{
-    variant_ids: variants.variants.map((v) => v.id),
+    variant_ids: filtered.map((v) => v.id),
     placeholders: [{
       position: 'front' as const,
       images: [{
@@ -254,7 +285,7 @@ export async function createApparelProduct(opts: CreatePrintifyProductOpts): Pro
     }],
   }];
 
-  // 3. Product create
+  // 4. Product create
   const product = await printifyFetch<PrintifyProduct>(
     `/shops/${opts.shopId}/products.json`,
     {
