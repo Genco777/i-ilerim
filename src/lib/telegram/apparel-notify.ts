@@ -19,6 +19,10 @@ export interface ApparelCandidate {
   inspired_by?: string | null;
   printify_product_id: string;
   printify_preview_url?: string | null;
+  // Sprint M3 — Extra visual assets
+  flat_lay_url?: string | null;
+  size_chart_url?: string | null;
+  color_grid_url?: string | null;
 }
 
 export interface NotifyOpts {
@@ -72,6 +76,11 @@ export async function notifyApparelCandidates(opts: NotifyOpts): Promise<void> {
   // 2) Her candidate için ayrı mesaj
   for (const c of opts.candidates) {
     const sid = shortId(c.id);
+    const extraImages: string[] = [];
+    if (c.flat_lay_url) extraImages.push(`🎨 Flat lay: ${c.flat_lay_url}`);
+    if (c.color_grid_url) extraImages.push(`🌈 Color grid: ${c.color_grid_url}`);
+    if (c.size_chart_url) extraImages.push(`📏 Size chart: ${c.size_chart_url}`);
+
     const caption = [
       `*${c.slogan}*`,
       `_${c.theme}_`,
@@ -80,6 +89,7 @@ export async function notifyApparelCandidates(opts: NotifyOpts): Promise<void> {
       ``,
       `🆔 ${sid}`,
       `🔗 ${printifyLink(c.printify_product_id)}`,
+      ...(extraImages.length > 0 ? ['', '*Ek görseller (Etsy listing\'e ekle):*', ...extraImages] : []),
     ].filter(Boolean).join('\n');
 
     for (const chatId of chatIds) {

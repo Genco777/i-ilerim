@@ -30,6 +30,11 @@ import { apparelCandidates } from '@/lib/db/schema';
 import { eq, and } from 'drizzle-orm';
 import { generateApparelDesignAI, generateApparelDesignAIBothVariants } from '@/lib/publish/apparel-design-ai';
 import { buildEtsyTitle, buildEtsyDescription, buildEtsyTags } from '@/lib/etsy/title-builder';
+// Sprint M3 — Visual upgrade
+import { generateStyledFlatLay, defaultShirtColorForNiche } from '@/lib/publish/flat-lay-generator';
+import { createColorVariantGrid } from '@/lib/publish/color-grid';
+import { generateSizeChart } from '@/lib/publish/size-chart';
+import { uploadImage } from '@/lib/blob';
 import {
   uploadImageByBase64,
   createApparelProduct,
@@ -115,6 +120,9 @@ export async function GET(req: Request) {
     printify_preview_url: string;
     demand_hint: string | null;
     inspired_by: string | null;
+    flat_lay_url?: string | null;
+    size_chart_url?: string | null;
+    color_grid_url?: string | null;
   }> = [];
   let failures = 0;
 
@@ -287,7 +295,68 @@ export async function GET(req: Request) {
 
       const uploadedPreview = lightUpload.preview_url;
 
-      // d) DB insert
+      // d) Sprint M3 — Visual upgrade (sadece tshirt için, tote skip)
+      // Flat lay + Size chart + Color grid → Vercel Blob
+      let flatLayUrl: string | null = null;
+      let sizeChartUrl: string | null = null;
+      let colorGridUrl: string | null = null;
+
+      if (productType === 'tshirt') {
+        // Flat lay (Banana cottagecore scene + design composite)
+        try {
+          const flat = await generateStyledFlatLay({
+            niche,
+            shirtColor: defaultShirtColorForNiche(niche),
+            designBuffer: lightBuffer,
+            aspectRatio: '4:5',
+          });
+          const sloganSafe = idea.slogan.slice(0, 30).replace(/[^a-z0-9]/gi, '-');
+          const blob = await uploadImage(
+            flat.buffer,
+            `apparel/${cronRunId}/${sloganSafe}-flatlay.png`,
+            'image/png',
+          );
+          flatLayUrl = blob.url;
+        } catch (err) {
+          console.warn(`[apparel-daily] flat-lay fail ${idea.slogan}:`, err instanceof Error ? err.message : String(err));
+        }
+
+        // Size chart
+        try {
+          const chart = await generateSizeChart('tshirt');
+          const sloganSafe = idea.slogan.slice(0, 30).replace(/[^a-z0-9]/gi, '-');
+          const blob = await uploadImage(
+            chart.buffer,
+            `apparel/${cronRunId}/${sloganSafe}-sizechart.png`,
+            'image/png',
+          );
+          sizeChartUrl = blob.url;
+        } catch (err) {
+          console.warn(`[apparel-daily] size-chart fail ${idea.slogan}:`, err instanceof Error ? err.message : String(err));
+        }
+
+        // Color grid (Printify mockup URL'lerinden)
+        try {
+          const mockupSrcs = (product.images ?? [])
+            .map((img: { src: string }) => img.src)
+            .filter((src: string) => typeof src === 'string')
+            .slice(0, 6);
+          if (mockupSrcs.length >= 3) {
+            const grid = await createColorVariantGrid({ mockupUrls: mockupSrcs });
+            const sloganSafe = idea.slogan.slice(0, 30).replace(/[^a-z0-9]/gi, '-');
+            const blob = await uploadImage(
+              grid.buffer,
+              `apparel/${cronRunId}/${sloganSafe}-colorgrid.png`,
+              'image/png',
+            );
+            colorGridUrl = blob.url;
+          }
+        } catch (err) {
+          console.warn(`[apparel-daily] color-grid fail ${idea.slogan}:`, err instanceof Error ? err.message : String(err));
+        }
+      }
+
+      // e) DB insert
       const rows = await db
         .insert(apparelCandidates)
         .values({
@@ -314,6 +383,10 @@ export async function GET(req: Request) {
         printify_preview_url: uploadedPreview,
         demand_hint: idea.demandHint,
         inspired_by: idea.inspiredBy ?? null,
+        // Sprint M3 — Extra visual assets (Vercel Blob URL'leri)
+        flat_lay_url: flatLayUrl,
+        size_chart_url: sizeChartUrl,
+        color_grid_url: colorGridUrl,
       });
 
       steps.push({
