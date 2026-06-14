@@ -19,6 +19,11 @@ import {
 } from '@/lib/telegram/keyboard';
 import { mailPreviewKeyboard } from '@/lib/telegram/mail-keyboard';
 import {
+  handleApparelListCommand,
+  handleApparelApproveCommand,
+  handleApparelRejectCommand,
+} from '@/lib/telegram/apparel-commands';
+import {
   invoiceTypeKeyboard,
   invoiceItemMoreKeyboard,
   invoiceFooterKeyboard,
