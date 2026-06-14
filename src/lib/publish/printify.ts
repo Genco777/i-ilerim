@@ -169,10 +169,16 @@ export async function uploadImageByBase64(base64: string, fileName: string): Pro
  */
 export const APPAREL_PRESETS = {
   tshirt: {
-    blueprint_id: 12,     // Gildan 5000 — heavy cotton classic, Etsy'de en yaygın
-    provider_id: 29,      // Monster Digital (US) — popüler, fast shipping, çok variant
+    // Blueprint 12 = aslında Bella+Canvas 3001 (premium unisex t-shirt), Monster
+    // Digital provider 29 ile US fast shipping. Önceki test'te 6 renk × 5 size = 30
+    // variant üretti — temiz catalog.
+    blueprint_id: 12,
+    provider_id: 29,      // Monster Digital (US)
     sizes: ['S', 'M', 'L', 'XL', '2XL'] as const,
-    colors: ['White', 'Black', 'Sport Grey', 'Navy', 'Heather Grey'] as const,
+    // SADECE AÇIK RENKLER — siyah/koyu tişört üzerinde siyah ink/illustration
+    // görünmüyor (Mehmet feedback'i). Faz 5'te color-aware multi-design ile
+    // dark variant'lar açılacak.
+    colors: ['White', 'Heather', 'Athletic Heather', 'Soft Cream', 'Natural'] as const,
     placement: 'front' as const,
   },
   hoodie: {

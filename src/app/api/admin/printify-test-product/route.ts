@@ -36,6 +36,7 @@ import {
   type ApparelType,
 } from '@/lib/publish/printify';
 import { generateApparelDesign } from '@/lib/publish/apparel-design';
+import { generateApparelDesignAI } from '@/lib/publish/apparel-design-ai';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -72,15 +73,18 @@ export async function GET(req: Request) {
   const inputImageUrl = url.searchParams.get('imageUrl');
   const slogan = url.searchParams.get('slogan');
   const subtitle = url.searchParams.get('subtitle') ?? undefined;
-  const styleParam = (url.searchParams.get('style') ?? 'minimal').toLowerCase();
+  const styleParam = (url.searchParams.get('style') ?? 'vintage-stamp').toLowerCase();
   const inkParam = (url.searchParams.get('ink') ?? 'dark').toLowerCase();
+  // Faz 4: mode=ai (varsayılan) → Nano Banana 2 illustration+slogan combo
+  //         mode=typo            → eski procedural tipografi (Faz 3)
+  const modeParam = (url.searchParams.get('mode') ?? 'ai').toLowerCase();
+  const themeParam = url.searchParams.get('theme') ?? undefined;
   const priceCents = Number(url.searchParams.get('priceCents') ?? '2499');
   const titleParam = url.searchParams.get('title');
   const dryRun = url.searchParams.get('dryRun') === '1';
   const publishToEtsy = url.searchParams.get('publishToEtsy') === '1';
 
   const steps: StepResult[] = [];
-  const overall = { ok: true } as { ok: boolean };
 
   // ─── Step 1: Image kaynağı (slogan > imageUrl > DB hero) ─────────
   // slogan varsa apparel-design ile generate et → base64 upload
@@ -91,10 +95,42 @@ export async function GET(req: Request) {
   let sourceTitle: string | null = null;
   const t1 = nowMs();
   try {
-    if (slogan && slogan.trim()) {
-      // Faz 3: procedural apparel design — 3000×3600 transparent PNG
-      const style = (['minimal', 'stamp', 'serif'] as const).includes(styleParam as 'minimal' | 'stamp' | 'serif')
-        ? (styleParam as 'minimal' | 'stamp' | 'serif')
+    if (slogan && slogan.trim() && modeParam === 'ai') {
+      // Faz 4: Nano Banana 2 illustration + slogan combo (DEFAULT)
+      const aiStyles = ['vintage-stamp', 'line-art', 'retro-poster', 'botanical', 'minimal-graphic'] as const;
+      const aiStyle = (aiStyles as readonly string[]).includes(styleParam)
+        ? (styleParam as typeof aiStyles[number])
+        : 'vintage-stamp';
+
+      const design = await generateApparelDesignAI({
+        slogan: slogan.trim(),
+        theme: themeParam,
+        style: aiStyle,
+        aspectRatio: '4:5',
+        resolution: '2K',
+      });
+      imageBase64 = design.buffer.toString('base64');
+      steps.push({
+        step: 'image-url',
+        ok: true,
+        ms: nowMs() - t1,
+        data: {
+          source: 'nano-banana-ai',
+          mode: 'ai',
+          slogan: slogan.trim(),
+          theme: themeParam ?? '(auto from slogan)',
+          style: aiStyle,
+          model: design.model,
+          buffer_kb: Math.round(design.buffer.length / 1024),
+          costUsd: design.costEstimateUsd,
+          promptUsed: design.prompt.slice(0, 200),
+        },
+      });
+    } else if (slogan && slogan.trim() && modeParam === 'typo') {
+      // Faz 3 fallback: procedural typography (Mehmet artık ai tercih ediyor)
+      const procStyles = ['minimal', 'stamp', 'serif'] as const;
+      const style = (procStyles as readonly string[]).includes(styleParam)
+        ? (styleParam as typeof procStyles[number])
         : 'minimal';
       const ink = (['dark', 'light', 'indigo'] as const).includes(inkParam as 'dark' | 'light' | 'indigo')
         ? (inkParam as 'dark' | 'light' | 'indigo')
@@ -113,7 +149,8 @@ export async function GET(req: Request) {
         ok: true,
         ms: nowMs() - t1,
         data: {
-          source: 'generated-slogan',
+          source: 'generated-typo',
+          mode: 'typo',
           slogan: slogan.trim(),
           subtitle: subtitle ?? null,
           style,
