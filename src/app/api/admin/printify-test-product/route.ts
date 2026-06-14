@@ -28,12 +28,14 @@ import { products } from '@/lib/db/schema';
 import { desc, isNotNull, and, or, eq } from 'drizzle-orm';
 import {
   uploadImageByUrl,
+  uploadImageByBase64,
   createApparelProduct,
   publishProduct,
   getEtsyShop,
   APPAREL_PRESETS,
   type ApparelType,
 } from '@/lib/publish/printify';
+import { generateApparelDesign } from '@/lib/publish/apparel-design';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -68,6 +70,10 @@ export async function GET(req: Request) {
   const type = typeParam as ApparelType;
 
   const inputImageUrl = url.searchParams.get('imageUrl');
+  const slogan = url.searchParams.get('slogan');
+  const subtitle = url.searchParams.get('subtitle') ?? undefined;
+  const styleParam = (url.searchParams.get('style') ?? 'minimal').toLowerCase();
+  const inkParam = (url.searchParams.get('ink') ?? 'dark').toLowerCase();
   const priceCents = Number(url.searchParams.get('priceCents') ?? '2499');
   const titleParam = url.searchParams.get('title');
   const dryRun = url.searchParams.get('dryRun') === '1';
@@ -76,13 +82,48 @@ export async function GET(req: Request) {
   const steps: StepResult[] = [];
   const overall = { ok: true } as { ok: boolean };
 
-  // ─── Step 1: Image URL kararı ─────────────────────────────────────
-  let imageUrl: string;
+  // ─── Step 1: Image kaynağı (slogan > imageUrl > DB hero) ─────────
+  // slogan varsa apparel-design ile generate et → base64 upload
+  // yoksa eski davranış: ?imageUrl ya da DB son hero → URL upload
+  let imageUrl: string | null = null;
+  let imageBase64: string | null = null;
   let sourceProductId: string | null = null;
   let sourceTitle: string | null = null;
   const t1 = nowMs();
   try {
-    if (inputImageUrl) {
+    if (slogan && slogan.trim()) {
+      // Faz 3: procedural apparel design — 3000×3600 transparent PNG
+      const style = (['minimal', 'stamp', 'serif'] as const).includes(styleParam as 'minimal' | 'stamp' | 'serif')
+        ? (styleParam as 'minimal' | 'stamp' | 'serif')
+        : 'minimal';
+      const ink = (['dark', 'light', 'indigo'] as const).includes(inkParam as 'dark' | 'light' | 'indigo')
+        ? (inkParam as 'dark' | 'light' | 'indigo')
+        : 'dark';
+
+      const design = await generateApparelDesign({
+        slogan: slogan.trim(),
+        subtitle,
+        style,
+        inkColor: ink,
+        showBrand: true,
+      });
+      imageBase64 = design.buffer.toString('base64');
+      steps.push({
+        step: 'image-url',
+        ok: true,
+        ms: nowMs() - t1,
+        data: {
+          source: 'generated-slogan',
+          slogan: slogan.trim(),
+          subtitle: subtitle ?? null,
+          style,
+          ink,
+          width: design.width,
+          height: design.height,
+          buffer_kb: Math.round(design.buffer.length / 1024),
+        },
+      });
+    } else if (inputImageUrl) {
       imageUrl = inputImageUrl;
       steps.push({ step: 'image-url', ok: true, ms: nowMs() - t1, data: { source: 'query', url: imageUrl } });
     } else {
@@ -132,12 +173,14 @@ export async function GET(req: Request) {
     return NextResponse.json({ ok: false, steps }, { status: 500 });
   }
 
-  // ─── Step 3: Image upload ────────────────────────────────────────
+  // ─── Step 3: Image upload (base64 ya da URL) ─────────────────────
   let uploadedImageId: string;
   let uploadedPreview: string;
   const t3 = nowMs();
   try {
-    const uploaded = await uploadImageByUrl(imageUrl, `apparel-test-${Date.now()}.png`);
+    const uploaded = imageBase64
+      ? await uploadImageByBase64(imageBase64, `apparel-slogan-${Date.now()}.png`)
+      : await uploadImageByUrl(imageUrl!, `apparel-test-${Date.now()}.png`);
     uploadedImageId = uploaded.id;
     uploadedPreview = uploaded.preview_url;
     steps.push({
@@ -150,6 +193,7 @@ export async function GET(req: Request) {
         height: uploaded.height,
         preview: uploadedPreview,
         size_kb: Math.round(uploaded.size / 1024),
+        uploadMode: imageBase64 ? 'base64' : 'url',
       },
     });
   } catch (err) {
@@ -158,7 +202,8 @@ export async function GET(req: Request) {
   }
 
   // ─── Step 4: Product create ──────────────────────────────────────
-  const finalTitle = (titleParam ?? sourceTitle ?? 'Fly & Froth — Test Apparel').slice(0, 130);
+  const sloganTitle = slogan?.trim();
+  const finalTitle = (titleParam ?? sloganTitle ?? sourceTitle ?? 'Fly & Froth — Test Apparel').slice(0, 130);
   const description = [
     `${finalTitle}`,
     '',

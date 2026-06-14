@@ -155,35 +155,36 @@ export async function uploadImageByBase64(base64: string, fileName: string): Pro
 /**
  * Apparel blueprint preset'leri — Etsy'de en çok satan 3 kategori.
  *
- * Provider seçimi 14.06.2026 tarihindeki Printify catalog'una göre yapıldı
- * (printify-providers endpoint ile sorgulandı):
- *   - tshirt: blueprint 384'ün TEK provider'ı var (SPOKE, US)
- *   - hoodie + tote: Textildruck Europa (EU) — Mehmet Karben'de, EU müşterileri
- *     için shipping daha hızlı+ucuz. US müşterileri için sonradan US-only
- *     provider'lı varyant açılabilir (örn. Monster Digital id=29 ya da
- *     Printify Choice id=99).
+ * Provider seçimi 14.06.2026 — Mehmet'in birincil pazarı US olduğu için
+ * tüm provider'lar US-based:
+ *   - tshirt 384: SPOKE Custom Products (US, blueprint'in tek provider'ı)
+ *   - hoodie 6 : Monster Digital (US, fast shipping, popüler)
+ *   - tote 49  : Monster Digital (US)
+ *
+ * EU'ya da satmak istersek sonradan ayrı variant açabiliriz
+ * (Textildruck Europa id=26, Print Clever id=72, vs).
  *
  * Provider değiştirmek için: /api/admin/printify-providers?blueprintId=X
  * ile listeden başkasını seç ve buradan değiştir.
  */
 export const APPAREL_PRESETS = {
   tshirt: {
-    blueprint_id: 384,    // Bella+Canvas 3001 — unisex premium t-shirt
-    provider_id: 1,       // SPOKE Custom Products (US) — bu blueprint'in tek provider'ı
+    blueprint_id: 12,     // Gildan 5000 — heavy cotton classic, Etsy'de en yaygın
+    provider_id: 29,      // Monster Digital (US) — popüler, fast shipping, çok variant
     sizes: ['S', 'M', 'L', 'XL', '2XL'] as const,
-    colors: ['White', 'Black', 'Heather Grey'] as const,
+    colors: ['White', 'Black', 'Sport Grey', 'Navy', 'Heather Grey'] as const,
     placement: 'front' as const,
   },
   hoodie: {
     blueprint_id: 6,      // Gildan 18500 — heavy blend hoodie
-    provider_id: 26,      // Textildruck Europa (EU) — Mehmet'in birincil piyasası
+    provider_id: 29,      // Monster Digital (US) — fast shipping, popüler
     sizes: ['S', 'M', 'L', 'XL', '2XL'] as const,
     colors: ['Black', 'Navy', 'Charcoal'] as const,
     placement: 'front' as const,
   },
   tote: {
     blueprint_id: 49,     // Liberty Bags 8502 — canvas tote
-    provider_id: 26,      // Textildruck Europa (EU)
+    provider_id: 29,      // Monster Digital (US)
     sizes: ['One Size'] as const,
     colors: ['Natural', 'Black'] as const,
     placement: 'front' as const,
