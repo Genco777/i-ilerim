@@ -361,6 +361,35 @@ export async function createApparelProduct(opts: CreatePrintifyProductOpts): Pro
  *
  * publishing_succeeded webhook gelirse external_id (Etsy listing ID) alınır.
  */
+/**
+ * Sprint M3.5 fix — Tüm Printify mockup'larını Etsy publish için seç.
+ * Default 4-5 mockup seçili gelir, biz hepsini (~20) Etsy carousel'a göndermek istiyoruz.
+ *
+ * API: PUT /v1/shops/{shopId}/products/{productId}.json — `images` array'in
+ * her elemanında `is_selected_for_publishing: true` set.
+ */
+export async function selectAllMockups(shopId: number, productId: string): Promise<{ selected: number }> {
+  // 1) Mevcut product'ı fetch et (images array dahil)
+  const product = await printifyFetch<{
+    images: Array<{ src: string; variant_ids: number[]; position: string; is_default: boolean; is_selected_for_publishing?: boolean }>;
+  }>(`/shops/${shopId}/products/${productId}.json`);
+
+  if (!product.images || product.images.length === 0) {
+    return { selected: 0 };
+  }
+
+  // 2) Her image için is_selected_for_publishing: true set
+  const newImages = product.images.map((img) => ({ ...img, is_selected_for_publishing: true }));
+
+  // 3) PUT product update
+  await printifyFetch(`/shops/${shopId}/products/${productId}.json`, {
+    method: 'PUT',
+    body: { images: newImages },
+  });
+
+  return { selected: newImages.length };
+}
+
 /** Printify'dan bir ürünü sil. Etsy draft da otomatik kalkar. */
 export async function deleteProduct(shopId: number, productId: string): Promise<{ ok: true }> {
   await printifyFetch(`/shops/${shopId}/products/${productId}.json`, { method: 'DELETE' });

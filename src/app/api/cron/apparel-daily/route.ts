@@ -39,6 +39,7 @@ import {
   uploadImageByBase64,
   createApparelProduct,
   getEtsyShop,
+  selectAllMockups,
 } from '@/lib/publish/printify';
 import { getNicheTrends } from '@/lib/research/google-trends';
 import { generateSloganIdeas } from '@/lib/research/slogan-ideas';
@@ -295,65 +296,58 @@ export async function GET(req: Request) {
 
       const uploadedPreview = lightUpload.preview_url;
 
-      // d) Sprint M3 — Visual upgrade (sadece tshirt için, tote skip)
-      // Flat lay + Size chart + Color grid → Vercel Blob
+      // d) Sprint M3.5 fix — Banana flat lay yerine Printify mockup'larını kullan
+      // Banana scene + Sharp composite hizalama tutarsızdı (Mehmet feedback).
+      // Printify 20+ mockup'ı hazır üretiyor — biz onlardan lifestyle olanları seçeriz.
       let flatLayUrl: string | null = null;
       let sizeChartUrl: string | null = null;
       let colorGridUrl: string | null = null;
 
-      if (productType === 'tshirt') {
-        // Flat lay (Banana cottagecore scene + design composite)
-        try {
-          const flat = await generateStyledFlatLay({
-            niche,
-            shirtColor: defaultShirtColorForNiche(niche),
-            designBuffer: lightBuffer,
-            aspectRatio: '4:5',
-          });
+      // Tüm Printify mockup'larını Etsy publish için aç (default sadece 4 seçili)
+      try {
+        const result = await selectAllMockups(shopId, product.id);
+        console.log(`[apparel-daily] ${idea.slogan}: ${result.selected} mockup selected for publishing`);
+      } catch (err) {
+        console.warn(`[apparel-daily] selectAllMockups fail ${idea.slogan}:`, err instanceof Error ? err.message : String(err));
+      }
+
+      // Cover photo = Printify'ın ilk mockup'ı (genelde model giymiş lifestyle)
+      // images array Printify product create response'unda var
+      const mockupSrcs = (product.images ?? [])
+        .map((img: { src: string }) => img.src)
+        .filter((src: string) => typeof src === 'string');
+      if (mockupSrcs.length > 0) {
+        flatLayUrl = mockupSrcs[0]; // ilk mockup cover
+      }
+
+      // Size chart (her zaman, tshirt+tote)
+      try {
+        const chart = await generateSizeChart(productType);
+        const sloganSafe = idea.slogan.slice(0, 30).replace(/[^a-z0-9]/gi, '-');
+        const blob = await uploadImage(
+          chart.buffer,
+          `apparel/${cronRunId}/${sloganSafe}-sizechart.png`,
+          'image/png',
+        );
+        sizeChartUrl = blob.url;
+      } catch (err) {
+        console.warn(`[apparel-daily] size-chart fail ${idea.slogan}:`, err instanceof Error ? err.message : String(err));
+      }
+
+      // Color grid (her zaman, tshirt+tote — Printify mockup'larından)
+      try {
+        if (mockupSrcs.length >= 3) {
+          const grid = await createColorVariantGrid({ mockupUrls: mockupSrcs.slice(0, 6) });
           const sloganSafe = idea.slogan.slice(0, 30).replace(/[^a-z0-9]/gi, '-');
           const blob = await uploadImage(
-            flat.buffer,
-            `apparel/${cronRunId}/${sloganSafe}-flatlay.png`,
+            grid.buffer,
+            `apparel/${cronRunId}/${sloganSafe}-colorgrid.png`,
             'image/png',
           );
-          flatLayUrl = blob.url;
-        } catch (err) {
-          console.warn(`[apparel-daily] flat-lay fail ${idea.slogan}:`, err instanceof Error ? err.message : String(err));
+          colorGridUrl = blob.url;
         }
-
-        // Size chart
-        try {
-          const chart = await generateSizeChart('tshirt');
-          const sloganSafe = idea.slogan.slice(0, 30).replace(/[^a-z0-9]/gi, '-');
-          const blob = await uploadImage(
-            chart.buffer,
-            `apparel/${cronRunId}/${sloganSafe}-sizechart.png`,
-            'image/png',
-          );
-          sizeChartUrl = blob.url;
-        } catch (err) {
-          console.warn(`[apparel-daily] size-chart fail ${idea.slogan}:`, err instanceof Error ? err.message : String(err));
-        }
-
-        // Color grid (Printify mockup URL'lerinden)
-        try {
-          const mockupSrcs = (product.images ?? [])
-            .map((img: { src: string }) => img.src)
-            .filter((src: string) => typeof src === 'string')
-            .slice(0, 6);
-          if (mockupSrcs.length >= 3) {
-            const grid = await createColorVariantGrid({ mockupUrls: mockupSrcs });
-            const sloganSafe = idea.slogan.slice(0, 30).replace(/[^a-z0-9]/gi, '-');
-            const blob = await uploadImage(
-              grid.buffer,
-              `apparel/${cronRunId}/${sloganSafe}-colorgrid.png`,
-              'image/png',
-            );
-            colorGridUrl = blob.url;
-          }
-        } catch (err) {
-          console.warn(`[apparel-daily] color-grid fail ${idea.slogan}:`, err instanceof Error ? err.message : String(err));
-        }
+      } catch (err) {
+        console.warn(`[apparel-daily] color-grid fail ${idea.slogan}:`, err instanceof Error ? err.message : String(err));
       }
 
       // e) DB insert

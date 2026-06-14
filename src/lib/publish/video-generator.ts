@@ -13,7 +13,13 @@
 
 import Replicate from 'replicate';
 
-const KLING_MODEL = 'kwaivgi/kling-v1.6-standard';
+// Sprint M3.5 fix — Kling 404 olduğunda fallback chain.
+// Sırayla dene: ilk başarılı olanı kullan.
+const VIDEO_MODELS = [
+  'minimax/video-01',                        // $0.15, 5sn, stable
+  'kwaivgi/kling-v1.6-standard',             // $0.13, 5sn (yeniden dene)
+  'lightricks/ltx-video-097-distilled',      // $0.05, daha basit
+] as const;
 
 let _client: Replicate | null = null;
 function getClient(): Replicate {
@@ -56,52 +62,73 @@ export async function generateProductVideo(opts: ProductVideoOpts): Promise<Prod
   const aspectRatio = opts.aspectRatio ?? '4:5';
   const motionPrompt = opts.motionPrompt ?? DEFAULT_MOTION_PROMPT;
 
-  // 60 sn timeout — Kling generation genelde 30-50 sn, safety margin
-  const ac = new AbortController();
-  const timer = setTimeout(() => ac.abort(), 90_000);
+  // Fallback chain — ilk başarılı olan model'i kullan
+  const errors: string[] = [];
 
-  try {
-    const output = await getClient().run(
-      KLING_MODEL,
-      {
-        input: {
-          start_image: opts.imageUrl,
-          prompt: motionPrompt,
-          duration: durationSec,
-          aspect_ratio: aspectRatio,
-          cfg_scale: 0.5,
-        },
-        signal: ac.signal,
-      },
-    );
-    clearTimeout(timer);
+  for (const modelId of VIDEO_MODELS) {
+    const ac = new AbortController();
+    const timer = setTimeout(() => ac.abort(), 120_000); // 2dk timeout
+    try {
+      // Her model'in farklı input format'ı var — generic mapping
+      const input: Record<string, unknown> = {
+        prompt: motionPrompt,
+      };
+      // Minimax: image_url, kling: start_image, ltx: image
+      if (modelId.startsWith('minimax/')) {
+        input.first_frame_image = opts.imageUrl;
+      } else if (modelId.startsWith('kwaivgi/kling')) {
+        input.start_image = opts.imageUrl;
+        input.duration = durationSec;
+        input.aspect_ratio = aspectRatio;
+        input.cfg_scale = 0.5;
+      } else if (modelId.startsWith('lightricks/ltx')) {
+        input.image = opts.imageUrl;
+        input.num_frames = durationSec * 24;
+      }
 
-    let url: string | undefined;
-    if (typeof output === 'string') {
-      url = output;
-    } else if (Array.isArray(output) && typeof output[0] === 'string') {
-      url = output[0];
-    } else if (
-      output &&
-      typeof output === 'object' &&
-      'url' in output &&
-      typeof (output as { url: unknown }).url === 'function'
-    ) {
-      url = (output as { url: () => string }).url();
+      const output = await getClient().run(
+        modelId as `${string}/${string}`,
+        { input, signal: ac.signal },
+      );
+      clearTimeout(timer);
+
+      let url: string | undefined;
+      if (typeof output === 'string') {
+        url = output;
+      } else if (Array.isArray(output) && typeof output[0] === 'string') {
+        url = output[0];
+      } else if (
+        output &&
+        typeof output === 'object' &&
+        'url' in output &&
+        typeof (output as { url: unknown }).url === 'function'
+      ) {
+        url = (output as { url: () => string }).url();
+      }
+
+      if (!url) {
+        throw new Error(`${modelId}: unexpected output shape`);
+      }
+
+      const costMap: Record<string, number> = {
+        'minimax/video-01': 0.15,
+        'kwaivgi/kling-v1.6-standard': durationSec === 5 ? 0.13 : 0.26,
+        'lightricks/ltx-video-097-distilled': 0.05,
+      };
+
+      return {
+        url,
+        durationSec,
+        costUsd: costMap[modelId] ?? 0.15,
+        model: modelId,
+      };
+    } catch (err) {
+      clearTimeout(timer);
+      const msg = err instanceof Error ? err.message.slice(0, 180) : String(err);
+      errors.push(`${modelId}: ${msg}`);
+      // Next model
     }
-
-    if (!url) {
-      throw new Error('Kling unexpected output shape: ' + JSON.stringify(output).slice(0, 200));
-    }
-
-    return {
-      url,
-      durationSec,
-      costUsd: durationSec === 5 ? 0.13 : 0.26,
-      model: KLING_MODEL,
-    };
-  } catch (err) {
-    clearTimeout(timer);
-    throw err;
   }
+
+  throw new Error(`All ${VIDEO_MODELS.length} video models failed:\n  ${errors.join('\n  ')}`);
 }
