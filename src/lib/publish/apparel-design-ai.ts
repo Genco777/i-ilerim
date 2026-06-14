@@ -101,14 +101,18 @@ export async function generateApparelDesignAI(opts: ApparelAIOpts): Promise<Appa
 
   const prompt = buildPrompt({ slogan, style, theme });
 
+  // output_format: 'png' kaldırıldı — nano-banana-2 default jpg kabul ediyor,
+  // 'png' parametresi 422 schema fail yapabiliyor. JPG t-shirt mockup için sorun
+  // değil (white bg, beyaz/açık tişört üstünde görsel olarak transparent gibi).
+  // Timeout 45s + maxRetries 1 → toplam max 90s, Vercel Hobby 60s limiti için
+  // ilk attempt'ta dönmeli. Pro plan'da retry'a şans verilir.
   const buffer = await nanoBananaGenerate({
     prompt,
     model: 'nano-banana-2',
     aspectRatio,
     resolution,
-    outputFormat: 'png',
-    timeoutMs: 90_000,
-    maxRetries: 2,
+    timeoutMs: 45_000,
+    maxRetries: 1,
   });
 
   return {

@@ -191,9 +191,18 @@ export async function GET(req: Request) {
       });
     }
   } catch (err) {
-    steps.push({ step: 'image-url', ok: false, ms: nowMs() - t1, error: errMsg(err) });
-    overall.ok = false;
-    return NextResponse.json({ ok: false, steps }, { status: 500 });
+    // Hata olsa bile JSON döndür (200) — Vercel default error page'i göstermesin
+    // Mehmet tarayıcıda direkt error mesajını görsün
+    steps.push({
+      step: 'image-url',
+      ok: false,
+      ms: nowMs() - t1,
+      error: errMsg(err),
+      data: {
+        hint: 'Banana 2 fail olduysa: nano-banana-2 destekli mi kontrol et, ya da ?mode=typo ile eski tipografi dene',
+      },
+    });
+    return NextResponse.json({ ok: false, steps }, { status: 200 });
   }
 
   // ─── Step 2: Etsy shop seç ───────────────────────────────────────
