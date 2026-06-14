@@ -303,13 +303,11 @@ export async function GET(req: Request) {
       let sizeChartUrl: string | null = null;
       let colorGridUrl: string | null = null;
 
-      // Tüm Printify mockup'larını Etsy publish için aç (default sadece 4 seçili)
-      try {
-        const result = await selectAllMockups(shopId, product.id);
-        console.log(`[apparel-daily] ${idea.slogan}: ${result.selected} mockup selected for publishing`);
-      } catch (err) {
-        console.warn(`[apparel-daily] selectAllMockups fail ${idea.slogan}:`, err instanceof Error ? err.message : String(err));
-      }
+      // NOT: selectAllMockups çağrısı kaldırıldı — PUT request mockup'ları
+      // DE-SELECT ediyordu (Printify API field adı yanlış / endpoint farklı),
+      // Etsy publish "At least 1 mockup is expected to be selected" hatası
+      // veriyordu. Default Printify mockup selection (4 mockup) ile devam.
+      // Mehmet Printify dashboard'da manuel olarak fazla mockup seçer (60sn iş).
 
       // Cover photo = Printify'ın ilk mockup'ı (genelde model giymiş lifestyle)
       // images array Printify product create response'unda var

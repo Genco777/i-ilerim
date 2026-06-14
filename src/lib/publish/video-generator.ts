@@ -92,22 +92,34 @@ export async function generateProductVideo(opts: ProductVideoOpts): Promise<Prod
       );
       clearTimeout(timer);
 
+      // Model-specific output parsing
       let url: string | undefined;
       if (typeof output === 'string') {
         url = output;
       } else if (Array.isArray(output) && typeof output[0] === 'string') {
         url = output[0];
-      } else if (
-        output &&
-        typeof output === 'object' &&
-        'url' in output &&
-        typeof (output as { url: unknown }).url === 'function'
-      ) {
-        url = (output as { url: () => string }).url();
+      } else if (output && typeof output === 'object') {
+        const obj = output as Record<string, unknown>;
+        // Replicate file objects: .url() function
+        if (typeof obj.url === 'function') {
+          url = (obj as unknown as { url: () => string }).url();
+        }
+        // Minimax: { video: "url" }
+        else if (typeof obj.video === 'string') {
+          url = obj.video;
+        }
+        // Generic: { output: "url" }
+        else if (typeof obj.output === 'string') {
+          url = obj.output;
+        }
+        // String url field (non-function)
+        else if (typeof obj.url === 'string') {
+          url = obj.url;
+        }
       }
 
       if (!url) {
-        throw new Error(`${modelId}: unexpected output shape`);
+        throw new Error(`${modelId}: unexpected output shape: ${JSON.stringify(output).slice(0, 150)}`);
       }
 
       const costMap: Record<string, number> = {
