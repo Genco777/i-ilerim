@@ -116,28 +116,41 @@ async function removeWhiteBackground(input: Buffer): Promise<Buffer> {
     throw new Error('removeWhiteBackground: image meta width/height eksik');
   }
 
-  // MATEMATIKSEL YAKLAŞIM (deterministik):
-  // Alpha kanal = grayscale lightness'in tersi.
-  //   - Pure white (255) → negate → 0 → alpha 0 (tam transparent)
-  //   - Pure black (0)   → negate → 255 → alpha 255 (tam opaque)
-  //   - Gri tonlar       → smooth alpha geçiş (anti-aliasing edges otomatik)
+  // MANUEL RGBA BUFFER YAKLAŞIMI (deterministik, garanti çalışır):
   //
-  // Threshold yok, parametre tuning yok, hiçbir tahmin yok. Banana ne kadar
-  // siyah çizdiyse pixel o kadar opaque, beyaz background otomatik kalkar.
-  const alphaBuffer = await sharp(input)
-    .greyscale()
-    .negate()
-    .raw()
-    .toBuffer();
+  // ÖNEMLI: Sharp 0.35.x'in `.joinChannel()` API'si PNG encode'da alpha
+  // kanalını siliyor (sandbox testinde kanıtlandı: output 3 channel, alpha
+  // kayboluyor). Çözüm: pixel pixel manuel RGBA buffer oluştur, raw input
+  // olarak Sharp'a ver → PNG encode alpha'yı koruyor.
+  //
+  // Algoritma:
+  //   alpha[i] = 255 - grayscale(RGB[i])
+  //   - White (R=G=B=255) → gray 255 → alpha 0 (tam transparent)
+  //   - Black (R=G=B=0)   → gray 0   → alpha 255 (tam opaque)
+  //   - Gri tonlar        → smooth alpha geçiş (anti-aliasing edges)
+  //
+  // Threshold yok, ML yok, parametre yok. Sharp + matematik.
 
-  // RGB kanalları al + ters lightness'i alpha olarak join et
-  const result = await sharp(input)
-    .removeAlpha()
-    .joinChannel(alphaBuffer, { raw: { width: W, height: H, channels: 1 } })
+  const rgb = await sharp(input).removeAlpha().raw().toBuffer(); // W*H*3
+  const totalPixels = W * H;
+  const rgba = Buffer.alloc(totalPixels * 4);
+
+  for (let i = 0; i < totalPixels; i++) {
+    const r = rgb[i * 3];
+    const g = rgb[i * 3 + 1];
+    const b = rgb[i * 3 + 2];
+    rgba[i * 4]     = r;
+    rgba[i * 4 + 1] = g;
+    rgba[i * 4 + 2] = b;
+    // alpha = 255 - average(R,G,B). White → 0, black → 255.
+    rgba[i * 4 + 3] = 255 - Math.round((r + g + b) / 3);
+  }
+
+  return await sharp(rgba, {
+    raw: { width: W, height: H, channels: 4 },
+  })
     .png()
     .toBuffer();
-
-  return result;
 }
 
 // ── Public API ──────────────────────────────────────────────────────────────
