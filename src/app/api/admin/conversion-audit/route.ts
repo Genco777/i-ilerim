@@ -42,17 +42,39 @@ export async function GET(req: Request) {
     return new NextResponse('Unauthorized', { status: 401 });
   }
 
+  // Pinterest token: DB secrets table'da saklanır, env'de değil.
+  let pinterestDbToken = false;
+  let pinterestDbDetail = 'EKSIK — OAuth flow tamamlanmadı';
+  try {
+    const secretsTable = await import('@/lib/db/schema').then((m) => m.secrets);
+    const rows = await db
+      .select({ name: secretsTable.name })
+      .from(secretsTable)
+      .where(sql`${secretsTable.name} = 'pinterest_access_token'`)
+      .limit(1);
+    pinterestDbToken = rows.length > 0;
+    pinterestDbDetail = pinterestDbToken ? 'saved in DB secrets' : 'EKSIK — /api/auth/pinterest/start ile OAuth flow tamamla';
+  } catch (err) {
+    pinterestDbDetail = `DB check fail: ${err instanceof Error ? err.message.slice(0, 100) : String(err)}`;
+  }
+
   // ─── Env var check ─────────────────────────────────────────────
   const envCheck: Record<string, CheckResult> = {
-    PINTEREST_ACCESS_TOKEN: {
-      ok: Boolean(process.env.PINTEREST_ACCESS_TOKEN),
-      detail: process.env.PINTEREST_ACCESS_TOKEN
-        ? `set (len ${process.env.PINTEREST_ACCESS_TOKEN.length})`
-        : 'EKSIK — Pinterest publishing kapalı, trafik kaynağı yok',
+    PINTEREST_CLIENT_ID: {
+      ok: Boolean(process.env.PINTEREST_CLIENT_ID),
+      detail: process.env.PINTEREST_CLIENT_ID ? 'set (Pinterest app oluşturuldu)' : 'EKSIK — Pinterest Developers app yarat',
     },
-    PINTEREST_BUSINESS_ID: {
-      ok: Boolean(process.env.PINTEREST_BUSINESS_ID),
-      detail: process.env.PINTEREST_BUSINESS_ID ? 'set' : 'EKSIK',
+    PINTEREST_CLIENT_SECRET: {
+      ok: Boolean(process.env.PINTEREST_CLIENT_SECRET),
+      detail: process.env.PINTEREST_CLIENT_SECRET ? 'set' : 'EKSIK',
+    },
+    PINTEREST_OAUTH_REDIRECT_URI: {
+      ok: Boolean(process.env.PINTEREST_OAUTH_REDIRECT_URI),
+      detail: process.env.PINTEREST_OAUTH_REDIRECT_URI ?? 'EKSIK',
+    },
+    PINTEREST_ACCESS_TOKEN_DB: {
+      ok: pinterestDbToken,
+      detail: pinterestDbDetail,
     },
     RESEND_API_KEY: {
       ok: Boolean(process.env.RESEND_API_KEY),
@@ -96,12 +118,19 @@ export async function GET(req: Request) {
   }
 
   try {
-    // Cart abandons with follow-up (email sent)
+    // Cart abandons with at least 1 stage email sent
     const cartFollowedUpRows = await db
       .select({ c: count() })
       .from(cartAbandons)
-      .where(sql`${cartAbandons.created_at} >= ${thirtyDaysAgo} AND ${cartAbandons.followup_sent_at} IS NOT NULL`);
+      .where(sql`${cartAbandons.created_at} >= ${thirtyDaysAgo} AND ${cartAbandons.email_1_sent_at} IS NOT NULL`);
     dbMetrics.cartAbandonsFollowedUp30d = Number(cartFollowedUpRows[0]?.c ?? 0);
+
+    // Recovered carts (buyer came back after follow-up)
+    const recoveredRows = await db
+      .select({ c: count() })
+      .from(cartAbandons)
+      .where(sql`${cartAbandons.created_at} >= ${thirtyDaysAgo} AND ${cartAbandons.recovered_at} IS NOT NULL`);
+    dbMetrics.cartRecovered30d = Number(recoveredRows[0]?.c ?? 0);
   } catch (err) {
     dbMetrics.cartFollowupErr = err instanceof Error ? err.message.slice(0, 150) : String(err);
   }
@@ -154,12 +183,19 @@ export async function GET(req: Request) {
   // ─── Conversion gap analysis ───────────────────────────────────
   const gaps: Array<{ priority: 'high' | 'medium' | 'low'; system: string; issue: string; fix: string }> = [];
 
-  if (!envCheck.PINTEREST_ACCESS_TOKEN.ok) {
+  if (!envCheck.PINTEREST_CLIENT_ID.ok || !envCheck.PINTEREST_CLIENT_SECRET.ok) {
     gaps.push({
       priority: 'high',
-      system: 'Pinterest',
-      issue: 'OAuth token yok, hiçbir pin yayını olamıyor',
-      fix: 'Pinterest Developers app yarat → OAuth flow tamamla → PINTEREST_ACCESS_TOKEN Vercel env',
+      system: 'Pinterest setup',
+      issue: 'Pinterest Developers app yok ya da CLIENT_ID/SECRET Vercel env\'inde değil',
+      fix: 'https://developers.pinterest.com → Create app → ID+Secret Vercel env\'e ekle',
+    });
+  } else if (!envCheck.PINTEREST_ACCESS_TOKEN_DB.ok) {
+    gaps.push({
+      priority: 'high',
+      system: 'Pinterest OAuth',
+      issue: 'App env\'leri var ama OAuth flow tamamlanmamış (DB\'de token yok)',
+      fix: 'https://shop.fly-froth.com/api/auth/pinterest/start aç, Pinterest\'e login, authorize',
     });
   }
   if (!envCheck.RESEND_API_KEY.ok) {
