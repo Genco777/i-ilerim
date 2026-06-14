@@ -367,6 +367,42 @@ export async function deleteProduct(shopId: number, productId: string): Promise<
   return { ok: true };
 }
 
+// ─────────────────────────────────────────────────────────────
+// Sprint L Faz 3 — Webhook helpers (Etsy listing tracker)
+// ─────────────────────────────────────────────────────────────
+
+export interface PrintifyWebhook {
+  id: string;
+  topic: string;
+  url: string;
+  shop_id?: number;
+  secret?: string;
+}
+
+/** Bu shop için aktif webhook'ları listele. */
+export async function listWebhooks(shopId: number): Promise<PrintifyWebhook[]> {
+  return printifyFetch<PrintifyWebhook[]>(`/shops/${shopId}/webhooks.json`);
+}
+
+/** Webhook yarat. Genelde 'product:publish:succeeded' + 'product:publish:failed' istiyoruz. */
+export async function createWebhook(
+  shopId: number,
+  topic: string,
+  url: string,
+  secret?: string,
+): Promise<PrintifyWebhook> {
+  return printifyFetch<PrintifyWebhook>(`/shops/${shopId}/webhooks.json`, {
+    method: 'POST',
+    body: { topic, url, secret },
+  });
+}
+
+/** Webhook sil (eski webhook'ları temizlemek için). */
+export async function deleteWebhook(shopId: number, webhookId: string): Promise<{ ok: true }> {
+  await printifyFetch(`/shops/${shopId}/webhooks/${webhookId}.json`, { method: 'DELETE' });
+  return { ok: true };
+}
+
 export async function publishProduct(shopId: number, productId: string): Promise<{ ok: true }> {
   await printifyFetch(`/shops/${shopId}/products/${productId}/publish.json`, {
     method: 'POST',
