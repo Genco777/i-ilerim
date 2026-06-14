@@ -17,6 +17,7 @@
 
 import sharp from 'sharp';
 import { nanoBananaGenerate } from './nano-banana';
+import { removeBackgroundML } from './remove-bg';
 
 export interface ApparelAIOpts {
   /** Ana slogan — tasarımın merkez yazısı. Örn: "Just a girl who loves books" */
@@ -168,15 +169,31 @@ export async function generateApparelDesignAI(opts: ApparelAIOpts): Promise<Appa
     maxRetries: 1,
   });
 
-  // Banana'nın white background'unu transparent yap (t-shirt üzerinde beyaz
-  // kare gözükmesin). Sharp ile threshold-based mask, lambda'da ~200ms.
-  const transparentBuffer = await removeWhiteBackground(rawBuffer);
+  // Banana white-bg → transparent PNG. ML-based (851-labs/background-remover,
+  // ~3-5s, ~$0.005). Sharp threshold-based fallback'i kalır (Replicate fail
+  // olursa). Toplam maliyet: $0.045 per apparel design.
+  let transparentBuffer: Buffer;
+  let bgRemoveMethod: 'rembg-ml' | 'sharp-threshold' = 'rembg-ml';
+  try {
+    transparentBuffer = await removeBackgroundML(rawBuffer);
+  } catch (err) {
+    console.warn('[apparel-design-ai] rembg fail, sharp threshold fallback:', err instanceof Error ? err.message : String(err));
+    transparentBuffer = await removeWhiteBackground(rawBuffer);
+    bgRemoveMethod = 'sharp-threshold';
+  }
 
   return {
     buffer: transparentBuffer,
     prompt,
     model: 'google/nano-banana-2',
     mimeType: 'image/png',
-    costEstimateUsd: 0.04,
+    costEstimateUsd: bgRemoveMethod === 'rembg-ml' ? 0.045 : 0.04,
   };
+}
+
+// Sharp threshold helper (fallback) — bilinçli olarak duruyor, rembg fail
+// durumunda Banana çıktısı en azından kısmen mask'lensin diye.
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+function _sharpThresholdFallback(buf: Buffer): Promise<Buffer> {
+  return removeWhiteBackground(buf);
 }
