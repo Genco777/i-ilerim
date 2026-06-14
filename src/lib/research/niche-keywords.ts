@@ -135,6 +135,60 @@ export const NICHE_REGISTRY: Record<string, NicheDef> = {
     ],
     defaultTheme: 'compass, mountain silhouette, paper plane, suitcase',
   },
+
+  // Sprint M2.5 — sub-niche'lar (bestseller pazar analizinden)
+  'cat-books': {
+    name: 'cat-books',
+    keywords: [
+      'cat', 'cats', 'kitten', 'kitty', 'feline', 'cat mom', 'cat lady',
+      'book', 'books', 'reading', 'reader', 'bookworm', 'library',
+      'cat lover', 'literary cat', 'reading cat', 'cozy reader',
+      'cottagecore cat', 'aesthetic',
+    ],
+    defaultTheme: 'cat curled with open book, cozy library scene',
+  },
+  romantasy: {
+    name: 'romantasy',
+    keywords: [
+      'romantasy', 'fantasy', 'romance', 'dragon', 'fae', 'mage', 'fantasy reader',
+      'fantasy romance', 'dark romance', 'enemies to lovers', 'morally grey',
+      'fourth wing', 'iron flame', 'rebecca yarros', 'sarah j maas', 'acotar',
+      'a court of', 'crescent city', 'throne of glass', 'sjm',
+      'dragon rider', 'romantasy reader', 'romantasy era',
+    ],
+    defaultTheme: 'dragon silhouette with crown, dark academia, fantasy crest',
+  },
+  teacher: {
+    name: 'teacher',
+    keywords: [
+      'teacher', 'teach', 'teaching', 'educator', 'classroom', 'school',
+      'librarian', 'principal', 'preschool', 'kindergarten', 'elementary',
+      'pencil', 'apple', 'chalkboard', 'teacher gift', 'teacher appreciation',
+      'Lehrer', 'Lehrerin', 'Bibliothekar', 'Bibliothekarin',
+      'reading specialist', 'reading teacher',
+    ],
+    defaultTheme: 'stack of books with apple, vintage chalkboard, pencil',
+  },
+  booktrovert: {
+    name: 'booktrovert',
+    keywords: [
+      'booktrovert', 'introvert', 'antisocial', 'book lover', 'bookworm',
+      'shy', 'reading', 'hermit', 'social anxiety', 'bookish humor',
+      'not today', 'cancel my plans', 'one more chapter',
+      'reading is therapy', 'too booked',
+    ],
+    defaultTheme: 'cozy reading nook with cat, blanket fort with books',
+  },
+  cottagecore: {
+    name: 'cottagecore',
+    keywords: [
+      'cottagecore', 'cottage', 'rustic', 'vintage', 'pastoral', 'whimsical',
+      'fairy', 'flower', 'mushroom', 'forest', 'wildflower', 'botanical',
+      'cozy aesthetic', 'cottagecore aesthetic', 'goblincore', 'fairycore',
+      'reading by window', 'tea and books', 'cozy reader',
+    ],
+    defaultTheme: 'wildflowers, vintage book, fairy tale cottage, mushrooms',
+  },
 };
 
 /** Niche'ı registry'de ara (kısa form ya da alias kabul eder). */

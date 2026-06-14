@@ -29,6 +29,7 @@ import { db } from '@/lib/db';
 import { apparelCandidates } from '@/lib/db/schema';
 import { eq, and } from 'drizzle-orm';
 import { generateApparelDesignAI, generateApparelDesignAIBothVariants } from '@/lib/publish/apparel-design-ai';
+import { buildEtsyTitle, buildEtsyDescription, buildEtsyTags } from '@/lib/etsy/title-builder';
 import {
   uploadImageByBase64,
   createApparelProduct,
@@ -124,6 +125,8 @@ export async function GET(req: Request) {
     style: string;
     demandHint: 'high' | 'medium' | 'low';
     inspiredBy?: string;
+    giftAngle?: string;
+    recipientHint?: string;
   }> = [];
 
   try {
@@ -259,31 +262,27 @@ export async function GET(req: Request) {
         );
       }
 
-      // c) Product create (DRAFT — publishToEtsy=false, sadece Printify'da kalır)
-      const description = [
-        idea.slogan,
-        '',
-        productType === 'tote'
-          ? 'Sturdy canvas tote bag, designed in our studio in Karben, Germany. Strong handles, premium print.'
-          : 'Soft, comfortable t-shirt, designed in our studio in Karben, Germany. Premium fabric, durable print.',
-        'Ships from US.',
-        '',
-        '— Fly & Froth Studio',
-      ].join('\n');
-
-      const productTags = productType === 'tote'
-        ? ['fly and froth', niche, 'canvas tote', 'tote bag', 'eco bag', 'gift']
-        : ['fly and froth', niche, idea.style, 'apparel', 'tshirt', 'gift', 'unisex'];
+      // c) Sprint M2.5: Etsy SEO optimization — title/description/tags builder
+      // Bestseller pattern: 130+ char title, gift framing, niche keywords, DE+EN mix
+      const titleOpts = {
+        slogan: idea.slogan,
+        niche,
+        productType,
+        giftAngle: idea.giftAngle,
+      } as const;
+      const seoTitle = buildEtsyTitle(titleOpts);
+      const seoDescription = buildEtsyDescription(titleOpts);
+      const seoTags = buildEtsyTags(titleOpts);
 
       const product = await createApparelProduct({
         shopId,
         type: productType,
-        title: idea.slogan.slice(0, 130),
-        description,
+        title: seoTitle,
+        description: seoDescription,
         imageId: lightUpload.id,
         darkImageId: darkUpload?.id,
-        priceCents: productType === 'tote' ? 1899 : 2499, // tote daha ucuz
-        tags: productTags.slice(0, 13),
+        priceCents: productType === 'tote' ? 1899 : 2499,
+        tags: seoTags,
       });
 
       const uploadedPreview = lightUpload.preview_url;

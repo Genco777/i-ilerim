@@ -13,14 +13,24 @@
  * Cmt (6): travel
  */
 
+// Sprint M2.5: Bestseller pazar analizi sonrası — spesific sub-niche'lar
+// (generic değil). Etsy'de en az rekabet + en yüksek satış oranı buradan gelir.
+//
+// Pzr (0): cat-books    — cat + book intersection, az rekabet
+// Pzt (1): romantasy    — Fourth Wing, ACOTAR fan base, en hot trend
+// Sal (2): coffee       — evergreen, geniş kitle
+// Çrş (3): teacher      — Lehrer/Bibliothekar gift, evergreen
+// Per (4): mom          — Muttertag, birthday gift, evergreen
+// Cum (5): booktrovert  — introvert + book humor, viral potential
+// Cmt (6): cottagecore  — aesthetic niche, Pinterest-friendly
 export const NICHE_ROTATION = [
-  'cat',
-  'books',
+  'cat-books',
+  'romantasy',
   'coffee',
-  'dog',
+  'teacher',
   'mom',
-  'yoga',
-  'travel',
+  'booktrovert',
+  'cottagecore',
 ] as const;
 
 export type RotatedNiche = (typeof NICHE_ROTATION)[number];
