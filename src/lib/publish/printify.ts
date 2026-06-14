@@ -152,25 +152,38 @@ export async function uploadImageByBase64(base64: string, fileName: string): Pro
 // Product creation
 // ─────────────────────────────────────────────────────────────
 
-/** Apparel blueprint preset'leri — Etsy'de en çok satan 3 kategori. */
+/**
+ * Apparel blueprint preset'leri — Etsy'de en çok satan 3 kategori.
+ *
+ * Provider seçimi 14.06.2026 tarihindeki Printify catalog'una göre yapıldı
+ * (printify-providers endpoint ile sorgulandı):
+ *   - tshirt: blueprint 384'ün TEK provider'ı var (SPOKE, US)
+ *   - hoodie + tote: Textildruck Europa (EU) — Mehmet Karben'de, EU müşterileri
+ *     için shipping daha hızlı+ucuz. US müşterileri için sonradan US-only
+ *     provider'lı varyant açılabilir (örn. Monster Digital id=29 ya da
+ *     Printify Choice id=99).
+ *
+ * Provider değiştirmek için: /api/admin/printify-providers?blueprintId=X
+ * ile listeden başkasını seç ve buradan değiştir.
+ */
 export const APPAREL_PRESETS = {
   tshirt: {
-    blueprint_id: 384,    // Bella+Canvas 3001 — unisex t-shirt, premium
-    provider_id: 99,      // Monster Digital (US, fast shipping)
+    blueprint_id: 384,    // Bella+Canvas 3001 — unisex premium t-shirt
+    provider_id: 1,       // SPOKE Custom Products (US) — bu blueprint'in tek provider'ı
     sizes: ['S', 'M', 'L', 'XL', '2XL'] as const,
     colors: ['White', 'Black', 'Heather Grey'] as const,
     placement: 'front' as const,
   },
   hoodie: {
     blueprint_id: 6,      // Gildan 18500 — heavy blend hoodie
-    provider_id: 29,      // Monster Digital
+    provider_id: 26,      // Textildruck Europa (EU) — Mehmet'in birincil piyasası
     sizes: ['S', 'M', 'L', 'XL', '2XL'] as const,
     colors: ['Black', 'Navy', 'Charcoal'] as const,
     placement: 'front' as const,
   },
   tote: {
     blueprint_id: 49,     // Liberty Bags 8502 — canvas tote
-    provider_id: 1,       // SwiftPOD
+    provider_id: 26,      // Textildruck Europa (EU)
     sizes: ['One Size'] as const,
     colors: ['Natural', 'Black'] as const,
     placement: 'front' as const,
