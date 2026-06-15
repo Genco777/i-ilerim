@@ -70,7 +70,7 @@ export async function handleApparelStatsCommand(chatId: number): Promise<void> {
   await sendMessage({ chatId, text: lines.join('\n'), parseMode: 'Markdown' });
 }
 
-/** /candidates — pending listesi (her satır inline buton'lu). */
+/** /candidates — pending listesi. */
 export async function handleApparelListCommand(chatId: number): Promise<void> {
   const rows = await db
     .select({
@@ -95,39 +95,29 @@ export async function handleApparelListCommand(chatId: number): Promise<void> {
     return;
   }
 
-  // Header mesajı
   await sendMessage({
     chatId,
     text: `🧥 *${rows.length} Pending Apparel Candidate* — her satırda butonlar:`,
     parseMode: 'Markdown',
   });
 
-  // Her candidate için ayrı mesaj + inline buton
   for (const r of rows) {
     const sid = fmtShortId(r.id);
     const dt = r.created_at instanceof Date ? r.created_at.toISOString().slice(0, 10) : '?';
     const dh = r.demand_hint ? ` [${r.demand_hint}]` : '';
-    const text = [
-      `*${r.slogan}*`,
-      `🆔 ${sid} • ${dt} • ${r.niche} • _${r.style}_${dh}`,
-    ].join('\n');
-
     try {
       await sendMessage({
         chatId,
-        text,
+        text: `*${r.slogan}*\n🆔 ${sid} • ${dt} • ${r.niche} • _${r.style}_${dh}`,
         parseMode: 'Markdown',
         replyMarkup: {
-          inline_keyboard: [
-            [
-              { text: '✅ Onayla', callback_data: `apparel:approve:${sid}` },
-              { text: '🗑️ Sil', callback_data: `apparel:reject:${sid}` },
-            ],
-          ],
+          inline_keyboard: [[
+            { text: '✅ Onayla', callback_data: `apparel:approve:${sid}` },
+            { text: '🗑️ Sil', callback_data: `apparel:reject:${sid}` },
+          ]],
         },
       });
     } catch (err) {
-      // Bir mesaj fail olursa diğerlerine devam et
       console.warn(`[apparel-list] sendMessage fail ${sid}:`, err instanceof Error ? err.message : String(err));
     }
   }
@@ -251,11 +241,8 @@ export async function handleApparelApproveCommand(chatId: number, shortId: strin
     }
   } catch (err) {
     const errMsg = err instanceof Error ? err.message.slice(0, 300) : String(err);
-
-    // Printify 404 → product yok (manuel silinmiş, eski kayıt) → otomatik rejected
     const is404 = /Printify API 404/.test(errMsg) || /"error":"Not found"/.test(errMsg);
     const newStatus = is404 ? 'rejected' : 'failed';
-
     await db
       .update(apparelCandidates)
       .set({
@@ -270,12 +257,7 @@ export async function handleApparelApproveCommand(chatId: number, shortId: strin
     if (is404) {
       await sendMessage({
         chatId,
-        text: [
-          `🗑️ *${candidate.slogan}* — Printify'da bulunamadı`,
-          '',
-          `Bu candidate eski/silinmiş — DB'den otomatik rejected.`,
-          `Sıradaki candidate'ı dene veya yarın 08:00 cron yeni 7 üretecek.`,
-        ].join('\n'),
+        text: `🗑️ *${candidate.slogan}* — Printify'da bulunamadı (eski/silinmiş), DB'den otomatik rejected.`,
         parseMode: 'Markdown',
       });
     } else {
@@ -312,4 +294,45 @@ export async function handleApparelRejectCommand(chatId: number, shortId: string
   const candidate = rows[0];
 
   if (candidate.status === 'rejected') {
-    await sendMessage({ chatId, text: `ℹ️ Z
+    await sendMessage({ chatId, text: `ℹ️ Zaten rejected: *${candidate.slogan}*`, parseMode: 'Markdown' });
+    return;
+  }
+  if (candidate.status === 'approved' || candidate.status === 'published') {
+    await sendMessage({
+      chatId,
+      text: `⚠️ Bu zaten *${candidate.status}* — Printify'dan silmek isterseniz Etsy listing'i de silmeniz gerek. /reject_<shortId> sadece pending için.`,
+      parseMode: 'Markdown',
+    });
+    return;
+  }
+
+  await sendMessage({ chatId, text: `⏳ "${candidate.slogan}" Printify'dan siliniyor...` });
+
+  try {
+    const shop = await getEtsyShop();
+    await deleteProduct(shop.id, candidate.printify_product_id);
+
+    await db
+      .update(apparelCandidates)
+      .set({
+        status: 'rejected',
+        decided_at: new Date(),
+        decided_by: `tg:${chatId}`,
+        updated_at: new Date(),
+      })
+      .where(eq(apparelCandidates.id, candidate.id));
+
+    await sendMessage({
+      chatId,
+      text: `🗑️ *${candidate.slogan}* Printify'dan silindi`,
+      parseMode: 'Markdown',
+    });
+  } catch (err) {
+    const errMsg = err instanceof Error ? err.message.slice(0, 300) : String(err);
+    await sendMessage({
+      chatId,
+      text: `❌ Printify silme fail:\n\`\`\`\n${errMsg}\n\`\`\``,
+      parseMode: 'Markdown',
+    });
+  }
+}
