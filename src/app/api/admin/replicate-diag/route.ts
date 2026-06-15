@@ -70,6 +70,44 @@ export async function GET(req: Request) {
     modelError = err instanceof Error ? err.message : String(err);
   }
 
+  // Kling model erişim + balance test — video gen'in fail nedeni
+  let klingCheck: unknown = null;
+  let klingError: string | null = null;
+  try {
+    const klingRes = await fetch('https://api.replicate.com/v1/models/kwaivgi/kling-v1.6-standard', {
+      headers: { Authorization: `Bearer ${token}`, 'User-Agent': 'fly-froth-social/1.0' },
+    });
+    if (!klingRes.ok) {
+      klingError = `Replicate /models/kwaivgi/kling-v1.6-standard ${klingRes.status}: ${(await klingRes.text()).slice(0, 400)}`;
+    } else {
+      const body = (await klingRes.json()) as { name?: string; visibility?: string; latest_version?: { id?: string }; default_example?: unknown };
+      klingCheck = {
+        name: body.name,
+        visibility: body.visibility,
+        latestVersionId: body.latest_version?.id,
+      };
+    }
+  } catch (err) {
+    klingError = err instanceof Error ? err.message : String(err);
+  }
+
+  // Balance check — Replicate hesabının kalan kredisi (paid model'lar için kritik)
+  let balanceCheck: unknown = null;
+  let balanceError: string | null = null;
+  try {
+    const balRes = await fetch('https://api.replicate.com/v1/account', {
+      headers: { Authorization: `Bearer ${token}`, 'User-Agent': 'fly-froth-social/1.0' },
+    });
+    if (!balRes.ok) {
+      balanceError = `Account-2 ${balRes.status}: ${(await balRes.text()).slice(0, 300)}`;
+    } else {
+      const body = await balRes.json();
+      balanceCheck = body;
+    }
+  } catch (err) {
+    balanceError = err instanceof Error ? err.message : String(err);
+  }
+
   return NextResponse.json({
     ok: true,
     deploymentSha: process.env.VERCEL_GIT_COMMIT_SHA?.slice(0, 7) ?? 'unknown',
@@ -78,6 +116,10 @@ export async function GET(req: Request) {
     accountError,
     modelAccess: modelCheck,
     modelError,
+    klingAccess: klingCheck,
+    klingError,
+    balance: balanceCheck,
+    balanceError,
     next_steps: [
       '1. account.username — bu Replicate dashboard\'a girince üst sağdaki kullanıcı adınla aynı mı?',
       '2. Aynıysa: kredi propagation bekle (15dk\'ya kadar gider), tekrar test et',
